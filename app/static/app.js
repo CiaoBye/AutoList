@@ -73,18 +73,52 @@ const safeExternalUrl = (value) => {
   }
 };
 
-const api = async (path, options = {}) => {
+const ACCESS_TOKEN_STORAGE_KEY = "autolist-access-token";
+
+const getAccessToken = () => {
+  try {
+    return String(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+};
+
+const setAccessToken = (token) => {
+  const value = String(token || "").trim();
+  try {
+    if (value) localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, value);
+    else localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    /* private mode */
+  }
+};
+
+const promptAccessToken = (message) => {
+  const next = window.prompt(message || "服务已启用访问令牌，请输入 AUTOLIST_ACCESS_TOKEN", getAccessToken());
+  if (next === null) return null;
+  setAccessToken(next);
+  return getAccessToken();
+};
+
+const api = async (path, options = {}, allowRetry = true) => {
   const method = String(options.method || "GET").toUpperCase();
+  const headers = {"Content-Type": "application/json", ...(options.headers || {})};
+  const token = getAccessToken();
+  if (token) headers["X-AutoList-Token"] = token;
   const response = await fetch(path, {
     cache: method === "GET" ? "no-store" : undefined,
-    headers: {"Content-Type": "application/json", ...(options.headers || {})},
     ...options,
+    headers,
   });
   const text = await response.text();
   let data = {};
   if (text) {
     try { data = JSON.parse(text); }
     catch { data = {detail: response.ok ? "服务返回了无法识别的数据" : `请求失败（${response.status}）`}; }
+  }
+  if (response.status === 401 && allowRetry && path.startsWith("/api/") && path !== "/api/health") {
+    const entered = promptAccessToken(data.detail || "需要有效的访问令牌");
+    if (entered) return api(path, options, false);
   }
   if (!response.ok) throw new Error(data.detail || data.message || `请求失败（${response.status}）`);
   return data;

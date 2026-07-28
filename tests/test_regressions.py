@@ -1,6 +1,7 @@
 import base64
 import gzip
 import json
+import os
 import tempfile
 import unittest
 from io import BytesIO
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 from defusedxml import ElementTree
 from defusedxml.common import EntitiesForbidden
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from app import main
@@ -59,6 +61,79 @@ class SecurityTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as raised:
             main.parse_xlsx(encoded)
         self.assertEqual(raised.exception.status_code, 422)
+
+    def test_cookiecloud_uuid_must_match_configured_key(self) -> None:
+        previous = settings.cookiecloud_key
+        settings.cookiecloud_key = "configured-key"
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                main.require_configured_cookiecloud_uuid("other-key")
+            self.assertEqual(raised.exception.status_code, 403)
+            main.require_configured_cookiecloud_uuid("configured-key")
+        finally:
+            settings.cookiecloud_key = previous
+
+    def test_cookiecloud_rejects_write_without_configured_key(self) -> None:
+        previous = settings.cookiecloud_key
+        settings.cookiecloud_key = ""
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                main.require_configured_cookiecloud_uuid("any-key")
+            self.assertEqual(raised.exception.status_code, 503)
+        finally:
+            settings.cookiecloud_key = previous
+
+    def test_access_token_helpers_use_constant_time_compare(self) -> None:
+        from app.security import extract_access_token, token_matches
+
+        self.assertTrue(token_matches("secret-token", "secret-token"))
+        self.assertFalse(token_matches("secret-token", "other-token"))
+        self.assertFalse(token_matches("", "secret-token"))
+        self.assertEqual(extract_access_token("Bearer abc123", None), "abc123")
+        self.assertEqual(extract_access_token(None, " header-token "), "header-token")
+
+    def test_search_task_capacity_is_enforced(self) -> None:
+        previous = dict(main.running_tasks)
+        main.running_tasks.clear()
+
+        class Alive:
+            def done(self) -> bool:
+                return False
+
+        try:
+            for index in range(main.MAX_RUNNING_SEARCH_TASKS):
+                main.running_tasks[index] = Alive()  # type: ignore[assignment]
+            with self.assertRaises(HTTPException) as raised:
+                main.enforce_search_task_capacity()
+            self.assertEqual(raised.exception.status_code, 429)
+        finally:
+            main.running_tasks.clear()
+            main.running_tasks.update(previous)
+
+    def test_access_token_middleware_protects_api_but_keeps_health_open(self) -> None:
+        previous_token = os.environ.get("AUTOLIST_ACCESS_TOKEN")
+        previous_data_dir = settings.data_dir
+        temp = tempfile.TemporaryDirectory()
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = "unit-test-token"
+        settings.data_dir = temp.name
+        try:
+            with TestClient(main.app) as client:
+                health = client.get("/api/health")
+                self.assertEqual(health.status_code, 200)
+                self.assertTrue(health.json().get("access_token_required"))
+                denied = client.get("/api/settings")
+                self.assertEqual(denied.status_code, 401)
+                allowed = client.get("/api/settings", headers={"X-AutoList-Token": "unit-test-token"})
+                self.assertEqual(allowed.status_code, 200)
+                bearer = client.get("/api/settings", headers={"Authorization": "Bearer unit-test-token"})
+                self.assertEqual(bearer.status_code, 200)
+        finally:
+            settings.data_dir = previous_data_dir
+            if previous_token is None:
+                os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
+            else:
+                os.environ["AUTOLIST_ACCESS_TOKEN"] = previous_token
+            temp.cleanup()
 
 
 class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):

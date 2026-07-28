@@ -2,7 +2,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`0.74`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。制作组识别内置 MoviePilot 兼容词表，支持一次性导入 MP 自定义词表后由 AutoList 独立维护。下载仍固定委托给 MoviePilot 的 DownloadChain，再由其提交 Transmission，保证分类目录与标签一致；下载历史会根据 MoviePilot、Transmission 与 Emby 的可验证结果显示“已提交、下载中、已整理/已入库、待入库、待确认或失败”。
+当前版本：`0.75`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。制作组识别内置 MoviePilot 兼容词表，支持一次性导入 MP 自定义词表后由 AutoList 独立维护。下载仍固定委托给 MoviePilot 的 DownloadChain，再由其提交 Transmission，保证分类目录与标签一致；下载历史会根据 MoviePilot、Transmission 与 Emby 的可验证结果显示“已提交、下载中、已整理/已入库、待入库、待确认或失败”。
 
 NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时设置保存在 `/mnt/user/appdata/Autolist/data`，更新镜像不会丢失。
 
@@ -24,10 +24,12 @@ NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时�
 
 ## 部署
 
-1. `cp .env.example .env`，至少填写 TMDB 与 MoviePilot；Emby、AI 按需配置。Transmission 由 MoviePilot 自身配置并负责实际下载。
-2. `docker compose up -d --build`
-3. 打开 `http://<Docker 主机>:8585`，在右上角“设置”中填写连接信息，再导入原始 xlsx 或 JSON 片单。
+> **安全警告**：AutoList 默认面向可信内网。未设置 `AUTOLIST_ACCESS_TOKEN` 且未加反向代理鉴权时，任何能访问 `8585` 的客户端都能改设置、同步 Cookie 并提交下载。**禁止将端口直接映射到公网**；访客 Wi‑Fi、远程映射或不可信网段必须启用访问令牌或反向代理 Basic Auth / SSO。
 
+1. `cp .env.example .env`，至少填写 TMDB 与 MoviePilot；Emby、AI 按需配置。Transmission 由 MoviePilot 自身配置并负责实际下载。
+2. 不可信网络环境请设置 `AUTOLIST_ACCESS_TOKEN`（强随机串）。浏览器首次调用受保护接口时会提示输入，令牌仅保存在本机 `localStorage`。
+3. `docker compose up -d --build`
+4. 打开 `http://<Docker 主机>:8585`，在右上角“设置”中填写连接信息，再导入原始 xlsx 或 JSON 片单。
 ### Chrome CookieCloud
 
 1. 在 AutoList 设置中填写 CookieCloud 用户 KEY 与端对端加密密码。
@@ -43,11 +45,14 @@ Compose 仅启动 `autolist` 一个容器。前端静态文件、FastAPI 和 SQL
 
 ## 安全边界
 
+- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源、`/api/health` 与 `/cookiecloud/*` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不进 `runtime-settings.json`。
 - 内网模式可直接编辑连接信息；API Key、密码、Cookie 与 Token 只在前端显示“已配置”状态，既有值不会返回浏览器。
 - 页面保存的运行设置写入 `/data/runtime-settings.json`，文件权限为 `0600`；`.env` 仍作为首次启动和未保存设置时的默认值。
 - 站点下载 URL 和授权字段只保留在当前进程的短暂下载上下文中；不会写入数据库或日志。容器重启后需重新搜索再下载。
 - AutoList 将媒体与种子提交给 MoviePilot，并指定其 Transmission 下载器；MP 负责应用自身的下载目录、媒体二级分类、`MOVIEPILOT` 与站点标签和后续整理规则。AutoList 不提供直连下载模式或独立目录映射。
 - TMDB 优先使用片单 IMDb ID 查找，未命中再以标题和年份搜索；识别后的 TMDB 中文名、原名、年份和 IMDb ID 会持久化并作为片单显示、Emby 查询和站点检索的权威元数据。站点 API Key 与代理认证不返回浏览器。
 - 代理地址按用户的内网显示偏好返回设置页，可分别启用 TMDB 与 PT 站点分流；代理认证信息不得写入地址。
-- AutoList 内置兼容 CookieCloud 的加密数据接收端，密文保存在 `/data/cookiecloud`，权限为 `0600`；只有配置了正确 KEY 与端到端密码后才能解密并更新站点。
+- AutoList 内置兼容 CookieCloud 的加密数据接收端，密文保存在 `/data/cookiecloud`，权限为 `0600`。**上传与读取的 UUID 必须与设置中的 CookieCloud 用户 KEY 一致**；未配置 KEY 时拒绝写入。同 KEY 上传另有每分钟次数上限。
+- 并发搜索任务默认上限 3 个，避免误操作或滥用打满下游站点。
 - 浏览器 Cookie 不能由普通网页或 Docker 容器直接读取；Chrome 登录态通过 CookieCloud 扩展主动上传。AutoList 不读取 Chrome 配置目录、密码库或浏览器存储。
+- Compose 中 `extra_hosts` 为大陆 DNS 污染提供的 TMDB IP 可能随 CDN 变化；失效时请更新或删除该映射。

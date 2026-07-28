@@ -2,6 +2,26 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 0.75 - 2026-07-26
+
+### 安全
+
+- 新增可选 `AUTOLIST_ACCESS_TOKEN`：设置后保护全部 `/api/*`（健康检查、静态资源与 CookieCloud 协议路径除外）；支持 `Authorization: Bearer` 与 `X-AutoList-Token`。
+- CookieCloud 上传/读取强制绑定设置中的用户 KEY；未配置 KEY 时拒绝写入，防止任意 UUID 写盘与密文读取。
+- CookieCloud 上传增加每分钟次数上限；搜索任务（含重试/整项重搜）增加并发上限。
+- README 与 `.env.example` 明确“禁止公网裸暴露”与令牌用法；前端在 401 时提示输入令牌并写入本机 `localStorage`。
+
+### 工程
+
+- 增加 GitHub Actions 最小 CI：`compileall`、`node --check`、`unittest`。
+- 回写 `docs/ux-audit.md`：标记 0.74 已关闭项与剩余建议。
+
+### 验证
+
+- `python3 -m compileall -q app`
+- `node --check app/static/app.js`
+- `python3 -m unittest discover -s tests -v`
+
 ## 0.74 - 2026-07-26
 
 - 新增下载历史的来源驱动生命周期状态：区分已提交、下载中、已整理/已入库、待入库、待确认和失败，并在工作台最近活动中复用同一状态。

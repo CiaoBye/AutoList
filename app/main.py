@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openpyxl import load_workbook
 from pydantic import BaseModel, Field
@@ -35,15 +35,22 @@ from .clients import (
 )
 from .candidate_policy import analyze as analyze_policy_candidate
 from .candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from .config import load_runtime_settings, save_runtime_settings, settings
+from .config import access_token, access_token_required, load_runtime_settings, save_runtime_settings, settings
 from .cookiecloud import cookie_for_host, cookie_groups, decrypt_cookiecloud
 from .database import config_values, connect, initialize, json_value, save_config, cleanup_old_data
 from .list_sources import PlaylistSourceFetcher, parse_csv_items
-from .security import safe_error, sanitize_sensitive_text
+from .security import extract_access_token, safe_error, sanitize_sensitive_text, token_matches
 
 
-app = FastAPI(title="AutoList", version="0.74")
+app = FastAPI(title="AutoList", version="0.75")
 app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
+
+# 公开路径在启用 AUTOLIST_ACCESS_TOKEN 时仍可访问；CookieCloud 协议路径另做 KEY 绑定。
+AUTH_EXEMPT_PATHS = {"/", "/favicon.ico", "/api/health", "/cookiecloud", "/cookiecloud/"}
+MAX_RUNNING_SEARCH_TASKS = 3
+COOKIECLOUD_RATE_LIMIT = 10
+COOKIECLOUD_RATE_WINDOW_SECONDS = 60
+_cookiecloud_upload_times: list[float] = []
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -60,6 +67,45 @@ scheduler_task: asyncio.Task[None] | None = None
 moviepilot_site_ids: dict[int, int] = {}
 site_icon_cache: dict[int, tuple[bytes, str]] = {}
 poster_cache: dict[str, tuple[bytes, str]] = {}
+
+
+def enforce_cookiecloud_rate_limit() -> None:
+    """Bound anonymous CookieCloud uploads to reduce disk-fill abuse."""
+    now = time.time()
+    cutoff = now - COOKIECLOUD_RATE_WINDOW_SECONDS
+    while _cookiecloud_upload_times and _cookiecloud_upload_times[0] < cutoff:
+        _cookiecloud_upload_times.pop(0)
+    if len(_cookiecloud_upload_times) >= COOKIECLOUD_RATE_LIMIT:
+        raise HTTPException(429, "CookieCloud 上传过于频繁，请稍后再试")
+    _cookiecloud_upload_times.append(now)
+
+
+def require_configured_cookiecloud_uuid(uuid_value: str) -> None:
+    """Only the KEY configured in settings may read or write CookieCloud blobs."""
+    configured = (settings.cookiecloud_key or "").strip()
+    if not configured:
+        raise HTTPException(503, "请先在设置中配置 CookieCloud 用户 KEY")
+    if not token_matches(uuid_value, configured):
+        raise HTTPException(403, "CookieCloud 用户 KEY 与服务端配置不匹配")
+
+
+def enforce_search_task_capacity() -> None:
+    active = sum(1 for task in running_tasks.values() if task and not task.done())
+    if active >= MAX_RUNNING_SEARCH_TASKS:
+        raise HTTPException(429, f"已有 {active} 个搜索任务在运行，请等待完成后再试")
+
+
+@app.middleware("http")
+async def access_token_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    if not access_token_required():
+        return await call_next(request)
+    path = request.url.path
+    if path in AUTH_EXEMPT_PATHS or path.startswith("/assets/") or path.startswith("/cookiecloud/"):
+        return await call_next(request)
+    provided = extract_access_token(request.headers.get("authorization"), request.headers.get("x-autolist-token"))
+    if not token_matches(provided, access_token()):
+        return JSONResponse({"detail": "需要有效的访问令牌"}, status_code=401)
+    return await call_next(request)
 
 
 class ImportPayload(BaseModel):
@@ -1525,7 +1571,12 @@ async def shutdown() -> None:
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    return {"ok": True, "version": app.version, "running_tasks": len(running_tasks) + len(running_automation_tasks)}
+    return {
+        "ok": True,
+        "version": app.version,
+        "running_tasks": len(running_tasks) + len(running_automation_tasks),
+        "access_token_required": access_token_required(),
+    }
 
 
 @app.get("/cookiecloud")
@@ -1536,6 +1587,7 @@ async def cookiecloud_root() -> Response:
 
 @app.post("/cookiecloud/update")
 async def cookiecloud_update(request: Request) -> dict[str, Any]:
+    enforce_cookiecloud_rate_limit()
     try:
         content = decode_cookiecloud_body(await request.body(), request.headers.get("content-encoding", ""))
         payload = CookieCloudUploadPayload.model_validate_json(content)
@@ -1543,6 +1595,7 @@ async def cookiecloud_update(request: Request) -> dict[str, Any]:
         raise
     except Exception as exc:
         raise HTTPException(422, f"CookieCloud 上传数据无效：{safe_error(exc)}") from exc
+    require_configured_cookiecloud_uuid(payload.uuid)
     path = cookiecloud_file(payload.uuid)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload.model_dump(), ensure_ascii=False), encoding="utf-8")
@@ -1563,6 +1616,7 @@ async def cookiecloud_update(request: Request) -> dict[str, Any]:
 
 @app.get("/cookiecloud/get/{uuid_value}")
 async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
+    require_configured_cookiecloud_uuid(uuid_value)
     path = cookiecloud_file(uuid_value)
     if not path.exists():
         raise HTTPException(404, "CookieCloud 数据不存在")
@@ -2385,6 +2439,7 @@ async def delete_playlist(playlist_id: int) -> dict[str, Any]:
 
 @app.post("/api/search-tasks")
 async def create_task(payload: TaskPayload) -> dict[str, Any]:
+    enforce_search_task_capacity()
     if payload.scope == "range" and payload.range_end < payload.range_start:
         raise HTTPException(422, "结束序号不能小于起始序号")
     item_ids: list[int] = []
@@ -2529,6 +2584,7 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
 
 @app.post("/api/search-tasks/{task_id}/retry")
 async def retry_task(task_id: int) -> dict[str, Any]:
+    enforce_search_task_capacity()
     new_id, total = create_followup_search_task(task_id, True)
     running_tasks[new_id] = asyncio.create_task(run_search(new_id))
     return {"id": new_id, "status": "queued", "total": total, "parent_task_id": task_id}
@@ -2536,6 +2592,7 @@ async def retry_task(task_id: int) -> dict[str, Any]:
 
 @app.post("/api/search-tasks/{task_id}/restart")
 async def restart_task(task_id: int) -> dict[str, Any]:
+    enforce_search_task_capacity()
     with connect() as conn:
         source = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
     if not source:

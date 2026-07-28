@@ -2,6 +2,20 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 0.77 - 2026-07-28
+
+### 工程
+
+- 完成 `main.py` 拆分：路由壳 + 兼容 re-export；业务进入 `app/services/*`、`app/domain/*`、`app/schemas.py`、`app/state.py`、`app/util.py`。
+- 新增模块：`imports`、`recognition`、`search`、`library`、`sites`、`automation`、`cookiecloud_store`、`history`、`titles`。
+- `main.py` 约 2780 行 → 约 1360 行；测试对服务内部的 mock 改为 patch 真实定义模块。
+
+### 验证
+
+- `python3 -m compileall -q app`
+- `node --check app/static/app.js`
+- `python3 -m unittest discover -s tests -v`（39 通过）
+
 ## 0.76 - 2026-07-28
 
 ### 工程

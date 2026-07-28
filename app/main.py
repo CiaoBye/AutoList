@@ -1,13 +1,14 @@
+"""AutoList FastAPI entrypoint: middleware, routes, and compatibility re-exports."""
+
+from __future__ import annotations
+
 import asyncio
 import base64
 import json
 import math
 import re
 import sqlite3
-import time
-import uuid
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -16,41 +17,87 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from openpyxl import load_workbook
-from pydantic import BaseModel, Field
 
-from .clients import (
-    AIRecognitionClient,
-    EmbyClient,
-    MoviePilotClient,
-    MTeamClient,
-    NexusPHPClient,
-    RSSClient,
-    TMDBClient,
-    TorznabClient,
-    TransmissionClient,
-)
-from .candidate_policy import analyze as analyze_policy_candidate
+from . import state
 from .candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
+from .clients import AIRecognitionClient, EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient  # noqa: F401
 from .config import access_token, access_token_required, load_runtime_settings, save_runtime_settings, settings
-from .cookiecloud import cookie_for_host, cookie_groups, decrypt_cookiecloud
-from .database import config_values, connect, initialize, json_value, save_config, cleanup_old_data
+from .cookiecloud import cookie_for_host, cookie_groups
+from .database import cleanup_old_data, config_values, connect, initialize, json_value, save_config
 from .domain.titles import (
     candidate_identity,
     canonical_item_original_title,
     canonical_item_title,
     canonical_item_year,
-    informative_title_tokens,
     is_transmission_downloading,
     normalized_download_name,
-    normalized_title_text,
     strict_torrent_matches_item,
-    title_tokens,
     torrent_matches_item,
 )
-from .list_sources import PlaylistSourceFetcher, parse_csv_items
+from .list_sources import PlaylistSourceFetcher
+from .schemas import (
+    ConfigPayload,
+    CookieCloudUploadPayload,
+    ImportPayload,
+    PlaylistAutomationPayload,
+    PlaylistOrderPayload,
+    PlaylistSyncPayload,
+    PlaylistUpdatePayload,
+    RuntimeSettingsPayload,
+    ScorePreviewPayload,
+    SiteCookiePayload,
+    SitePayload,
+    TaskPayload,
+)
 from .security import extract_access_token, safe_error, sanitize_sensitive_text, token_matches
+from .services.automation import (
+    add_notification,
+    run_playlist_automation,
+    run_recognition,
+    start_playlist_automation,
+    sync_playlist_incremental,
+    sync_scheduler,
+    update_automation_run,
+    update_recognition_task,
+)
+from .services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
 from .services.history import projected_download_history
+from .services.imports import normalize_import_items, parse_json, parse_xlsx, resolve_import
+from .services.library import library_details, library_state, run_library_scan, update_library_task
+from .services.recognition import (
+    analyze_candidate,
+    extract_contexts,
+    extract_pair,
+    persist_tmdb_item,
+    recognize_movie,
+    select_tmdb_match,
+    tmdb_item_values,
+)
+from .services.search import (
+    build_search_queries,
+    classify_search_error,
+    create_followup_search_task,
+    run_search,
+    searchable_playlist_items,
+    task_log,
+    update_task,
+)
+from .services.sites import domain_match, moviepilot_site_snapshot, resolve_site_adapter, test_site_config
+from .state import (
+    AUTH_EXEMPT_PATHS,
+    MAX_RUNNING_SEARCH_TASKS,
+    enforce_cookiecloud_rate_limit,
+    enforce_search_task_capacity,
+    moviepilot_site_ids,
+    poster_cache,
+    raw_candidates,
+    require_configured_cookiecloud_uuid,
+    running_automation_tasks,
+    running_library_tasks,
+    running_recognition_tasks,
+    running_tasks,
+    site_icon_cache,
+)
 from .util import (
     MAX_COOKIECLOUD_BODY,
     decode_cookiecloud_body,
@@ -64,58 +111,16 @@ from .util import (
     volume_factor_value,
 )
 
+# Compatibility re-exports used by unit tests (`from app import main`).
+from .clients import MTeamClient, NexusPHPClient, RSSClient, TorznabClient  # noqa: F401
 
-app = FastAPI(title="AutoList", version="0.76")
+app = FastAPI(title="AutoList", version="0.77")
 app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
-
-# 公开路径在启用 AUTOLIST_ACCESS_TOKEN 时仍可访问；CookieCloud 协议路径另做 KEY 绑定。
-AUTH_EXEMPT_PATHS = {"/", "/favicon.ico", "/api/health", "/cookiecloud", "/cookiecloud/"}
-MAX_RUNNING_SEARCH_TASKS = 3
-COOKIECLOUD_RATE_LIMIT = 10
-COOKIECLOUD_RATE_WINDOW_SECONDS = 60
-_cookiecloud_upload_times: list[float] = []
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon() -> FileResponse:
     return FileResponse(Path(__file__).parent / "static" / "favicon.svg", media_type="image/svg+xml")
-
-# 下载 URL、Cookie 等短命敏感字段只保存在进程内，容器重启后会自然失效。
-raw_candidates: dict[str, dict[str, Any]] = {}
-running_tasks: dict[int, asyncio.Task[None]] = {}
-running_recognition_tasks: dict[int, asyncio.Task[None]] = {}
-running_library_tasks: dict[int, asyncio.Task[None]] = {}
-running_automation_tasks: dict[int, asyncio.Task[None]] = {}
-scheduler_task: asyncio.Task[None] | None = None
-moviepilot_site_ids: dict[int, int] = {}
-site_icon_cache: dict[int, tuple[bytes, str]] = {}
-poster_cache: dict[str, tuple[bytes, str]] = {}
-
-
-def enforce_cookiecloud_rate_limit() -> None:
-    """Bound anonymous CookieCloud uploads to reduce disk-fill abuse."""
-    now = time.time()
-    cutoff = now - COOKIECLOUD_RATE_WINDOW_SECONDS
-    while _cookiecloud_upload_times and _cookiecloud_upload_times[0] < cutoff:
-        _cookiecloud_upload_times.pop(0)
-    if len(_cookiecloud_upload_times) >= COOKIECLOUD_RATE_LIMIT:
-        raise HTTPException(429, "CookieCloud 上传过于频繁，请稍后再试")
-    _cookiecloud_upload_times.append(now)
-
-
-def require_configured_cookiecloud_uuid(uuid_value: str) -> None:
-    """Only the KEY configured in settings may read or write CookieCloud blobs."""
-    configured = (settings.cookiecloud_key or "").strip()
-    if not configured:
-        raise HTTPException(503, "请先在设置中配置 CookieCloud 用户 KEY")
-    if not token_matches(uuid_value, configured):
-        raise HTTPException(403, "CookieCloud 用户 KEY 与服务端配置不匹配")
-
-
-def enforce_search_task_capacity() -> None:
-    active = sum(1 for task in running_tasks.values() if task and not task.done())
-    if active >= MAX_RUNNING_SEARCH_TASKS:
-        raise HTTPException(429, f"已有 {active} 个搜索任务在运行，请等待完成后再试")
 
 
 @app.middleware("http")
@@ -131,1070 +136,23 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
     return await call_next(request)
 
 
-class ImportPayload(BaseModel):
-    name: str | None = Field(default=None, max_length=120)
-    json_data: dict[str, Any] | list[dict[str, Any]] | None = None
-    xlsx_base64: str | None = Field(default=None, max_length=50_000_000)
-    csv_text: str | None = Field(default=None, max_length=20_000_000)
-    source_url: str | None = Field(default=None, max_length=2048)
-    limit: int = Field(default=5000, ge=1, le=10000)
+def validated_base_url(value: str, label: str, required: bool) -> str:
+    normalized = value.strip().rstrip("/")
+    if not normalized:
+        if required:
+            raise HTTPException(422, f"{label}不能为空")
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(422, f"{label}必须以 http:// 或 https:// 开头")
+    if parsed.username or parsed.password:
+        raise HTTPException(422, f"{label}不能包含用户名或密码")
+    return normalized
 
-
-class TaskPayload(BaseModel):
-    playlist_id: int
-    scope: str = Field(default="range", pattern="^(range|pending)$")
-    count: int = Field(default=50, ge=1, le=10000)
-    range_start: int = Field(default=1, ge=1)
-    range_end: int = Field(default=1, ge=1)
-
-
-class ConfigPayload(BaseModel):
-    preferred_resolutions: str | None = None
-    minimum_resolution: str | None = None
-    preferred_codecs: str | None = None
-    priority_groups: str | None = None
-    secondary_groups: str | None = None
-    fallback_groups: str | None = None
-    allow_unknown_groups: bool | None = None
-    candidate_limit: int | None = Field(default=None, ge=1, le=20)
-    scoring_policy: dict[str, Any] | None = None
-    candidate_policy: dict[str, Any] | None = None
-
-
-class ScorePreviewPayload(BaseModel):
-    title: str = Field(min_length=1, max_length=500)
-    seeders: int = Field(default=0, ge=0)
-    volume_factor: float = Field(default=1, ge=0)
-    scoring_policy: dict[str, Any] | None = None
-    candidate_policy: dict[str, Any] | None = None
-
-
-class RuntimeSettingsPayload(BaseModel):
-    mp_base_url: str = ""
-    mp_api_key: str | None = None
-    mp_timeout_seconds: float = Field(default=30, ge=3, le=300)
-    emby_base_url: str = ""
-    emby_api_key: str | None = None
-    tmdb_api_key: str | None = None
-    tmdb_language: str = "zh-CN"
-    mdblist_api_key: str | None = None
-    cookiecloud_key: str = ""
-    cookiecloud_password: str | None = None
-    cookiecloud_forward_moviepilot: bool = True
-    outbound_proxy_url: str | None = None
-    tmdb_proxy_enabled: bool = False
-    pt_proxy_enabled: bool = False
-    ai_base_url: str = ""
-    ai_api_key: str | None = None
-    ai_model: str = ""
-    tr_base_url: str = ""
-    tr_username: str = ""
-    tr_password: str | None = None
-    dashboard_random_posters: bool = False
-
-
-class SitePayload(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
-    base_url: str = ""
-    api_key: str | None = None
-    cookie: str | None = None
-    user_agent: str = ""
-    priority: int = Field(default=100, ge=1, le=999)
-    timeout_seconds: int = Field(default=30, ge=3, le=300)
-    rss_url: str = ""
-    icon_url: str = ""
-    proxy: bool = False
-    render: bool = False
-    limit_interval: int | None = Field(default=None, ge=1)
-    limit_count: int | None = Field(default=None, ge=1)
-    enabled: bool = True
-    search_enabled: bool = False
-
-
-class SiteCookiePayload(BaseModel):
-    username: str = ""
-    password: str = ""
-    code: str = ""
-
-
-class CookieCloudUploadPayload(BaseModel):
-    uuid: str = Field(min_length=5, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-    encrypted: str = Field(min_length=16, max_length=32_000_000)
-    crypto_type: str = Field(default="legacy", pattern=r"^(legacy|aes-128-cbc-fixed)$")
-
-
-class PlaylistUpdatePayload(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-
-
-class PlaylistOrderPayload(BaseModel):
-    ids: list[int]
-
-
-class PlaylistAutomationPayload(BaseModel):
-    enabled: bool = False
-    auto_cart: bool = False
-    batch_size: int = Field(default=50, ge=1, le=200)
-
-
-class PlaylistSyncPayload(BaseModel):
-    enabled: bool = False
-    interval_hours: int = Field(default=24, ge=1, le=720)
-
-
-def cookiecloud_file(uuid_value: str) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{5,128}", uuid_value):
-        raise HTTPException(422, "CookieCloud 用户 KEY 格式无效")
-    directory = Path(settings.data_dir) / "cookiecloud"
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{uuid_value}.json"
-
-
-def stored_cookiecloud_payload() -> dict[str, Any]:
-    if not settings.cookiecloud_key or not settings.cookiecloud_password:
-        raise HTTPException(422, "请先在设置中配置 CookieCloud 用户 KEY 与端对端密码")
-    path = cookiecloud_file(settings.cookiecloud_key)
-    if not path.exists():
-        raise HTTPException(404, "尚未收到 Chrome CookieCloud 数据，请在扩展中执行一次同步")
-    try:
-        stored = json.loads(path.read_text(encoding="utf-8"))
-        return decrypt_cookiecloud(settings.cookiecloud_key, settings.cookiecloud_password, stored["encrypted"], stored.get("crypto_type", "legacy"))
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(422, f"CookieCloud 解密失败：{safe_error(exc)}") from exc
-
-
-def parse_xlsx(encoded: str) -> tuple[str | None, list[dict[str, Any]]]:
-    workbook = None
-    try:
-        content = base64.b64decode(encoded, validate=True)
-        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    except Exception as exc:
-        raise HTTPException(422, f"无法读取 xlsx：{safe_error(exc)}") from exc
-    try:
-        sheet = workbook.active
-        first_row = next(sheet.iter_rows(min_row=1, max_row=1), None)
-        if not first_row:
-            raise HTTPException(422, "xlsx 为空，请确认文件包含表头和影片数据")
-        headers = [str(cell.value or "").strip() for cell in first_row]
-        required = {"总排名", "IMDb ID", "英文/原片名", "年份", "中文译名"}
-        if not required.issubset(headers):
-            raise HTTPException(422, "xlsx 缺少必需列：总排名、IMDb ID、英文/原片名、年份、中文译名")
-        positions = {header: index for index, header in enumerate(headers)}
-        items: list[dict[str, Any]] = []
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            title = row[positions["英文/原片名"]]
-            if not title:
-                continue
-            year = row[positions["年份"]]
-            items.append({
-                "rank_no": row[positions["总排名"]],
-                "imdb_id": row[positions["IMDb ID"]],
-                "original_title": str(title).strip(),
-                "year": int(year) if str(year or "").isdigit() else None,
-                "chinese_title": row[positions["中文译名"]],
-            })
-        return sheet.title, items
-    finally:
-        workbook.close()
-
-
-def parse_json(data: dict[str, Any] | list[dict[str, Any]]) -> tuple[str | None, list[dict[str, Any]]]:
-    source = data if isinstance(data, dict) else {"films": data}
-    films = source.get("films") or source.get("items") or []
-    if not isinstance(films, list):
-        raise HTTPException(422, "JSON 必须包含 films 或 items 数组")
-    items: list[dict[str, Any]] = []
-    for index, film in enumerate(films, start=1):
-        if not isinstance(film, dict):
-            continue
-        title = first_value(film, ("original_title", "title", "english_title", "英文/原片名"))
-        if not title:
-            continue
-        year = first_value(film, ("year", "年份"))
-        items.append({
-            "rank_no": first_value(film, ("rank_no", "rank", "总排名"), index),
-            "imdb_id": first_value(film, ("imdb_id", "imdbId", "imdb", "IMDb ID")),
-            "original_title": str(title).strip(),
-            "year": int(year) if str(year or "").isdigit() else None,
-            "chinese_title": first_value(film, ("chinese_title", "cn_title", "中文译名")),
-            "tmdb_id": first_value(film, ("tmdb_id", "tmdbId", "tmdb")),
-        })
-    return source.get("listName") or source.get("name"), items
-
-
-def normalize_import_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for item in items:
-        title = str(item.get("original_title") or "").strip()
-        imdb_id = str(item.get("imdb_id") or "").strip() or None
-        tmdb_raw = item.get("tmdb_id")
-        tmdb_id = int(tmdb_raw) if str(tmdb_raw or "").isdigit() else None
-        year_raw = item.get("year")
-        year = int(year_raw) if str(year_raw or "").isdigit() else None
-        if not title:
-            continue
-        normalized_title = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", title.lower())
-        key = f"tmdb:{tmdb_id}" if tmdb_id else (f"imdb:{imdb_id.lower()}" if imdb_id else f"title:{normalized_title}:{year or ''}")
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({"rank_no": len(result) + 1, "imdb_id": imdb_id, "original_title": title, "year": year,
-                       "chinese_title": item.get("chinese_title"), "tmdb_id": tmdb_id})
-    return result
-
-
-async def resolve_import(payload: ImportPayload) -> tuple[str | None, list[dict[str, Any]], dict[str, Any]]:
-    if payload.source_url:
-        source = await PlaylistSourceFetcher().fetch(payload.source_url, payload.limit)
-        return source.get("source_name"), normalize_import_items(source.get("items", [])), source
-    if payload.xlsx_base64:
-        name, items = parse_xlsx(payload.xlsx_base64)
-        return name, normalize_import_items(items), {"source_type": "xlsx", "source_url": None, "source_name": name}
-    if payload.csv_text:
-        name, items = parse_csv_items(payload.csv_text)
-        return name, normalize_import_items(items), {"source_type": "csv", "source_url": None, "source_name": name}
-    name, items = parse_json(payload.json_data or {})
-    return name, normalize_import_items(items), {"source_type": "json", "source_url": None, "source_name": name}
-
-
-
-
-def analyze_candidate(title: str, index: int, config: dict[str, str], torrent: dict[str, Any] | None = None) -> dict[str, Any]:
-    try:
-        policy = json.loads(config.get("candidate_policy") or "{}")
-    except (TypeError, json.JSONDecodeError):
-        policy = {}
-    return analyze_policy_candidate(title, index, policy, torrent)
-
-
-def extract_contexts(response: Any) -> list[dict[str, Any]]:
-    if isinstance(response, dict):
-        data = response.get("data", response.get("result", []))
-    else:
-        data = response
-    if isinstance(data, dict):
-        data = data.get("contexts", data.get("items", []))
-    return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
-
-
-def extract_pair(context: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]] | None:
-    media = context.get("media_info") or context.get("media")
-    torrent = context.get("torrent_info") or context.get("torrent")
-    if isinstance(torrent, dict):
-        return media if isinstance(media, dict) else None, torrent
-    if any(context.get(key) for key in ("enclosure", "download_url", "magnet")):
-        return None, context
-    return None
-
-
-def select_tmdb_match(options: list[dict[str, Any]], title: str, year: int | None) -> dict[str, Any] | None:
-    if not options:
-        return None
-    normalized = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
-    for item in options:
-        item_year = str(item.get("release_date") or "")[:4]
-        names = (item.get("title"), item.get("original_title"))
-        normalized_names = {re.sub(r"[^a-z0-9]+", " ", str(name).lower()).strip() for name in names if name}
-        if normalized in normalized_names and (not year or item_year == str(year)):
-            return item
-    same_year = [item for item in options if not year or str(item.get("release_date") or "")[:4] == str(year)]
-    return same_year[0] if same_year else options[0]
-
-
-async def recognize_movie(title: str, year: int | None, imdb_id: str | None = None) -> dict[str, Any] | None:
-    tmdb = TMDBClient()
-    async def enriched(match: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not match:
-            return None
-        result = dict(match)
-        resolved_imdb = imdb_id
-        if not resolved_imdb and result.get("id"):
-            try:
-                resolved_imdb = (await tmdb.movie_external_ids(int(result["id"]))).get("imdb_id")
-            except Exception:
-                resolved_imdb = None
-        result["imdb_id"] = resolved_imdb
-        return result
-    if imdb_id:
-        match = select_tmdb_match(await tmdb.find_by_imdb(imdb_id), title, year)
-        if match:
-            return await enriched(match)
-    options = await tmdb.search_movie(title, year)
-    match = select_tmdb_match(options, title, year)
-    if match:
-        return await enriched(match)
-    suggestion = await AIRecognitionClient().suggest(title, year)
-    if not suggestion:
-        return None
-    options = await tmdb.search_movie(str(suggestion.get("original_title") or suggestion.get("title") or title), suggestion.get("year") or year)
-    return await enriched(select_tmdb_match(
-        options, str(suggestion.get("original_title") or suggestion.get("title") or title), suggestion.get("year") or year,
-    ))
-
-
-def tmdb_item_values(media: dict[str, Any], fallback_imdb: str | None = None) -> tuple[Any, ...]:
-    release_year = str(media.get("release_date") or "")[:4]
-    return (
-        int(media["id"]), str(media.get("title") or "").strip() or None,
-        str(media.get("original_title") or "").strip() or None,
-        int(release_year) if release_year.isdigit() else None,
-        media.get("imdb_id") or fallback_imdb, utc_now(),
-    )
-
-
-def persist_tmdb_item(item_id: int, media: dict[str, Any], fallback_imdb: str | None = None) -> None:
-    values = tmdb_item_values(media, fallback_imdb)
-    with connect() as conn:
-        conn.execute(
-            """UPDATE playlist_items
-               SET tmdb_id=?,tmdb_title=?,tmdb_original_title=?,tmdb_year=?,tmdb_imdb_id=?,tmdb_checked_at=?
-               WHERE id=?""",
-            (*values, item_id),
-        )
-
-
-async def searchable_playlist_items(playlist_id: int, limit: int | None = None) -> dict[str, Any]:
-    with connect() as conn:
-        playlist = conn.execute("SELECT id,name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-        if not playlist:
-            raise HTTPException(404, "片单不存在")
-        stats = conn.execute(
-            """SELECT COUNT(*) AS total,
-                      SUM(CASE WHEN library_state='in_library' THEN 1 ELSE 0 END) AS in_library
-               FROM playlist_items WHERE playlist_id=?""", (playlist_id,),
-        ).fetchone()
-        rows = list(conn.execute(
-            "SELECT * FROM playlist_items WHERE playlist_id=? AND library_state!='in_library' ORDER BY rank_no",
-            (playlist_id,),
-        ).fetchall())
-        history_rows = conn.execute(
-            """SELECT h.torrent_name,h.title,c.title AS candidate_title,c.playlist_item_id
-               FROM download_history h
-               LEFT JOIN candidates c ON c.id=h.candidate_id
-               JOIN playlist_items p ON p.id=c.playlist_item_id
-               WHERE p.playlist_id=?""", (playlist_id,),
-        ).fetchall()
-        candidate_rows = conn.execute(
-            """SELECT NULL AS torrent_name,c.title,c.title AS candidate_title,c.playlist_item_id FROM candidates c
-               JOIN playlist_items p ON p.id=c.playlist_item_id
-               WHERE p.playlist_id=?""", (playlist_id,),
-        ).fetchall()
-    try:
-        torrents = await asyncio.wait_for(TransmissionClient().current_downloads(), timeout=6)
-    except Exception:
-        torrents = []
-    downloading = [torrent for torrent in torrents if is_transmission_downloading(torrent)]
-    download_names = {normalized_download_name(first_value(torrent, ("name", "torrent_name"), "")) for torrent in downloading}
-    related_names: dict[str, int] = {}
-    for row in list(history_rows) + list(candidate_rows):
-        item_id = row["playlist_item_id"]
-        for name in (row["torrent_name"], row["title"], row["candidate_title"]):
-            normalized = normalized_download_name(name)
-            if normalized:
-                related_names[normalized] = int(item_id)
-    downloading_ids: set[int] = set()
-    for name in download_names:
-        if name in related_names:
-            downloading_ids.add(related_names[name])
-    for torrent in downloading:
-        torrent_title = str(first_value(torrent, ("name", "torrent_name"), ""))
-        for item in rows:
-            if int(item["id"]) not in downloading_ids and torrent_matches_item(item, torrent_title):
-                downloading_ids.add(int(item["id"]))
-    queue = [item for item in rows if int(item["id"]) not in downloading_ids]
-    selected = queue[:limit] if limit is not None else queue
-    return {
-        "playlist_id": playlist_id, "playlist_name": playlist["name"],
-        "total_count": int(stats["total"] or 0), "in_library_count": int(stats["in_library"] or 0),
-        "downloading_count": len(downloading),
-        "pending_count": len(queue), "items": rows_to_dicts(selected),
-    }
-
-
-def build_search_queries(item: sqlite3.Row, media: dict[str, Any]) -> list[tuple[str, str | None, str]]:
-    """Return a bounded IMDb/title search plan, preserving TMDB as the authority."""
-    item_keys = item.keys() if hasattr(item, "keys") else ()
-    tmdb_imdb_id = item["tmdb_imdb_id"] if "tmdb_imdb_id" in item_keys else None
-    item_imdb_id = item["imdb_id"] if "imdb_id" in item_keys else None
-    imdb_id = str(media.get("imdb_id") or tmdb_imdb_id or item_imdb_id or "").strip() or None
-    year = str(media.get("year") or canonical_item_year(item) or "").strip()
-    titles = [
-        str(media.get("original_title") or "").strip(),
-        str(media.get("title") or "").strip(),
-        str(item["original_title"] or "").strip(),
-        str(item["chinese_title"] or "").strip(),
-    ]
-    queries: list[tuple[str, str | None, str]] = []
-    if imdb_id:
-        queries.append((titles[0] or titles[1], imdb_id, f"IMDb {imdb_id}"))
-    seen: set[str] = set()
-    for title in titles:
-        key = re.sub(r"\W+", "", title).casefold()
-        if not title or key in seen:
-            continue
-        seen.add(key)
-        keyword = title if year and re.search(rf"(?:^|\D){re.escape(year)}(?:\D|$)", title) else f"{title} {year}".strip()
-        queries.append((keyword, None, keyword))
-    return queries[:4]
-
-
-def domain_match(domain: str, base_url: str) -> bool:
-    host = (urlparse(base_url).hostname or "").lower().removeprefix("www.")
-    value = domain.lower().removeprefix("www.")
-    return host == value or host.endswith(f".{value}") or value.endswith(f".{host}")
-
-
-def resolve_site_adapter(base_url: str, rss_url: str = "") -> str:
-    """Keep adapter details out of the UI; select known special protocols server-side."""
-    if rss_url.strip():
-        return "rss"
-    normalized = base_url.lower()
-    if "m-team" in normalized or "mteam" in normalized:
-        return "mteam"
-    if "torznab" in normalized or "api?t=" in normalized or "t=caps" in normalized:
-        return "torznab"
-    return "nexusphp"
-
-
-async def moviepilot_site_snapshot() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    client = MoviePilotClient()
-    if not settings.mp_base_url or not settings.mp_api_key:
-        return [], [], []
-    sites, statistics, users = await asyncio.gather(client.sites(), client.site_statistics(), client.site_user_data())
-    return (sites if isinstance(sites, list) else [], statistics if isinstance(statistics, list) else [], users if isinstance(users, list) else [])
-
-
-async def test_site_config(site: dict[str, Any]) -> dict[str, Any]:
-    try:
-        if site["adapter"] == "mteam":
-            result = await MTeamClient().check(site)
-        elif site["adapter"] == "nexusphp":
-            result = await NexusPHPClient().check(site)
-        elif site["adapter"] == "rss":
-            result = await RSSClient().check(site)
-        else:
-            torrents = await TorznabClient().search(site, "AutoListConnectionProbe")
-            result = {"ok": True, "message": f"Torznab 可用，探测返回 {len(torrents)} 条"}
-        status, message = "ok", sanitize_sensitive_text(result.get("message") or "连接正常")
-    except Exception as exc:
-        status, message = "error", safe_error(exc)
-    with connect() as conn:
-        conn.execute("UPDATE pt_sites SET last_status=?,last_message=?,last_tested_at=? WHERE id=?", (status, message[:500], utc_now(), site["id"]))
-    return {"id": site["id"], "name": site["name"], "ok": status == "ok", "message": message}
-
-
-async def library_details(
-    emby: EmbyClient, title: str, year: int | None, tmdb_id: int | None = None, imdb_id: str | None = None,
-) -> tuple[str, str | None, str | None]:
-    try:
-        state, item = await emby.library_match(title, year, tmdb_id, imdb_id)
-        item_id = str(item.get("Id") or "") or None if item else None
-        image_tag = str((item.get("ImageTags") or {}).get("Primary") or "") or None if item else None
-        return state, item_id, image_tag
-    except Exception:
-        return "unknown", None, None
-
-
-async def library_state(
-    emby: EmbyClient, title: str, year: int | None, tmdb_id: int | None = None, imdb_id: str | None = None,
-) -> str:
-    state, _, _ = await library_details(emby, title, year, tmdb_id, imdb_id)
-    return state
-
-
-def update_library_task(task_id: int, **values: Any) -> None:
-    if not set(values).issubset({"status", "completed", "in_library", "strm", "error_message"}):
-        raise ValueError("无效的入库任务字段")
-    values["updated_at"] = utc_now()
-    assignments = ", ".join(f"{key}=?" for key in values)
-    with connect() as conn:
-        # Dynamic column names are restricted by the allowlist above.
-        conn.execute(f"UPDATE library_scan_tasks SET {assignments} WHERE id=?", (*values.values(), task_id))  # nosec B608
-
-
-async def run_library_scan(task_id: int) -> None:
-    try:
-        with connect() as conn:
-            task = conn.execute("SELECT * FROM library_scan_tasks WHERE id=?", (task_id,)).fetchone()
-            if not task:
-                return
-            items = rows_to_dicts(conn.execute("SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (task["playlist_id"],)).fetchall())
-        update_library_task(task_id, status="running")
-        semaphore = asyncio.Semaphore(6)
-        emby = EmbyClient()
-
-        async def inspect(item: dict[str, Any]) -> tuple[int, str, str | None, str | None]:
-            async with semaphore:
-                state, emby_item_id, image_tag = await library_details(
-                    emby, canonical_item_title(item), canonical_item_year(item), item["tmdb_id"],
-                    item["tmdb_imdb_id"] or item["imdb_id"],
-                )
-                return int(item["id"]), state, emby_item_id, image_tag
-
-        completed = in_library = strm = 0
-        for future in asyncio.as_completed([inspect(item) for item in items]):
-            item_id, state, emby_item_id, image_tag = await future
-            completed += 1
-            in_library += state == "in_library"
-            strm += state == "strm"
-            with connect() as conn:
-                conn.execute(
-                    "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
-                    (state, utc_now(), emby_item_id, image_tag, item_id),
-                )
-            update_library_task(task_id, completed=completed, in_library=in_library, strm=strm)
-        update_library_task(task_id, status="completed", completed=completed, in_library=in_library, strm=strm)
-    except asyncio.CancelledError:
-        update_library_task(task_id, status="cancelled")
-        raise
-    except Exception as exc:
-        update_library_task(task_id, status="failed", error_message=safe_error(exc))
-    finally:
-        running_library_tasks.pop(task_id, None)
-
-
-def update_task(task_id: int, **values: Any) -> None:
-    if not set(values).issubset({"status", "completed", "matched", "error_message"}):
-        raise ValueError("无效的搜索任务字段")
-    values["updated_at"] = utc_now()
-    assignments = ", ".join(f"{key}=?" for key in values)
-    with connect() as conn:
-        # Dynamic column names are restricted by the allowlist above.
-        conn.execute(f"UPDATE search_tasks SET {assignments} WHERE id=?", (*values.values(), task_id))  # nosec B608
-
-
-def task_log(task_id: int, level: str, stage: str, message: str) -> None:
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO search_task_logs(task_id,level,stage,message,created_at) VALUES(?,?,?,?,?)",
-            (task_id, level, stage, sanitize_sensitive_text(message, 1000), utc_now()),
-        )
-
-
-SEARCH_ERROR_MESSAGES = {
-    "dns_error": "无法解析站点地址，请检查域名或 DNS 设置",
-    "connect_error": "无法连接站点，请检查地址和网络",
-    "timeout": "站点响应超时，请稍后重试",
-    "auth_error": "站点认证失败，请检查登录信息",
-    "rate_limit": "站点请求过于频繁，请稍后重试",
-    "http_error": "站点返回异常，请稍后重试或检查站点状态",
-    "parse_error": "站点返回内容无法解析，请重试或检查站点适配",
-    "error": "站点搜索失败，请查看日志后重试",
-}
-
-
-def classify_search_error(exc: Exception) -> tuple[str, str]:
-    technical = safe_error(exc).casefold()
-    if isinstance(exc, httpx.TimeoutException) or "timed out" in technical or "timeout" in technical:
-        return "timeout", SEARCH_ERROR_MESSAGES["timeout"]
-    if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        if status in {401, 403}:
-            return "auth_error", SEARCH_ERROR_MESSAGES["auth_error"]
-        if status == 429:
-            return "rate_limit", SEARCH_ERROR_MESSAGES["rate_limit"]
-        return "http_error", f"站点返回 HTTP {status}，请稍后重试"
-    if isinstance(exc, httpx.NetworkError) or re.search(
-        r"(?:name or service not known|nodename nor servname|temporary failure in name resolution|gaierror)",
-        technical,
-    ):
-        if re.search(r"(?:name or service not known|nodename nor servname|name resolution|gaierror)", technical):
-            return "dns_error", SEARCH_ERROR_MESSAGES["dns_error"]
-        return "connect_error", SEARCH_ERROR_MESSAGES["connect_error"]
-    if isinstance(exc, (ValueError, TypeError, json.JSONDecodeError)) or re.search(r"(?:parse|xml|json)", technical):
-        return "parse_error", SEARCH_ERROR_MESSAGES["parse_error"]
-    return "error", SEARCH_ERROR_MESSAGES["error"]
-
-
-def record_search_attempt(
-    task_id: int, item_id: int, site: dict[str, Any], attempt_no: int, status: str,
-    result_count: int, duration_ms: int, error_code: str | None = None, error_message: str | None = None,
-    query_count: int = 1,
-) -> None:
-    now = utc_now()
-    with connect() as conn:
-        conn.execute(
-            """INSERT INTO search_attempts(
-                 task_id,playlist_item_id,site_id,site_name,attempt_no,status,result_count,duration_ms,
-                 error_code,error_message,query_count,created_at,finished_at
-               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (task_id, item_id, site["id"], site["name"], attempt_no, status, result_count,
-             duration_ms, error_code, sanitize_sensitive_text(error_message, 500) if error_message else None,
-             query_count, now, now),
-        )
-
-
-async def search_one_site(
-    task_id: int, item: sqlite3.Row, site: dict[str, Any], clients: dict[str, Any], semaphore: asyncio.Semaphore,
-    queries: list[tuple[str, str | None, str]],
-) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, int]:
-    started = time.monotonic()
-    async with semaphore:
-        query_count = 0
-        try:
-            client = clients.get(str(site["adapter"]))
-            if client is None:
-                raise RuntimeError(f"不支持的站点适配器：{site['adapter']}")
-            unique: dict[str, dict[str, Any]] = {}
-            errors: list[Exception] = []
-            site_queries = queries[:1] if str(site["adapter"]) == "rss" else queries
-            for title, imdb_id, _label in site_queries:
-                query_count += 1
-                try:
-                    rows = await client.search(site, title, imdb_id)
-                except Exception as exc:
-                    errors.append(exc)
-                    continue
-                for torrent in rows:
-                    torrent = dict(torrent)
-                    torrent["_site_priority"] = int(site.get("priority") or 100)
-                    torrent["_site_id"] = int(site["id"])
-                    key = str(torrent.get("enclosure") or resource_fingerprint(
-                        str(first_value(torrent, ("title", "torrent_name", "name"), "")),
-                        first_value(torrent, ("size", "size_bytes")),
-                    ))
-                    unique[key] = torrent
-            torrents = list(unique.values())
-            if not torrents and errors and len(errors) == query_count:
-                raise errors[-1]
-            duration_ms = max(0, int((time.monotonic() - started) * 1000))
-            record_search_attempt(
-                task_id, int(item["id"]), site, 1, "success", len(torrents), duration_ms,
-                query_count=query_count,
-            )
-            return site, torrents, None, query_count
-        except Exception as exc:
-            error_code, reason = classify_search_error(exc)
-            duration_ms = max(0, int((time.monotonic() - started) * 1000))
-            record_search_attempt(
-                task_id, int(item["id"]), site, 1, "failed", 0, duration_ms, error_code, safe_error(exc),
-                query_count=max(1, query_count),
-            )
-            return site, [], reason, max(1, query_count)
-
-
-async def run_search(task_id: int) -> None:
-    emby, torznab, mteam, nexusphp, rss, config = EmbyClient(), TorznabClient(), MTeamClient(), NexusPHPClient(), RSSClient(), config_values()
-    with connect() as conn:
-        task = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
-        if not task:
-            return
-        items = list(conn.execute(
-            "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ? ORDER BY rank_no",
-            (task["playlist_id"], task["range_start"], task["range_end"]),
-        ).fetchall())
-        sites = rows_to_dicts(conn.execute("SELECT * FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id").fetchall())
-    try:
-        selected_item_ids = {int(value) for value in json.loads(task["item_ids_json"] or "[]")}
-        selected_site_ids = {int(value) for value in json.loads(task["site_ids_json"] or "[]")}
-    except (TypeError, ValueError, json.JSONDecodeError):
-        selected_item_ids, selected_site_ids = set(), set()
-    if selected_item_ids:
-        items = [item for item in items if int(item["id"]) in selected_item_ids]
-    if selected_site_ids:
-        sites = [site for site in sites if int(site["id"]) in selected_site_ids]
-    update_task(task_id, status="running")
-    task_log(task_id, "info", "task", f"开始搜索，共 {len(items)} 部影片、{len(sites)} 个搜索来源")
-    matched = 0
-    warnings: list[str] = []
-    try:
-        for completed, item in enumerate(items, start=1):
-            label = f"#{item['rank_no']} {item['original_title']}"
-            task_log(task_id, "info", "recognize", f"开始识别 {label}")
-            try:
-                tmdb_media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
-                if not tmdb_media:
-                    raise RuntimeError("TMDB 未返回匹配结果")
-                tmdb_id = int(tmdb_media["id"])
-                media = {
-                    "source": "themoviedb",
-                    "tmdb_id": tmdb_id,
-                    "imdb_id": tmdb_media.get("imdb_id") or item["imdb_id"],
-                    "title": tmdb_media.get("title") or item["chinese_title"] or item["original_title"],
-                    "original_title": tmdb_media.get("original_title") or item["original_title"],
-                    "year": str(tmdb_media.get("release_date") or item["year"] or "")[:4] or None,
-                    "release_date": tmdb_media.get("release_date"),
-                    "type": "电影",
-                    "poster_path": tmdb_media.get("poster_path"),
-                }
-                persist_tmdb_item(int(item["id"]), tmdb_media, item["imdb_id"])
-                task_log(task_id, "info", "recognize", f"识别完成 {label} → TMDB {tmdb_id}")
-                state, emby_item_id, image_tag = await library_details(
-                    emby, str(media["title"]), int(media["year"]) if media.get("year") else item["year"],
-                    tmdb_id, media.get("imdb_id"),
-                )
-                with connect() as conn:
-                    conn.execute(
-                        "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
-                        (state, utc_now(), emby_item_id, image_tag, item["id"]),
-                    )
-                task_log(task_id, "info", "library", f"Emby 状态：{state}")
-                if state == "in_library":
-                    task_log(task_id, "info", "search", f"{label} 已有实体文件，跳过站点搜索")
-                    update_task(task_id, completed=completed, matched=matched)
-                    continue
-                pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
-                clients = {"torznab": torznab, "mteam": mteam, "nexusphp": nexusphp, "rss": rss}
-                site_semaphore = asyncio.Semaphore(4)
-                queries = build_search_queries(item, media)
-                task_log(task_id, "info", "search", "检索词：" + " → ".join(query[2] for query in queries))
-                site_results = await asyncio.gather(*(
-                    search_one_site(task_id, item, site, clients, site_semaphore, queries) for site in sites
-                ))
-                for site, torrents, reason, query_count in site_results:
-                    if reason:
-                        warnings.append(f"{label} · {site['name']}：{reason}")
-                        task_log(task_id, "warning", "search", f"{site['name']} 搜索失败：{reason}")
-                        continue
-                    pairs.extend((media, torrent) for torrent in torrents)
-                    task_log(task_id, "info", "search", f"{site['name']} 返回 {len(torrents)} 个资源（{query_count} 个检索词）")
-                pairs.sort(key=lambda pair: analyze_candidate(str(first_value(pair[1], ("title", "torrent_name", "name"), "")), 0, config, pair[1])["ranking"])
-                try:
-                    policy = normalized_policy(json.loads(config.get("candidate_policy") or "{}"))
-                except (TypeError, json.JSONDecodeError):
-                    policy = normalized_policy({})
-                limit = int(policy["candidate_limit"])
-                eligible_keys: list[str] = []
-                excluded_keys: list[str] = []
-                selected_pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
-                selected_keys: set[tuple[str, str, str]] = set()
-                for pair in pairs:
-                    torrent = pair[1]
-                    analysis = analyze_candidate(
-                        str(first_value(torrent, ("title", "torrent_name", "name"), "")), 0, config, torrent,
-                    )
-                    identity_ok, identity_reason = candidate_identity(
-                        item, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
-                    )
-                    if not identity_ok:
-                        analysis = dict(analysis)
-                        analysis.update({
-                            "eligible": False, "manual": True, "recommendation": "excluded",
-                            "reason": identity_reason, "exclusion_reason": identity_reason,
-                        })
-                    key = resource_fingerprint(
-                        str(first_value(torrent, ("title", "torrent_name", "name"), "")),
-                        first_value(torrent, ("size", "size_bytes")),
-                    )
-                    bucket_name = "eligible" if analysis["eligible"] else "excluded"
-                    bucket = eligible_keys if analysis["eligible"] else excluded_keys
-                    if key not in bucket:
-                        if len(bucket) >= limit:
-                            continue
-                        bucket.append(key)
-                    selection_key = (bucket_name, key, str(first_value(torrent, ("site_name", "site"), torrent.get("_site_id") or "")))
-                    if selection_key in selected_keys:
-                        continue
-                    selected_keys.add(selection_key)
-                    selected_pairs.append(pair)
-                for index, (source_media, torrent) in enumerate(selected_pairs):
-                    candidate_id = uuid.uuid4().hex
-                    title = str(first_value(torrent, ("title", "torrent_name", "name"), "未知资源"))
-                    analyzed = analyze_candidate(title, index, config, torrent)
-                    identity_ok, identity_reason = candidate_identity(item, source_media, title)
-                    if not identity_ok:
-                        analyzed = dict(analyzed)
-                        analyzed.update({
-                            "eligible": False, "manual": True, "recommendation": "excluded",
-                            "reason": identity_reason, "exclusion_reason": identity_reason,
-                        })
-                    metadata = secret_free({
-                        "description": torrent.get("description"), "labels": torrent.get("labels", []),
-                        "volume_factor": torrent.get("volume_factor"), "publish_time": first_value(torrent, ("pubdate", "publish_time")),
-                        "source": analyzed["source"], "profile_label": analyzed.get("profile_label"),
-                    })
-                    fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))
-                    with connect() as conn:
-                        conn.execute(
-                            """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,profile_id,metadata_json,created_at)
-                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
-                             first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],
-                             analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
-                             analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
-                             int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
-                             analyzed.get("exclusion_reason"), analyzed.get("profile_id"), json_value(metadata), utc_now()),
-                        )
-                    raw_candidates[candidate_id] = {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id}
-                matched += len(eligible_keys)
-                task_log(
-                    task_id, "info", "candidate",
-                    f"{label} 保留 {len(eligible_keys)} 个可下载候选，记录 {len(excluded_keys)} 个排除样本",
-                )
-            except Exception as exc:
-                reason = safe_error(exc)
-                warnings.append(f"{label}：{reason}")
-                task_log(task_id, "error", "movie", f"{label} 处理失败：{reason}")
-            update_task(task_id, completed=completed, matched=matched)
-        status = "partial" if warnings else "completed"
-        message = "；".join(warnings[:5])[:500] if warnings else None
-        update_task(task_id, status=status, completed=len(items), matched=matched, error_message=message)
-        task_log(task_id, "warning" if warnings else "info", "task", f"任务结束：{len(items)} 部已处理，{matched} 个候选，{len(warnings)} 个警告")
-    except asyncio.CancelledError:
-        update_task(task_id, status="cancelled")
-        raise
-    except Exception as exc:
-        reason = safe_error(exc)
-        update_task(task_id, status="failed", error_message=reason)
-        task_log(task_id, "error", "task", f"任务异常停止：{reason}")
-    finally:
-        running_tasks.pop(task_id, None)
-
-
-def update_recognition_task(task_id: int, **values: Any) -> None:
-    if not set(values).issubset({"status", "completed", "matched", "error_message"}):
-        raise ValueError("无效的识别任务字段")
-    values["updated_at"] = utc_now()
-    assignments = ", ".join(f"{key}=?" for key in values)
-    with connect() as conn:
-        # Dynamic column names are restricted by the allowlist above.
-        conn.execute(f"UPDATE recognition_tasks SET {assignments} WHERE id=?", (*values.values(), task_id))  # nosec B608
-
-
-async def run_recognition(task_id: int) -> None:
-    with connect() as conn:
-        task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
-        items = conn.execute(
-            """SELECT * FROM playlist_items
-               WHERE playlist_id=? AND (tmdb_id IS NULL OR tmdb_title IS NULL OR tmdb_original_title IS NULL)
-               ORDER BY rank_no""", (task["playlist_id"],),
-        ).fetchall()
-    update_recognition_task(task_id, status="running")
-    matched, errors = 0, []
-    try:
-        for completed, item in enumerate(items, start=1):
-            try:
-                media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
-                if media:
-                    persist_tmdb_item(int(item["id"]), media, item["imdb_id"])
-                    matched += 1
-                else:
-                    errors.append(f"#{item['rank_no']} 未识别")
-            except Exception as exc:
-                errors.append(f"#{item['rank_no']} {safe_error(exc)}")
-            update_recognition_task(task_id, completed=completed, matched=matched)
-        update_recognition_task(
-            task_id, status="partial" if errors else "completed", completed=len(items), matched=matched,
-            error_message="；".join(errors[:8])[:500] if errors else None,
-        )
-    except asyncio.CancelledError:
-        update_recognition_task(task_id, status="cancelled")
-        raise
-    except Exception as exc:
-        update_recognition_task(task_id, status="failed", error_message=safe_error(exc))
-    finally:
-        running_recognition_tasks.pop(task_id, None)
-
-
-def update_automation_run(run_id: int, **values: Any) -> None:
-    allowed = {"status", "stage", "total", "completed", "recognized", "searched", "recommended", "message"}
-    if not set(values).issubset(allowed):
-        raise ValueError("无效的自动化任务字段")
-    values["updated_at"] = utc_now()
-    assignments = ", ".join(f"{key}=?" for key in values)
-    with connect() as conn:
-        conn.execute(f"UPDATE automation_runs SET {assignments} WHERE id=?", (*values.values(), run_id))  # nosec B608
-
-
-def add_notification(title: str, message: str, level: str = "info") -> None:
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO notifications(level,title,message,created_at) VALUES(?,?,?,?)",
-            (level, title[:120], sanitize_sensitive_text(message, 500), utc_now()),
-        )
-
-
-async def run_playlist_automation(run_id: int) -> None:
-    try:
-        with connect() as conn:
-            run = conn.execute("SELECT * FROM automation_runs WHERE id=?", (run_id,)).fetchone()
-            playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (run["playlist_id"],)).fetchone() if run else None
-        if not run or not playlist:
-            return
-        queue = await searchable_playlist_items(int(playlist["id"]), int(playlist["automation_batch_size"] or 50))
-        items = queue["items"]
-        update_automation_run(run_id, status="running", stage="recognition", total=len(items))
-        emby = EmbyClient()
-        recognized = searched = recommended = 0
-        searchable_ids: list[int] = []
-        for completed, item in enumerate(items, start=1):
-            tmdb_id = item["tmdb_id"]
-            if not tmdb_id or not item["tmdb_title"] or not item["tmdb_original_title"]:
-                media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
-                if media:
-                    tmdb_id = int(media["id"])
-                    recognized += 1
-                    persist_tmdb_item(int(item["id"]), media, item["imdb_id"])
-                    item = dict(item)
-                    item.update({
-                        "tmdb_title": media.get("title"), "tmdb_original_title": media.get("original_title"),
-                        "tmdb_year": str(media.get("release_date") or "")[:4] or item["year"],
-                        "tmdb_imdb_id": media.get("imdb_id") or item["imdb_id"],
-                    })
-            update_automation_run(run_id, stage="library", completed=completed, recognized=recognized)
-            state, emby_item_id, image_tag = await library_details(
-                emby, canonical_item_title(item), canonical_item_year(item), tmdb_id,
-                item["tmdb_imdb_id"] or item["imdb_id"],
-            )
-            with connect() as conn:
-                conn.execute(
-                    "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
-                    (state, utc_now(), emby_item_id, image_tag, item["id"]),
-                )
-            if state != "in_library" and tmdb_id:
-                searchable_ids.append(int(item["id"]))
-        if searchable_ids:
-            with connect() as conn:
-                ranks = conn.execute(
-                    f"SELECT MIN(rank_no),MAX(rank_no) FROM playlist_items WHERE id IN ({','.join('?' for _ in searchable_ids)})",  # nosec B608
-                    searchable_ids,
-                ).fetchone()
-                now = utc_now()
-                task_id = int(conn.execute(
-                    """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,trigger,item_ids_json,created_at,updated_at)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (playlist["id"], ranks[0], ranks[1], "queued", len(searchable_ids), "automation", json_value(searchable_ids), now, now),
-                ).lastrowid)
-            update_automation_run(run_id, stage="search")
-            running_tasks[task_id] = asyncio.current_task()  # visible in health while the nested search runs
-            await run_search(task_id)
-            searched = len(searchable_ids)
-            with connect() as conn:
-                preferred_rows = conn.execute(
-                    """SELECT c.id,c.playlist_item_id FROM candidates c
-                       WHERE c.task_id=? AND c.recommendation='preferred' AND c.eligibility='eligible'
-                       ORDER BY c.playlist_item_id,c.ranking""", (task_id,),
-                ).fetchall()
-                preferred = []
-                seen_items: set[int] = set()
-                for row in preferred_rows:
-                    if int(row["playlist_item_id"]) not in seen_items:
-                        preferred.append(row)
-                        seen_items.add(int(row["playlist_item_id"]))
-                recommended = len(preferred)
-                if playlist["automation_auto_cart"]:
-                    conn.executemany(
-                        "INSERT OR IGNORE INTO cart_items(candidate_id,selected_at) VALUES(?,?)",
-                        [(row["id"], utc_now()) for row in preferred],
-                    )
-        message = f"处理 {len(items)} 部，新增识别 {recognized}，搜索 {searched}，推荐 {recommended}；未自动下载"
-        update_automation_run(
-            run_id, status="completed", stage="completed", completed=len(items), recognized=recognized,
-            searched=searched, recommended=recommended, message=message,
-        )
-        add_notification("新增影片处理完成", message, "success")
-    except asyncio.CancelledError:
-        update_automation_run(run_id, status="cancelled", message="新片处理任务已取消")
-        raise
-    except Exception as exc:
-        reason = safe_error(exc)
-        update_automation_run(run_id, status="failed", message=reason)
-        add_notification("新增影片处理失败", reason, "error")
-    finally:
-        running_automation_tasks.pop(run_id, None)
-
-
-async def sync_playlist_incremental(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
-    with connect() as conn:
-        playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-    if not playlist:
-        raise HTTPException(404, "片单不存在")
-    if not playlist["source_url"]:
-        raise HTTPException(422, "该片单没有可同步的网址来源")
-    try:
-        source = await PlaylistSourceFetcher().fetch(str(playlist["source_url"]), 10000)
-        incoming = normalize_import_items(source.get("items", []))
-        with connect() as conn:
-            existing = conn.execute(
-                "SELECT imdb_id,tmdb_id,original_title,year FROM playlist_items WHERE playlist_id=?", (playlist_id,),
-            ).fetchall()
-            keys = {
-                ("imdb", str(row["imdb_id"])) if row["imdb_id"] else
-                ("tmdb", str(row["tmdb_id"])) if row["tmdb_id"] else
-                ("title", re.sub(r"\W+", "", str(row["original_title"]).lower()), str(row["year"] or ""))
-                for row in existing
-            }
-            max_rank = int(conn.execute("SELECT COALESCE(MAX(rank_no),0) FROM playlist_items WHERE playlist_id=?", (playlist_id,)).fetchone()[0])
-            additions = []
-            for item in incoming:
-                key = (("imdb", str(item["imdb_id"])) if item.get("imdb_id") else
-                       ("tmdb", str(item["tmdb_id"])) if item.get("tmdb_id") else
-                       ("title", re.sub(r"\W+", "", str(item["original_title"]).lower()), str(item.get("year") or "")))
-                if key in keys:
-                    continue
-                keys.add(key)
-                max_rank += 1
-                additions.append({**item, "playlist_id": playlist_id, "rank_no": max_rank})
-            if additions:
-                conn.executemany(
-                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,tmdb_id)
-                       VALUES(:playlist_id,:rank_no,:imdb_id,:original_title,:year,:chinese_title,:tmdb_id)""", additions,
-                )
-            next_sync = (datetime.now(timezone.utc) + timedelta(hours=int(playlist["sync_interval_hours"] or 24))).isoformat()
-            message = f"增量同步完成，新增 {len(additions)} 部，保留现有 {len(existing)} 部"
-            conn.execute(
-                """UPDATE playlists SET source_name=?,last_synced_at=?,next_sync_at=?,last_sync_status='completed',last_sync_message=?
-                   WHERE id=?""", (source.get("source_name"), utc_now(), next_sync, message, playlist_id),
-            )
-        add_notification("片单来源已同步", f"{playlist['name']}：{message}", "success")
-        if additions and playlist["automation_enabled"]:
-            await start_playlist_automation(playlist_id, "sync")
-        return {"id": playlist_id, "added": len(additions), "message": message, "trigger": trigger}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        reason = safe_error(exc)
-        with connect() as conn:
-            conn.execute(
-                "UPDATE playlists SET last_sync_status='failed',last_sync_message=?,next_sync_at=? WHERE id=?",
-                (reason, (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), playlist_id),
-            )
-        add_notification("片单同步失败", f"{playlist['name']}：{reason}", "error")
-        raise
-
-
-async def start_playlist_automation(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
-    with connect() as conn:
-        playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-        if not playlist:
-            raise HTTPException(404, "片单不存在")
-        active = conn.execute(
-            "SELECT id FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1", (playlist_id,),
-        ).fetchone()
-        if active:
-            return {"id": int(active["id"]), "status": "running", "message": "新增影片处理任务正在运行"}
-        now = utc_now()
-        run_id = int(conn.execute(
-            "INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-            (playlist_id, trigger, "queued", "queued", now, now),
-        ).lastrowid)
-    running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
-    return {"id": run_id, "status": "queued", "message": "已开始识别并搜索未入库影片；不会自动下载"}
-
-
-async def sync_scheduler() -> None:
-    while True:
-        await asyncio.sleep(60)
-        cleanup_old_data()
-        now = utc_now()
-        with connect() as conn:
-            due = [int(row["id"]) for row in conn.execute(
-                """SELECT id FROM playlists WHERE sync_enabled=1 AND source_url IS NOT NULL AND source_url!=''
-                   AND (next_sync_at IS NULL OR next_sync_at<=?)""", (now,),
-            ).fetchall()]
-        for playlist_id in due:
-            try:
-                await sync_playlist_incremental(playlist_id, "schedule")
-            except Exception:
-                continue
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global scheduler_task
     initialize()
     load_runtime_settings()
     cleanup_old_data()
@@ -1215,14 +173,14 @@ async def startup() -> None:
             "UPDATE automation_runs SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
             (utc_now(),),
         )
-    scheduler_task = asyncio.create_task(sync_scheduler())
+    state.scheduler_task = asyncio.create_task(sync_scheduler())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    if scheduler_task:
-        scheduler_task.cancel()
-        await asyncio.gather(scheduler_task, return_exceptions=True)
+    if state.scheduler_task:
+        state.scheduler_task.cancel()
+        await asyncio.gather(state.scheduler_task, return_exceptions=True)
 
 
 @app.get("/api/health")
@@ -1325,18 +283,6 @@ async def get_config() -> dict[str, str]:
     return config_values()
 
 
-def validated_base_url(value: str, label: str, required: bool) -> str:
-    normalized = value.strip().rstrip("/")
-    if not normalized:
-        if required:
-            raise HTTPException(422, f"{label}不能为空")
-        return ""
-    parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise HTTPException(422, f"{label}必须以 http:// 或 https:// 开头")
-    if parsed.username or parsed.password:
-        raise HTTPException(422, f"{label}不能包含用户名或密码")
-    return normalized
 
 
 @app.get("/api/settings")
@@ -2208,34 +1154,6 @@ async def task_attempts(task_id: int, limit: int = 500) -> dict[str, Any]:
         ).fetchall()
     return {"items": list(reversed(rows_to_dicts(rows))), "sites": rows_to_dicts(summary_rows)}
 
-
-def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, int]:
-    with connect() as conn:
-        source = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
-        if not source:
-            raise HTTPException(404, "搜索任务不存在")
-        site_ids: list[int] = []
-        item_ids: list[int] = []
-        if failed_only:
-            failed = conn.execute(
-                """SELECT DISTINCT site_id,playlist_item_id FROM search_attempts
-                   WHERE task_id=? AND status='failed' AND site_id IS NOT NULL""", (task_id,),
-            ).fetchall()
-            site_ids = sorted({int(row["site_id"]) for row in failed})
-            item_ids = sorted({int(row["playlist_item_id"]) for row in failed})
-            if not failed:
-                raise HTTPException(422, "该任务没有可重试的站点失败记录")
-        total = len(item_ids) if failed_only else int(source["total"])
-        now = utc_now()
-        new_id = conn.execute(
-            """INSERT INTO search_tasks(
-                 playlist_id,range_start,range_end,status,total,parent_task_id,trigger,site_ids_json,item_ids_json,created_at,updated_at
-               ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-            (source["playlist_id"], source["range_start"], source["range_end"], "queued", total, task_id,
-             "retry" if failed_only else "restart", json_value(site_ids) if site_ids else None,
-             json_value(item_ids) if item_ids else None, now, now),
-        ).lastrowid
-    return int(new_id), total
 
 
 @app.post("/api/search-tasks/{task_id}/retry")

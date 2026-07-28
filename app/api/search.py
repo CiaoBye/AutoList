@@ -1,0 +1,283 @@
+"""AutoList HTTP routes."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import math
+import re
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, Response
+
+from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
+from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
+from ..config import load_runtime_settings, save_runtime_settings, settings
+from ..cookiecloud import cookie_for_host, cookie_groups
+from ..database import config_values, connect, json_value, save_config
+from ..list_sources import PlaylistSourceFetcher
+from ..schemas import (
+    ConfigPayload,
+    CookieCloudUploadPayload,
+    ImportPayload,
+    PlaylistAutomationPayload,
+    PlaylistOrderPayload,
+    PlaylistSyncPayload,
+    PlaylistUpdatePayload,
+    RuntimeSettingsPayload,
+    ScorePreviewPayload,
+    SiteCookiePayload,
+    SitePayload,
+    TaskPayload,
+)
+from ..security import safe_error, sanitize_sensitive_text
+from ..services.automation import start_playlist_automation, sync_playlist_incremental, update_recognition_task
+from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
+from ..services.history import projected_download_history
+from ..services.imports import normalize_import_items, resolve_import
+from ..services.library import run_library_scan
+from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
+from ..services.search import (
+    create_followup_search_task,
+    run_search,
+    searchable_playlist_items,
+)
+from ..services.sites import domain_match, moviepilot_site_snapshot, resolve_site_adapter, test_site_config
+from ..state import (
+    enforce_cookiecloud_rate_limit,
+    enforce_search_task_capacity,
+    moviepilot_site_ids,
+    poster_cache,
+    raw_candidates,
+    require_configured_cookiecloud_uuid,
+    running_automation_tasks,
+    running_library_tasks,
+    running_recognition_tasks,
+    running_tasks,
+    site_icon_cache,
+)
+from ..util import (
+    decode_cookiecloud_body,
+    first_value,
+    raster_image_media_type,
+    resource_fingerprint,
+    rows_to_dicts,
+    secret_free,
+    utc_now,
+    validate_remote_icon_url,
+    volume_factor_value,
+)
+
+router = APIRouter()
+
+@router.post("/api/search-tasks")
+async def create_task(payload: TaskPayload) -> dict[str, Any]:
+    enforce_search_task_capacity()
+    if payload.scope == "range" and payload.range_end < payload.range_start:
+        raise HTTPException(422, "结束序号不能小于起始序号")
+    item_ids: list[int] = []
+    if payload.scope == "pending":
+        queue = await searchable_playlist_items(payload.playlist_id, payload.count)
+        item_ids = [int(item["id"]) for item in queue["items"]]
+        if not item_ids:
+            raise HTTPException(422, "当前片单没有可搜索的未入库影片")
+        range_start = min(int(item["rank_no"]) for item in queue["items"])
+        range_end = max(int(item["rank_no"]) for item in queue["items"])
+    else:
+        range_start, range_end = payload.range_start, payload.range_end
+    with connect() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ?",
+            (payload.playlist_id, range_start, range_end),
+        ).fetchone()[0]
+        if not total:
+            raise HTTPException(422, "所选范围没有影片")
+        if not conn.execute("SELECT 1 FROM pt_sites WHERE enabled=1 AND search_enabled=1 LIMIT 1").fetchone():
+            raise HTTPException(422, "请先在站点配置中选择至少一个参与搜索的站点")
+        task_id = conn.execute(
+            """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,trigger,item_ids_json,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (payload.playlist_id, range_start, range_end, "queued", len(item_ids) or total,
+             "pending" if payload.scope == "pending" else "manual", json_value(item_ids) if item_ids else None,
+             utc_now(), utc_now()),
+        ).lastrowid
+    running_tasks[task_id] = asyncio.create_task(run_search(task_id))
+    return {"id": task_id, "status": "queued", "total": len(item_ids) or total, "scope": payload.scope}
+
+@router.get("/api/search-tasks")
+async def search_tasks(playlist_id: int | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 100))
+    with connect() as conn:
+        if playlist_id is None:
+            rows = conn.execute("SELECT * FROM search_tasks ORDER BY id DESC LIMIT ?", (safe_limit,)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM search_tasks WHERE playlist_id=? ORDER BY id DESC LIMIT ?",
+                (playlist_id, safe_limit),
+            ).fetchall()
+        result = rows_to_dicts(rows)
+        for task in result:
+            summary = conn.execute(
+                """SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS succeeded,
+                          SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+                   FROM search_attempts WHERE task_id=?""", (task["id"],),
+            ).fetchone()
+            task["attempt_summary"] = dict(summary)
+    return result
+
+@router.post("/api/search-tasks/{task_id}/cancel")
+async def cancel_task(task_id: int) -> dict[str, Any]:
+    task = running_tasks.get(task_id)
+    if task:
+        task.cancel()
+    with connect() as conn:
+        exists = conn.execute("SELECT 1 FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+    if not exists:
+        raise HTTPException(404, "搜索任务不存在")
+    update_task(task_id, status="cancelled")
+    return {"id": task_id, "status": "cancelled"}
+
+@router.get("/api/search-tasks/{task_id}")
+async def task_status(task_id: int) -> dict[str, Any]:
+    with connect() as conn:
+        task = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+        summary = conn.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS succeeded,
+                      SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+               FROM search_attempts WHERE task_id=?""", (task_id,),
+        ).fetchone()
+    if not task:
+        raise HTTPException(404, "搜索任务不存在")
+    result = dict(task)
+    result["attempt_summary"] = dict(summary)
+    return result
+
+@router.get("/api/search-tasks/{task_id}/attempts")
+async def task_attempts(task_id: int, limit: int = 500) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 2000))
+    with connect() as conn:
+        if not conn.execute("SELECT 1 FROM search_tasks WHERE id=?", (task_id,)).fetchone():
+            raise HTTPException(404, "搜索任务不存在")
+        rows = conn.execute(
+            """SELECT a.id,a.playlist_item_id,p.rank_no,p.original_title,a.site_id,a.site_name,
+                      a.attempt_no,a.status,a.result_count,a.duration_ms,a.error_code,a.error_message,a.finished_at
+               FROM search_attempts a JOIN playlist_items p ON p.id=a.playlist_item_id
+               WHERE a.task_id=? ORDER BY a.id DESC LIMIT ?""", (task_id, safe_limit),
+        ).fetchall()
+        summary_rows = conn.execute(
+            """SELECT site_id,site_name,COUNT(*) AS total,
+                      SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS succeeded,
+                      SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+                      CAST(AVG(duration_ms) AS INTEGER) AS average_ms
+               FROM search_attempts WHERE task_id=? GROUP BY site_id,site_name ORDER BY site_name""", (task_id,),
+        ).fetchall()
+    return {"items": list(reversed(rows_to_dicts(rows))), "sites": rows_to_dicts(summary_rows)}
+
+@router.post("/api/search-tasks/{task_id}/retry")
+async def retry_task(task_id: int) -> dict[str, Any]:
+    enforce_search_task_capacity()
+    new_id, total = create_followup_search_task(task_id, True)
+    running_tasks[new_id] = asyncio.create_task(run_search(new_id))
+    return {"id": new_id, "status": "queued", "total": total, "parent_task_id": task_id}
+
+@router.post("/api/search-tasks/{task_id}/restart")
+async def restart_task(task_id: int) -> dict[str, Any]:
+    enforce_search_task_capacity()
+    with connect() as conn:
+        source = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+    if not source:
+        raise HTTPException(404, "搜索任务不存在")
+    if source["status"] in {"queued", "running"}:
+        raise HTTPException(409, "任务仍在执行，无需重新启动")
+    new_id, total = create_followup_search_task(task_id, False)
+    running_tasks[new_id] = asyncio.create_task(run_search(new_id))
+    return {"id": new_id, "status": "queued", "total": total, "parent_task_id": task_id}
+
+@router.get("/api/search-tasks/{task_id}/logs")
+async def task_logs(task_id: int, limit: int = 200) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 500))
+    with connect() as conn:
+        if not conn.execute("SELECT 1 FROM search_tasks WHERE id=?", (task_id,)).fetchone():
+            raise HTTPException(404, "搜索任务不存在")
+        rows = conn.execute(
+            "SELECT id,level,stage,message,created_at FROM search_task_logs WHERE task_id=? ORDER BY id DESC LIMIT ?",
+            (task_id, safe_limit),
+        ).fetchall()
+    return list(reversed(rows_to_dicts(rows)))
+
+@router.get("/api/candidates")
+async def candidates(task_id: int) -> list[dict[str, Any]]:
+    with connect() as conn:
+        task = conn.execute("SELECT parent_task_id FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+        if not task:
+            raise HTTPException(404, "搜索任务不存在")
+        task_ids = [task_id]
+        if task["parent_task_id"]:
+            task_ids.append(int(task["parent_task_id"]))
+        placeholders = ",".join("?" for _ in task_ids)
+        rows = conn.execute(
+            f"""SELECT c.*, p.rank_no, p.original_title, p.year, p.chinese_title,
+                      p.tmdb_title,p.tmdb_original_title,p.tmdb_year,p.tmdb_imdb_id,
+                      CASE WHEN cart.candidate_id IS NULL THEN 0 ELSE 1 END AS in_cart
+               FROM candidates c JOIN playlist_items p ON p.id=c.playlist_item_id
+               LEFT JOIN cart_items cart ON cart.candidate_id=c.id
+               WHERE c.task_id IN ({placeholders}) ORDER BY p.rank_no, c.ranking""",  # nosec B608
+            task_ids,
+        ).fetchall()
+        site_rows = conn.execute("SELECT name,priority,icon_url FROM pt_sites").fetchall()
+    site_profiles = {str(row["name"]).lower(): dict(row) for row in site_rows}
+    result = rows_to_dicts(rows)
+    for item in result:
+        item["context_available"] = item["id"] in raw_candidates
+        try:
+            item["metadata"] = json.loads(item.pop("metadata_json"))
+        except (TypeError, json.JSONDecodeError):
+            item["metadata"] = {}
+        try:
+            item["score_breakdown"] = json.loads(item.get("score_breakdown") or "[]")
+        except json.JSONDecodeError:
+            item["score_breakdown"] = []
+        item["resource_key"] = item.get("resource_key") or resource_fingerprint(item["title"], item.get("size"))
+        profile = site_profiles.get(str(item.get("site_name") or "").lower(), {})
+        item["site_priority"] = int(profile.get("priority") or 100)
+        item["site_icon"] = profile.get("icon_url") or ""
+        factor = volume_factor_value(item["metadata"].get("volume_factor"))
+        labels = [str(label).lower() for label in item["metadata"].get("labels", [])]
+        item["volume_factor"] = factor
+        item["is_free"] = factor == 0 or any(label in ("free", "免费", "freeleech") for label in labels)
+    groups: dict[tuple[int, str], list[dict[str, Any]]] = {}
+    for item in result:
+        groups.setdefault((int(item["playlist_item_id"]), item["resource_key"]), []).append(item)
+    grouped: list[dict[str, Any]] = []
+    for options in groups.values():
+        options.sort(key=lambda item: (
+            item["site_priority"], 0 if item["is_free"] else 1,
+            item["volume_factor"],
+            -int(item.get("seeders") or 0), int(item.get("ranking") or 0),
+        ))
+        primary = dict(options[0])
+        primary["site_count"] = len(options)
+        primary["site_options"] = [{
+            "id": option["id"], "site_name": option.get("site_name"), "seeders": option.get("seeders"),
+            "size": option.get("size"), "is_free": option["is_free"], "site_priority": option["site_priority"],
+            "volume_factor": option["volume_factor"], "labels": option["metadata"].get("labels", []),
+            "in_cart": option.get("in_cart", 0), "context_available": option["context_available"],
+        } for option in options]
+        factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
+        primary["site_selection_reason"] = (
+            f"站点优先级 {primary['site_priority']} · {factor_label} · {int(primary.get('seeders') or 0)} 做种"
+        )
+        primary["in_cart"] = int(any(option.get("in_cart") for option in options))
+        grouped.append(primary)
+    grouped.sort(key=lambda item: (int(item["rank_no"] or 0), int(item.get("ranking") or 0)))
+    return grouped
+

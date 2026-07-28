@@ -2,7 +2,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`0.78`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。制作组识别内置 MoviePilot 兼容词表，支持一次性导入 MP 自定义词表后由 AutoList 独立维护。下载仍固定委托给 MoviePilot 的 DownloadChain，再由其提交 Transmission，保证分类目录与标签一致；下载历史会根据 MoviePilot、Transmission 与 Emby 的可验证结果显示“已提交、下载中、已整理/已入库、待入库、待确认或失败”。
+当前版本：`0.79`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。制作组识别内置 MoviePilot 兼容词表，支持一次性导入 MP 自定义词表后由 AutoList 独立维护。下载仍固定委托给 MoviePilot 的 DownloadChain，再由其提交 Transmission，保证分类目录与标签一致；下载历史会根据 MoviePilot、Transmission 与 Emby 的可验证结果显示“已提交、下载中、已整理/已入库、待入库、待确认或失败”。
 
 NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时设置保存在 `/mnt/user/appdata/Autolist/data`，更新镜像不会丢失。
 
@@ -38,6 +38,13 @@ NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时�
 4. 开启“转发 MoviePilot”后，AutoList 收到的同一份端到端加密数据会转发至 `<MoviePilot 地址>/cookiecloud/update`，Chrome 扩展无需维护两个服务地址。MoviePilot 需启用其本地 CookieCloud 服务。
 
 Compose 仅启动 `autolist` 一个容器。前端静态文件、FastAPI 和 SQLite 都在这个容器中；数据库持久化到 `./data/playlist-autodown.db`。
+
+## 代码结构
+
+- `app/main.py`：FastAPI 入口、鉴权中间件、路由注册与测试 re-export。
+- `app/api/`：按域划分的 HTTP 路由（system / sites / playlists / search / cart）。
+- `app/services/`、`app/domain/`：业务编排与纯领域逻辑。
+- `app/static/js/core.js` + `app.js`（ES module）：前端共享工具与页面逻辑。
 
 ## 开发约定
 

@@ -1,0 +1,15 @@
+services:
+  autolist:
+    build: .
+    image: autolist:0.74
+    container_name: autolist
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${APP_PORT:-8585}:8080"
+    extra_hosts:
+      # 中国大陆网络常见 DNS 污染；仅修正 TMDB API，不依赖 MoviePilot Hosts 插件。
+      - "api.themoviedb.org:65.8.20.119"
+    volumes:
+      # compose.yml 部署在 /mnt/user/appdata/Autolist，下列数据会持久化到其 data 子目录。
+      - ./data:/data

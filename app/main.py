@@ -1,11 +1,8 @@
 import asyncio
 import base64
-import gzip
-import ipaddress
 import json
 import math
 import re
-import socket
 import sqlite3
 import time
 import uuid
@@ -38,11 +35,37 @@ from .candidate_policy import merge_custom_rules, normalized_policy, release_gro
 from .config import access_token, access_token_required, load_runtime_settings, save_runtime_settings, settings
 from .cookiecloud import cookie_for_host, cookie_groups, decrypt_cookiecloud
 from .database import config_values, connect, initialize, json_value, save_config, cleanup_old_data
+from .domain.titles import (
+    candidate_identity,
+    canonical_item_original_title,
+    canonical_item_title,
+    canonical_item_year,
+    informative_title_tokens,
+    is_transmission_downloading,
+    normalized_download_name,
+    normalized_title_text,
+    strict_torrent_matches_item,
+    title_tokens,
+    torrent_matches_item,
+)
 from .list_sources import PlaylistSourceFetcher, parse_csv_items
 from .security import extract_access_token, safe_error, sanitize_sensitive_text, token_matches
+from .services.history import projected_download_history
+from .util import (
+    MAX_COOKIECLOUD_BODY,
+    decode_cookiecloud_body,
+    first_value,
+    raster_image_media_type,
+    resource_fingerprint,
+    rows_to_dicts,
+    secret_free,
+    utc_now,
+    validate_remote_icon_url,
+    volume_factor_value,
+)
 
 
-app = FastAPI(title="AutoList", version="0.75")
+app = FastAPI(title="AutoList", version="0.76")
 app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
 
 # 公开路径在启用 AUTOLIST_ACCESS_TOKEN 时仍可访问；CookieCloud 协议路径另做 KEY 绑定。
@@ -219,10 +242,6 @@ class PlaylistSyncPayload(BaseModel):
     interval_hours: int = Field(default=24, ge=1, le=720)
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def cookiecloud_file(uuid_value: str) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9_-]{5,128}", uuid_value):
         raise HTTPException(422, "CookieCloud 用户 KEY 格式无效")
@@ -244,101 +263,6 @@ def stored_cookiecloud_payload() -> dict[str, Any]:
         raise
     except Exception as exc:
         raise HTTPException(422, f"CookieCloud 解密失败：{safe_error(exc)}") from exc
-
-
-def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
-    return [dict(row) for row in rows]
-
-
-def secret_free(value: Any) -> Any:
-    if isinstance(value, list):
-        return [secret_free(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    blocked = re.compile(r"(url|cookie|passkey|token|authorization|api.?key|header)", re.I)
-    return {key: secret_free(item) for key, item in value.items() if not blocked.search(key)}
-
-
-def raster_image_media_type(content: bytes) -> str | None:
-    """Identify supported raster icon formats by magic bytes; remote SVG/HTML is never re-served."""
-    if content.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if content.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if content.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
-        return "image/webp"
-    if content.startswith(b"\x00\x00\x01\x00"):
-        return "image/x-icon"
-    return None
-
-
-MAX_COOKIECLOUD_BODY = 40 * 1024 * 1024
-
-
-def decode_cookiecloud_body(content: bytes, content_encoding: str, limit: int = MAX_COOKIECLOUD_BODY) -> bytes:
-    """Bound compressed and expanded CookieCloud uploads before JSON validation."""
-    if len(content) > limit:
-        raise HTTPException(413, "CookieCloud 上传数据过大")
-    if "gzip" in content_encoding.lower():
-        try:
-            with gzip.GzipFile(fileobj=BytesIO(content)) as compressed:
-                content = compressed.read(limit + 1)
-        except (OSError, EOFError) as exc:
-            raise HTTPException(422, "CookieCloud gzip 数据无效") from exc
-    if len(content) > limit:
-        raise HTTPException(413, "CookieCloud 上传数据过大")
-    return content
-
-
-async def validate_remote_icon_url(source: str, site_base_url: str) -> None:
-    """Allow configured-site icons while preventing cross-host requests into private networks."""
-    parsed = urlparse(source)
-    base = urlparse(site_base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-        raise RuntimeError("图标地址无效")
-    if parsed.hostname.lower() == (base.hostname or "").lower():
-        return
-    try:
-        addresses = await asyncio.to_thread(socket.getaddrinfo, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
-    except socket.gaierror as exc:
-        raise RuntimeError("图标域名无法解析") from exc
-    if not addresses or any(not ipaddress.ip_address(address[4][0]).is_global for address in addresses):
-        raise RuntimeError("图标地址不允许访问内网")
-
-
-def first_value(data: dict[str, Any], names: tuple[str, ...], default: Any = None) -> Any:
-    for name in names:
-        if data.get(name) not in (None, ""):
-            return data[name]
-    return default
-
-
-def resource_fingerprint(title: str, size: int | None = None) -> str:
-    normalized = re.sub(r"\b(?:free|2x|50%|30%)\b", "", title.lower())
-    normalized = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", normalized)
-    size_bucket = round(int(size or 0) / (256 * 1024 * 1024)) if size else 0
-    return f"{normalized}:{size_bucket}"
-
-
-def volume_factor_value(value: Any) -> float:
-    if value is None:
-        return 1.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip().lower()
-    if text in ("free", "免费", "freeleech"):
-        return 0.0
-    if text.endswith("%"):
-        try:
-            return float(text[:-1]) / 100
-        except ValueError:
-            return 1.0
-    try:
-        return float(text)
-    except ValueError:
-        return 1.0
 
 
 def parse_xlsx(encoded: str) -> tuple[str | None, list[dict[str, Any]]]:
@@ -530,274 +454,6 @@ def persist_tmdb_item(item_id: int, media: dict[str, Any], fallback_imdb: str | 
                WHERE id=?""",
             (*values, item_id),
         )
-
-
-def canonical_item_title(item: sqlite3.Row | dict[str, Any]) -> str:
-    return str(item["tmdb_title"] or item["chinese_title"] or item["original_title"])
-
-
-def canonical_item_original_title(item: sqlite3.Row | dict[str, Any]) -> str:
-    return str(item["tmdb_original_title"] or item["original_title"])
-
-
-def canonical_item_year(item: sqlite3.Row | dict[str, Any]) -> int | None:
-    value = item["tmdb_year"] or item["year"]
-    return int(value) if value else None
-
-
-def normalized_title_text(value: Any) -> str:
-    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value or "").casefold())
-
-
-def title_tokens(value: Any) -> set[str]:
-    return {
-        token for token in re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", str(value or "").casefold()).split()
-        if len(token) > 1 or token.isdigit()
-    }
-
-
-TITLE_STOP_WORDS = {
-    "a", "an", "and", "at", "by", "da", "das", "de", "del", "der", "die", "di", "dos",
-    "for", "from", "in", "la", "le", "les", "of", "on", "or", "the", "to", "un", "una",
-    "upon", "with", "once", "time",
-}
-
-
-def informative_title_tokens(value: Any) -> set[str]:
-    return title_tokens(value) - TITLE_STOP_WORDS
-
-
-def strict_torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str) -> bool:
-    """Require a meaningful title token so shared words cannot identify another movie."""
-    candidate = normalized_title_text(torrent_title)
-    candidate_tokens = title_tokens(torrent_title)
-    if not candidate or not candidate_tokens:
-        return False
-    variants = [
-        item["tmdb_original_title"] if item["tmdb_original_title"] else None,
-        item["tmdb_title"] if item["tmdb_title"] else None,
-        item["original_title"], item["chinese_title"] if item["chinese_title"] else None,
-    ]
-    for variant in variants:
-        normalized = normalized_title_text(variant)
-        tokens = informative_title_tokens(variant)
-        if tokens and tokens.issubset(candidate_tokens):
-            return True
-        if normalized and normalized in candidate and (not tokens or not any(token.isdigit() for token in tokens)):
-            return True
-    return False
-
-
-def torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str) -> bool:
-    candidate = normalized_title_text(torrent_title)
-    if not candidate:
-        return False
-    variants = [
-        item["tmdb_original_title"] if item["tmdb_original_title"] else None,
-        item["tmdb_title"] if item["tmdb_title"] else None,
-        item["original_title"], item["chinese_title"] if item["chinese_title"] else None,
-    ]
-    candidate_tokens = title_tokens(torrent_title)
-    for variant in variants:
-        normalized = normalized_title_text(variant)
-        tokens = title_tokens(variant)
-        if tokens and tokens.issubset(candidate_tokens):
-            return True
-        if normalized and normalized in candidate and (not tokens or not any(token.isdigit() for token in tokens)):
-            return True
-    return False
-
-
-def candidate_identity(item: sqlite3.Row | dict[str, Any], media: dict[str, Any], torrent_title: str) -> tuple[bool, str | None]:
-    target_year = str(media.get("year") or canonical_item_year(item) or "").strip()
-    years = set(re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", torrent_title))
-    if target_year and years and target_year not in years:
-        return False, f"年份不匹配：目标 {target_year}，资源包含 {', '.join(sorted(years))}"
-    if re.search(r"(?i)(?:trilogy|collection|box[ ._-]*set|complete|pack|合集|系列|全集)", torrent_title):
-        return False, "疑似合集或系列资源"
-    if not strict_torrent_matches_item(item, torrent_title):
-        return False, "片名不匹配：资源片名与目标影片不一致"
-    return True, None
-
-
-def normalized_download_name(value: Any) -> str:
-    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value or "").casefold())
-
-
-def is_transmission_downloading(torrent: dict[str, Any]) -> bool:
-    status = torrent.get("status")
-    try:
-        status_value = int(status)
-    except (TypeError, ValueError):
-        status_value = -1
-    try:
-        percent_done = float(torrent.get("percentDone") or 0)
-    except (TypeError, ValueError):
-        percent_done = 0
-    return status_value in {1, 2, 3, 4} and percent_done < 1
-
-
-DOWNLOAD_LIFECYCLE_LABELS = {
-    "submitted": "已提交",
-    "downloading": "下载中",
-    "pending_confirmation": "待确认",
-    "pending_library": "待入库",
-    "organized": "已整理/已入库",
-    "failed": "失败",
-}
-
-
-def _history_item_snapshot(row: dict[str, Any]) -> dict[str, Any] | None:
-    item_id = row.get("resolved_playlist_item_id")
-    if item_id is None:
-        return None
-    return {
-        "id": item_id,
-        "original_title": row.get("playlist_original_title"),
-        "chinese_title": row.get("playlist_chinese_title"),
-        "year": row.get("playlist_year"),
-        "tmdb_title": row.get("playlist_tmdb_title"),
-        "tmdb_original_title": row.get("playlist_tmdb_original_title"),
-        "tmdb_year": row.get("playlist_tmdb_year"),
-    }
-
-
-def _history_torrent_matches(row: dict[str, Any], torrent: dict[str, Any]) -> bool:
-    torrent_hash = str(torrent.get("hashString") or "").strip().casefold()
-    submission_hash = str(row.get("submission_hash") or "").strip().casefold()
-    if torrent_hash and submission_hash and torrent_hash == submission_hash:
-        return True
-    torrent_name = normalized_download_name(first_value(torrent, ("name", "torrent_name"), ""))
-    history_name = normalized_download_name(row.get("torrent_name"))
-    if torrent_name and history_name and torrent_name == history_name:
-        return True
-    item = row.get("_playlist_item")
-    return bool(item and strict_torrent_matches_item(item, str(first_value(torrent, ("name", "torrent_name"), ""))))
-
-
-def _active_history_matches(
-    histories: list[dict[str, Any]], torrents: list[dict[str, Any]],
-) -> tuple[set[int], set[int]]:
-    matched: set[int] = set()
-    ambiguous: set[int] = set()
-    eligible = [row for row in histories if bool(row.get("success"))]
-    active_torrents = [torrent for torrent in torrents if is_transmission_downloading(torrent)]
-    for torrent in active_torrents:
-        torrent_hash = str(torrent.get("hashString") or "").strip().casefold()
-        hash_matches = [
-            row for row in eligible
-            if torrent_hash and str(row.get("submission_hash") or "").strip().casefold() == torrent_hash
-        ]
-        if len(hash_matches) == 1:
-            matched.add(int(hash_matches[0]["id"]))
-            continue
-        if len(hash_matches) > 1:
-            ambiguous.update(int(row["id"]) for row in hash_matches)
-            continue
-        name = normalized_download_name(first_value(torrent, ("name", "torrent_name"), ""))
-        name_matches = [
-            row for row in eligible
-            if name and normalized_download_name(row.get("torrent_name")) == name
-        ]
-        if len(name_matches) == 1:
-            matched.add(int(name_matches[0]["id"]))
-            continue
-        if len(name_matches) > 1:
-            ambiguous.update(int(row["id"]) for row in name_matches)
-            continue
-        identity_matches = [row for row in eligible if _history_torrent_matches(row, torrent)]
-        if len(identity_matches) == 1:
-            matched.add(int(identity_matches[0]["id"]))
-        elif len(identity_matches) > 1:
-            ambiguous.update(int(row["id"]) for row in identity_matches)
-    return matched, ambiguous
-
-
-def _project_history_state(
-    row: dict[str, Any], matched_ids: set[int], ambiguous_ids: set[int],
-    transmission_error: bool, checked_at: str,
-) -> dict[str, Any]:
-    history_id = int(row["id"])
-    library_state = str(row.get("playlist_library_state") or "unknown")
-    if not bool(row.get("success")):
-        lifecycle_status, source, reason, next_action = (
-            "failed", "AutoList/MoviePilot", row.get("message") or "提交失败", "查看失败原因",
-        )
-        status_checked_at = row.get("created_at")
-    elif library_state == "in_library":
-        lifecycle_status, source, reason, next_action = (
-            "organized", "Emby", "Emby 已找到实体媒体", "无需操作",
-        )
-        status_checked_at = row.get("playlist_library_checked_at") or checked_at
-    elif library_state == "strm":
-        lifecycle_status, source, reason, next_action = (
-            "pending_library", "Emby", "Emby 已找到 .strm，实体媒体尚未确认", "刷新 Emby 状态",
-        )
-        status_checked_at = row.get("playlist_library_checked_at") or checked_at
-    elif history_id in matched_ids:
-        lifecycle_status, source, reason, next_action = (
-            "downloading", "Transmission", "Transmission 正在下载", "等待下游确认",
-        )
-        status_checked_at = checked_at
-    elif transmission_error or history_id in ambiguous_ids or (
-        library_state == "not_found" and row.get("playlist_library_checked_at")
-    ):
-        lifecycle_status, source, reason, next_action = (
-            "pending_confirmation", "Transmission/Emby", "暂时无法确认下游状态", "稍后刷新状态",
-        )
-        status_checked_at = row.get("playlist_library_checked_at") or checked_at
-    else:
-        lifecycle_status, source, reason, next_action = (
-            "submitted", "MoviePilot", "已提交给 MoviePilot，等待下游服务确认", "等待下游确认",
-        )
-        status_checked_at = row.get("created_at")
-    item = {key: value for key, value in row.items() if not key.startswith("_")}
-    for key in (
-        "resolved_playlist_item_id", "playlist_original_title", "playlist_chinese_title", "playlist_year",
-        "playlist_tmdb_title", "playlist_tmdb_original_title", "playlist_tmdb_year", "playlist_library_state",
-        "playlist_library_checked_at", "playlist_item_id", "submission_hash",
-    ):
-        item.pop(key, None)
-    item["lifecycle_status"] = lifecycle_status
-    item["status_label"] = DOWNLOAD_LIFECYCLE_LABELS[lifecycle_status]
-    item["status_source"] = source
-    item["status_reason"] = sanitize_sensitive_text(str(reason), 500)
-    item["status_checked_at"] = status_checked_at
-    item["next_action"] = next_action
-    if item.get("message"):
-        item["message"] = sanitize_sensitive_text(item["message"])
-    return item
-
-
-async def projected_download_history(limit: int = 200) -> list[dict[str, Any]]:
-    safe_limit = max(1, min(limit, 200))
-    with connect() as conn:
-        rows = conn.execute(
-            """SELECT h.*, COALESCE(h.playlist_item_id,c.playlist_item_id) AS resolved_playlist_item_id,
-                      p.original_title AS playlist_original_title,p.chinese_title AS playlist_chinese_title,
-                      p.year AS playlist_year,p.tmdb_title AS playlist_tmdb_title,
-                      p.tmdb_original_title AS playlist_tmdb_original_title,p.tmdb_year AS playlist_tmdb_year,
-                      p.library_state AS playlist_library_state,p.library_checked_at AS playlist_library_checked_at
-               FROM download_history h
-               LEFT JOIN candidates c ON c.id=h.candidate_id
-               LEFT JOIN playlist_items p ON p.id=COALESCE(h.playlist_item_id,c.playlist_item_id)
-               ORDER BY h.id DESC LIMIT ?""",
-            (safe_limit,),
-        ).fetchall()
-    histories = rows_to_dicts(rows)
-    if not histories:
-        return []
-    for row in histories:
-        row["_playlist_item"] = _history_item_snapshot(row)
-    transmission_error = False
-    try:
-        torrents = await asyncio.wait_for(TransmissionClient().current_downloads(), timeout=6)
-    except Exception:
-        torrents = []
-        transmission_error = True
-    matched_ids, ambiguous_ids = _active_history_matches(histories, torrents)
-    checked_at = utc_now()
-    return [_project_history_state(row, matched_ids, ambiguous_ids, transmission_error, checked_at) for row in histories]
 
 
 async def searchable_playlist_items(playlist_id: int, limit: int | None = None) -> dict[str, Any]:

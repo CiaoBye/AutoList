@@ -61,7 +61,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         imdb_match = {"id": 101, "title": "Exact", "original_title": "Exact", "release_date": "2001-01-01"}
         tmdb = AsyncMock()
         tmdb.find_by_imdb.return_value = [imdb_match]
-        with patch.object(main, "TMDBClient", return_value=tmdb), patch.object(main, "AIRecognitionClient") as ai_type:
+        with patch("app.services.recognition.TMDBClient", return_value=tmdb), patch("app.services.recognition.AIRecognitionClient") as ai_type:
             result = await main.recognize_movie("Exact", 2001, "tt0000001")
         self.assertEqual(result["id"], 101)
         tmdb.search_movie.assert_not_awaited()
@@ -72,7 +72,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         tmdb.search_movie.side_effect = [[], [{"id": 202, "title": "Corrected", "original_title": "Corrected", "release_date": "2002-02-02"}]]
         ai = AsyncMock()
         ai.suggest.return_value = {"original_title": "Corrected", "year": 2002}
-        with patch.object(main, "TMDBClient", return_value=tmdb), patch.object(main, "AIRecognitionClient", return_value=ai):
+        with patch("app.services.recognition.TMDBClient", return_value=tmdb), patch("app.services.recognition.AIRecognitionClient", return_value=ai):
             result = await main.recognize_movie("Wrong", 2002, "tt0000002")
         self.assertEqual(result["id"], 202)
         self.assertEqual(tmdb.search_movie.await_count, 2)
@@ -196,9 +196,9 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 "volume_factor": 0 if site["name"] == "Beta" else 1,
             }]
 
-        with patch.object(main, "recognize_movie", AsyncMock(return_value=media)), \
-             patch.object(main, "library_details", AsyncMock(return_value=("not_found", None, None))), \
-             patch.object(main.NexusPHPClient, "search", new=search):
+        with patch("app.services.search.recognize_movie", AsyncMock(return_value=media)), \
+             patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.services.search.NexusPHPClient.search", new=search):
             await main.run_search(task_id)
 
         task = await main.task_status(task_id)

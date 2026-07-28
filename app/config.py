@@ -7,6 +7,14 @@ from typing import Any
 
 REDACTED_SECRET = str()
 
+# 仅从环境变量读取，不写入 runtime-settings.json，避免被设置页覆盖。
+def access_token() -> str:
+    return os.getenv("AUTOLIST_ACCESS_TOKEN", "").strip()
+
+
+def access_token_required() -> bool:
+    return bool(access_token())
+
 
 @dataclass
 class Settings:
@@ -82,6 +90,7 @@ class Settings:
             "tr_password": REDACTED_SECRET,
             "tr_password_configured": bool(self.tr_password),
             "dashboard_random_posters": self.dashboard_random_posters,
+            "access_token_required": access_token_required(),
         }
 
 

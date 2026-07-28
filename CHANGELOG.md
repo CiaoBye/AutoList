@@ -2,6 +2,20 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 0.78 - 2026-07-28
+
+### 调整
+
+- Compose **移除**写死的 `api.themoviedb.org` `extra_hosts`；大陆访问改以「代理 + TMDB 走代理」为主，hosts 改为可选自建覆盖。
+- FastAPI 生命周期改为 `lifespan`，替换已弃用的 `on_event(startup/shutdown)`。
+- 设置页增加「本机访问令牌」保存/清除，展示服务端是否启用 `AUTOLIST_ACCESS_TOKEN`；令牌仍只存在浏览器，不写回服务器。
+
+### 验证
+
+- `python3 -m compileall -q app`
+- `node --check app/static/app.js`
+- `python3 -m unittest discover -s tests -v`
+
 ## 0.77 - 2026-07-28
 
 ### 工程

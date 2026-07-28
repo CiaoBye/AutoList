@@ -618,6 +618,16 @@ async function loadSettings() {
   $("#settings-proxy-status").textContent = runtime.outbound_proxy_configured ? "已配置" : "未配置";
   $("#settings-tmdb-proxy").checked = Boolean(runtime.tmdb_proxy_enabled);
   $("#settings-pt-proxy").checked = Boolean(runtime.pt_proxy_enabled);
+  const tokenRequired = Boolean(runtime.access_token_required);
+  const localToken = getAccessToken();
+  $("#settings-access-token").value = localToken;
+  $("#settings-access-token-status").textContent = tokenRequired
+    ? (localToken ? "服务端已启用 · 本机已保存" : "服务端已启用 · 本机未保存")
+    : (localToken ? "服务端未启用 · 本机有缓存" : "服务端未启用");
+  $("#settings-access-token-status").className = tokenRequired && localToken ? "ok" : tokenRequired ? "error" : "";
+  $("#settings-access-token-hint").textContent = tokenRequired
+    ? "服务端已设置 AUTOLIST_ACCESS_TOKEN。在此保存的值只存在本机浏览器，不会写回服务器。"
+    : "服务端未启用访问令牌。若之后开启，可在此预先保存本机令牌。";
   $("#settings-ai-url").value = runtime.ai_base_url || "";
   $("#settings-ai-key").value = runtime.ai_api_key || "";
   $("#settings-ai-model").value = runtime.ai_model || "";
@@ -1058,6 +1068,29 @@ $("#save-settings").addEventListener("click", async () => {
     output.className = "inline-message error";
   } finally {
     setButtonLoading(button, false);
+  }
+});
+
+$("#settings-access-token-save")?.addEventListener("click", async () => {
+  setAccessToken($("#settings-access-token").value);
+  showToast(getAccessToken() ? "本机访问令牌已保存" : "本机访问令牌已清空");
+  try {
+    await loadSettings();
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+$("#settings-access-token-clear")?.addEventListener("click", async () => {
+  setAccessToken("");
+  $("#settings-access-token").value = "";
+  showToast("本机访问令牌已清除");
+  try {
+    await loadSettings();
+  } catch (error) {
+    /* server may require token again */
+    $("#settings-access-token-status").textContent = "本机已清除";
+    $("#settings-access-token-status").className = "";
   }
 });
 

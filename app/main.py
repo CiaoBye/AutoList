@@ -8,9 +8,10 @@ import json
 import math
 import re
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
 import httpx
@@ -114,7 +115,38 @@ from .util import (
 # Compatibility re-exports used by unit tests (`from app import main`).
 from .clients import MTeamClient, NexusPHPClient, RSSClient, TorznabClient  # noqa: F401
 
-app = FastAPI(title="AutoList", version="0.77")
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    initialize()
+    load_runtime_settings()
+    cleanup_old_data()
+    with connect() as conn:
+        conn.execute(
+            "UPDATE search_tasks SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
+            (utc_now(),),
+        )
+        conn.execute(
+            "UPDATE recognition_tasks SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
+            (utc_now(),),
+        )
+        conn.execute(
+            "UPDATE library_scan_tasks SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
+            (utc_now(),),
+        )
+        conn.execute(
+            "UPDATE automation_runs SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
+            (utc_now(),),
+        )
+    state.scheduler_task = asyncio.create_task(sync_scheduler())
+    try:
+        yield
+    finally:
+        if state.scheduler_task:
+            state.scheduler_task.cancel()
+            await asyncio.gather(state.scheduler_task, return_exceptions=True)
+
+
+app = FastAPI(title="AutoList", version="0.78", lifespan=lifespan)
 app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
 
 
@@ -148,39 +180,6 @@ def validated_base_url(value: str, label: str, required: bool) -> str:
     if parsed.username or parsed.password:
         raise HTTPException(422, f"{label}不能包含用户名或密码")
     return normalized
-
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    initialize()
-    load_runtime_settings()
-    cleanup_old_data()
-    with connect() as conn:
-        conn.execute(
-            "UPDATE search_tasks SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
-            (utc_now(),),
-        )
-        conn.execute(
-            "UPDATE recognition_tasks SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
-            (utc_now(),),
-        )
-        conn.execute(
-            "UPDATE library_scan_tasks SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
-            (utc_now(),),
-        )
-        conn.execute(
-            "UPDATE automation_runs SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
-            (utc_now(),),
-        )
-    state.scheduler_task = asyncio.create_task(sync_scheduler())
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    if state.scheduler_task:
-        state.scheduler_task.cancel()
-        await asyncio.gather(state.scheduler_task, return_exceptions=True)
 
 
 @app.get("/api/health")

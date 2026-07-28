@@ -1,5 +1,9 @@
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => [...document.querySelectorAll(selector)];
+import {
+  $, $$, api, escapeHtml, safeExternalUrl, getAccessToken, setAccessToken,
+  formatSize, formatTime, showToast, setButtonLoading, fileToBase64,
+  taskPillClass, lifecycleStatusClass, lifecycleStatusIcon,
+  HISTORY_STATUS_OPTIONS, historyRowHtml, filterHistoryItems, candidateEmptyState,
+} from "./js/core.js";
 
 let activeTask = null;
 let candidateCache = [];
@@ -9,7 +13,6 @@ let candidatePolicyCache = null;
 let currentPage = "dashboard";
 let taskTimer = null;
 let activeTaskState = null;
-let toastTimer = null;
 let booting = true;
 let selectedPlaylistId = null;
 let expandedPlaylistId;
@@ -56,135 +59,6 @@ const taskLabels = {
   cancelled: "已取消",
   interrupted: "已中断",
 };
-
-const escapeHtml = (value) => String(value ?? "")
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
-
-const safeExternalUrl = (value) => {
-  try {
-    const url = new URL(String(value ?? ""));
-    return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
-  } catch {
-    return "#";
-  }
-};
-
-const ACCESS_TOKEN_STORAGE_KEY = "autolist-access-token";
-
-const getAccessToken = () => {
-  try {
-    return String(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || "").trim();
-  } catch {
-    return "";
-  }
-};
-
-const setAccessToken = (token) => {
-  const value = String(token || "").trim();
-  try {
-    if (value) localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, value);
-    else localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  } catch {
-    /* private mode */
-  }
-};
-
-const promptAccessToken = (message) => {
-  const next = window.prompt(message || "服务已启用访问令牌，请输入 AUTOLIST_ACCESS_TOKEN", getAccessToken());
-  if (next === null) return null;
-  setAccessToken(next);
-  return getAccessToken();
-};
-
-const api = async (path, options = {}, allowRetry = true) => {
-  const method = String(options.method || "GET").toUpperCase();
-  const headers = {"Content-Type": "application/json", ...(options.headers || {})};
-  const token = getAccessToken();
-  if (token) headers["X-AutoList-Token"] = token;
-  const response = await fetch(path, {
-    cache: method === "GET" ? "no-store" : undefined,
-    ...options,
-    headers,
-  });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try { data = JSON.parse(text); }
-    catch { data = {detail: response.ok ? "服务返回了无法识别的数据" : `请求失败（${response.status}）`}; }
-  }
-  if (response.status === 401 && allowRetry && path.startsWith("/api/") && path !== "/api/health") {
-    const entered = promptAccessToken(data.detail || "需要有效的访问令牌");
-    if (entered) return api(path, options, false);
-  }
-  if (!response.ok) throw new Error(data.detail || data.message || `请求失败（${response.status}）`);
-  return data;
-};
-
-const formatSize = (bytes) => {
-  if (!bytes) return "0 GB";
-  const gb = bytes / 1024 / 1024 / 1024;
-  return `${gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)} GB`;
-};
-
-const formatTime = (value) => {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return escapeHtml(value);
-  return new Intl.DateTimeFormat("zh-CN", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}).format(parsed);
-};
-
-const showToast = (message) => {
-  const toast = $("#toast");
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
-};
-
-const setButtonLoading = (button, loading, text) => {
-  if (!button.dataset.label) button.dataset.label = button.textContent;
-  button.disabled = loading;
-  button.textContent = loading ? text : button.dataset.label;
-};
-
-const fileToBase64 = async (file) => {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  const chunk = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
-  }
-  return btoa(binary);
-};
-
-const taskPillClass = (status) => {
-  if (["queued", "running"].includes(status)) return "pill-running";
-  if (["completed", "partial"].includes(status)) return "pill-success";
-  if (["failed", "cancelled", "interrupted"].includes(status)) return "pill-error";
-  return "pill-neutral";
-};
-
-const lifecycleStatusClass = (status) => ({
-  organized: "organized",
-  downloading: "downloading",
-  pending_library: "pending",
-  pending_confirmation: "pending",
-  submitted: "submitted",
-  failed: "failed",
-}[status] || "pending");
-
-const lifecycleStatusIcon = (status) => ({
-  organized: "✓",
-  downloading: "↓",
-  pending_library: "◌",
-  pending_confirmation: "?",
-  submitted: "→",
-  failed: "×",
-}[status] || "?");
 
 async function refreshPageData(page) {
   if (page === "dashboard") {
@@ -479,18 +353,7 @@ function renderCandidates() {
   const eligibleCount = candidateCache.filter((item) => item.eligibility !== "excluded").length;
   $("#metric-candidates").textContent = eligibleCount;
   if (!filtered.length) {
-    const taskStatus = activeTaskState?.status;
-    const hasFailures = Number(activeTaskState?.attempt_summary?.failed || 0) > 0;
-    const recoverable = ["partial", "failed", "interrupted", "cancelled"].includes(taskStatus);
-    const heading = candidateCache.length
-      ? "没有符合筛选的候选"
-      : taskStatus === "partial" && hasFailures ? "部分站点搜索失败"
-        : ["failed", "interrupted", "cancelled"].includes(taskStatus) ? "搜索任务未完成" : "等待搜索结果";
-    const copy = candidateCache.length
-      ? "切换筛选条件查看其他候选。"
-      : taskStatus === "partial" && hasFailures ? "可以只重试失败站点，或重新搜索整项。"
-        : ["failed", "interrupted", "cancelled"].includes(taskStatus) ? "重新搜索整项以获得新的候选结果。" : "选择片单和序号范围，候选会在这里实时出现。";
-    const actions = recoverable ? `<div class="empty-state-actions">${hasFailures ? '<button class="button button-secondary" data-task-action="retry">重试失败站点</button>' : ""}<button class="button button-primary" data-task-action="restart">重新搜索整项</button></div>` : "";
+    const {heading, copy, actions} = candidateEmptyState({candidateCache, activeTaskState, currentFilter});
     $("#candidates").innerHTML = `<div class="empty-state"><span>⌕</span><strong>${heading}</strong><p>${copy}</p>${actions}</div>`;
     return;
   }
@@ -569,13 +432,24 @@ async function recoverLatestTask() {
   await refreshCandidates(true);
 }
 
+let historyCache = [];
+let historyStatusFilter = "all";
+
+function renderHistoryTable() {
+  const filtered = filterHistoryItems(historyCache, historyStatusFilter).slice(0, 50);
+  const emptyLabel = historyCache.length ? "没有符合筛选的记录" : "暂无下载历史";
+  $("#history").innerHTML = filtered.length
+    ? filtered.map(historyRowHtml).join("")
+    : `<tr><td colspan='4'><div class='empty-state compact'><strong>${emptyLabel}</strong></div></td></tr>`;
+  const filter = $("#history-status-filter");
+  if (filter && filter.value !== historyStatusFilter) filter.value = historyStatusFilter;
+}
+
 async function refreshHistory() {
-  const list = await api("/api/history");
-  $("#history").innerHTML = list.length
-    ? list.slice(0, 50).map((item) => { const status = item.lifecycle_status || (item.success ? "submitted" : "failed"); const label = item.status_label || (item.success ? "已提交" : "失败"); const detail = item.status_reason || item.message; return `<tr><td><span class="history-status ${lifecycleStatusClass(status)}" aria-label="${escapeHtml(label)}">${lifecycleStatusIcon(status)}</span><small class="history-status-label">${escapeHtml(label)}</small></td><td class="history-title"><strong>${escapeHtml(item.title)}</strong><small title="${escapeHtml(item.torrent_name)}">${escapeHtml(item.torrent_name)}</small>${detail ? `<small class="history-message ${status === "failed" ? "failed" : ""}">${escapeHtml(detail)}</small>` : ""}</td><td>${escapeHtml(item.site_name || "—")}</td><td>${formatTime(item.created_at)}</td></tr>`; }).join("")
-    : "<tr><td colspan='4'><div class='empty-state compact'><strong>暂无下载历史</strong></div></td></tr>";
-  $("#dashboard-history").innerHTML = list.length
-    ? list.slice(0, 2).map((item) => { const status = item.lifecycle_status || (item.success ? "submitted" : "failed"); const label = item.status_label || (item.success ? "已提交" : "失败"); return `<article class="activity-item"><span class="history-status ${lifecycleStatusClass(status)}" aria-label="${escapeHtml(label)}">${lifecycleStatusIcon(status)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.site_name || "未知站点")} · ${formatTime(item.created_at)} · ${escapeHtml(item.status_source || "状态检查")}</small></div><span class="activity-result">${escapeHtml(label)}</span></article>`; }).join("")
+  historyCache = await api("/api/history");
+  renderHistoryTable();
+  $("#dashboard-history").innerHTML = historyCache.length
+    ? historyCache.slice(0, 2).map((item) => { const status = item.lifecycle_status || (item.success ? "submitted" : "failed"); const label = item.status_label || (item.success ? "已提交" : "失败"); return `<article class="activity-item"><span class="history-status ${lifecycleStatusClass(status)}" aria-label="${escapeHtml(label)}">${lifecycleStatusIcon(status)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.site_name || "未知站点")} · ${formatTime(item.created_at)} · ${escapeHtml(item.status_source || "状态检查")}</small></div><span class="activity-result">${escapeHtml(label)}</span></article>`; }).join("")
     : "<div class='empty-state compact'><strong>暂无下载记录</strong><p>提交的资源会显示在这里。</p></div>";
 }
 
@@ -1412,6 +1286,11 @@ $$(".filter-chip").forEach((button) => button.addEventListener("click", () => {
 }));
 
 $("#refresh-history").addEventListener("click", () => refreshHistory().then(() => showToast("历史已刷新")).catch((error) => showToast(error.message)));
+$("#history-status-filter")?.addEventListener("change", (event) => {
+  historyStatusFilter = event.target.value || "all";
+  renderHistoryTable();
+});
+
 
 $("#download").addEventListener("click", () => {
   const available = cartCache.filter((item) => item.context_available);
@@ -1427,12 +1306,18 @@ $("#confirm-download").addEventListener("click", async (event) => {
   setButtonLoading(button, true, "正在提交…");
   try {
     const result = await api("/api/cart/download", {method: "POST"});
+    const submitted = Number(result.submitted || 0);
+    const needs = Number(result.needs_research || 0);
+    const summary = submitted
+      ? `已提交 ${submitted} 个资源给 MoviePilot；Transmission 负责下载，Emby 确认入库后会显示为已整理。`
+      : "没有成功提交的资源。";
+    const extra = needs ? `另有 ${needs} 个因搜索上下文失效需重新搜索。` : "";
     $("#confirm-dialog").close();
-    $("#cart-result").textContent = `已提交 ${result.submitted} 个${result.needs_research ? `，${result.needs_research} 个需重新搜索` : ""}`;
+    $("#cart-result").textContent = `${summary}${extra ? ` ${extra}` : ""}`;
     $("#cart-result").className = "inline-message cart-message";
     await Promise.all([refreshCart(), refreshHistory(), loadOverview()]);
     if (activeTask) await refreshCandidates(false);
-    showToast("下载任务已提交");
+    showToast(submitted ? `已提交 ${submitted} 个下载任务` : (extra || "提交完成"));
   } catch (error) {
     $("#cart-result").textContent = error.message;
     $("#cart-result").className = "inline-message cart-message error";

@@ -2,6 +2,25 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 0.79 - 2026-07-28
+
+### 工程
+
+- HTTP 路由拆到 `app/api/{system,sites,playlists,search,cart}.py`；`main.py` 仅负责 lifespan、鉴权中间件与 `include_router`。
+- 前端改为 ES module：`app/static/js/core.js` 承载 API/令牌/格式化/历史与空状态工具，`app.js` 保留页面编排。
+
+### 体验
+
+- 下载历史支持按生命周期状态筛选（已提交 / 下载中 / 待入库 / 待确认 / 已整理 / 失败）。
+- 候选空状态按任务阶段区分「正在搜索 / 无可下载候选 / 部分失败 / 未完成」，并给出重试或调整规则入口。
+- 下载列表提交成功后展示 MoviePilot → Transmission → Emby 的后续确认说明。
+
+### 验证
+
+- `python3 -m compileall -q app`
+- `node --check app/static/js/core.js` 与 `app/static/app.js`
+- `python3 -m unittest discover -s tests -v`（39 通过）
+
 ## 0.78 - 2026-07-28
 
 ### 调整

@@ -1,7 +1,7 @@
 services:
   autolist:
     build: .
-    image: autolist:0.78
+    image: autolist:0.79
     container_name: autolist
     restart: unless-stopped
     env_file: .env

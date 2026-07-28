@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f0f3f2">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.74.0">
+  <title>AutoList</title>
+  <link rel="stylesheet" href="/assets/style.css?v=0.74.0">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <svg class="icon-sprite" aria-hidden="true">
+    <defs>
+      <symbol id="icon-archive" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+      <symbol id="icon-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="icon-cart" viewBox="0 0 24 24"><path d="M3 4h2l2.5 11h10l2-7H7"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></symbol>
+      <symbol id="icon-rules" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></symbol>
+      <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 .4 2l.1.1-2.8 2.8-.1-.1a1.8 1.8 0 0 0-2-.4 1.8 1.8 0 0 0-1.1 1.7v.2H10v-.2A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-2 .4l-.1.1-2.8-2.8.1-.1a1.8 1.8 0 0 0 .4-2A1.8 1.8 0 0 0 3 13.9h-.2V10H3A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.4-2l-.1-.1 2.8-2.8.1.1a1.8 1.8 0 0 0 2 .4A1.8 1.8 0 0 0 10.1 3v-.2H14V3A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 2-.4l.1-.1 2.8 2.8-.1.1a1.8 1.8 0 0 0-.4 2 1.8 1.8 0 0 0 1.7 1.1h.2V14h-.2a1.8 1.8 0 0 0-1.7 1Z"/></symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar">
+      <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
+        <span class="brand-mark"><img src="/assets/logo.svg?v=0.74.0" alt=""></span>
+        <span><strong>AutoList</strong><small>Collection System</small></span>
+      </a>
+
+      <nav class="nav" aria-label="主导航">
+        <span class="nav-group-label">媒体库</span>
+        <a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg>工作台</a>
+        <a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg>片单</a>
+        <span class="nav-group-label">队列</span>
+        <a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg>资源搜索</a>
+        <a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg>下载列表 <em id="nav-cart-count">0</em></a>
+        <a class="nav-item" href="#rules" data-route="rules"><svg><use href="#icon-rules"></use></svg>候选规则</a>
+        <a class="nav-item" href="#history" data-route="history"><svg><use href="#icon-history"></use></svg>下载历史</a>
+        <span class="nav-group-label">管理</span>
+        <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
+      </nav>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.74</small></div></div>
+    </aside>
+    <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
+
+    <main id="main-content" class="main-content" tabindex="-1">
+      <header class="topbar">
+        <div>
+          <p id="page-eyebrow" class="eyebrow">OVERVIEW</p>
+          <h1 id="page-title">电影库</h1>
+          <p id="page-lead" class="lead" hidden></p>
+        </div>
+        <div class="topbar-actions">
+          <button id="service-status" class="service-status" type="button" title="查看服务状态" aria-label="查看服务状态"><span id="top-service-dot" class="status-dot"></span><strong id="top-service-label">服务检测中</strong><small id="top-service-detail">TMDB · TR · Emby</small></button>
+          <button id="open-settings" class="button button-secondary"><svg class="button-svg"><use href="#icon-settings"></use></svg>设置</button>
+          <button id="open-import" class="button button-secondary">＋ 导入片单</button>
+          <button id="mobile-menu" class="mobile-menu" type="button" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg></button>
+        </div>
+      </header>
+
+      <section id="dashboard-page" class="app-page active" data-page="dashboard" aria-label="工作台总览">
+        <div class="archive-dashboard">
+          <header class="archive-hero">
+            <p class="section-kicker">COLLECTION OVERVIEW</p>
+            <h2>已有 <em id="dashboard-new-count">— 部电影</em><br>等待加入电影库。</h2>
+          </header>
+
+          <aside class="collection-progress">
+            <p class="section-kicker">CURRENT COLLECTION</p>
+            <strong id="metric-items">—</strong><span>部影片</span>
+            <h3 id="metric-playlist">等待处理</h3>
+            <div class="collection-progress-bar"><i id="dashboard-library-bar"></i></div>
+            <div class="collection-kv"><span>已识别</span><b id="dashboard-recognized">—</b></div>
+            <div class="collection-kv"><span>已入库</span><b id="dashboard-in-library">—</b></div>
+            <div class="collection-kv"><span>待处理</span><b id="dashboard-pending">—</b></div>
+            <button class="collection-next" data-route-target="playlists"><strong>继续处理片单</strong><small>查看影片状态与下一步</small></button>
+          </aside>
+
+          <section class="recent-shelf">
+            <div class="panel-heading">
+              <div><p class="section-kicker">RECENTLY ADDED</p><h2>最近入库</h2></div>
+              <button class="text-link" data-route-target="playlists">查看全部 →</button>
+            </div>
+            <div id="dashboard-shelf" class="poster-shelf" aria-live="polite"></div>
+          </section>
+
+          <section class="next-collection-card">
+            <p class="section-kicker">NEXT COLLECTION TASK</p>
+            <strong id="dashboard-task-title">还没有搜索记录</strong>
+            <p id="dashboard-task-copy">选择片单和范围后开始搜索。</p>
+            <span id="dashboard-task-pill" class="pill pill-neutral">暂无任务</span>
+            <div class="progress-track dashboard-progress"><i id="dashboard-task-bar"></i></div>
+            <button class="button" data-route-target="search">开始搜索 →</button>
+          </section>
+
+          <section class="pipeline-panel">
+            <div class="pipeline-heading"><div><p class="section-kicker">TODAY'S PIPELINE</p><h2>处理进度</h2></div></div>
+            <div class="pipeline-grid">
+              <button data-route-target="search"><strong id="metric-search">—</strong><span>最近搜索</span><small id="metric-search-state">暂无任务</small></button>
+              <button data-route-target="search"><strong id="metric-candidates">0</strong><span>待确认资源</span><small>等待选择</small></button>
+              <button data-route-target="cart"><strong id="metric-cart">0</strong><span>下载列表</span><small id="metric-cart-size">0 GB</small></button>
+              <button data-route-target="history"><strong id="dashboard-history-count">0</strong><span>下载记录</span><small>查看最近活动</small></button>
+            </div>
+          </section>
+
+          <section class="recent-activity">
+            <div class="panel-heading"><div><p class="section-kicker">RECENT ACTIVITY</p><h2>最近下载</h2></div><button class="text-link" data-route-target="history">查看全部 →</button></div>
+            <div id="dashboard-history" class="activity-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="playlists-page" class="app-page" data-page="playlists" aria-label="片单">
+        <div class="page-stack">
+          <section class="panel">
+            <div class="panel-heading candidate-heading">
+              <div><p class="section-kicker">PLAYLIST LIBRARY</p><h2>我的片单</h2></div>
+              <button class="button button-primary" data-open-import>＋ 导入片单</button>
+            </div>
+            <div id="playlist-cards" class="playlist-cards"></div>
+          </section>
+          <section id="playlist-detail-panel" class="panel playlist-detail-panel">
+            <div class="panel-heading candidate-heading">
+              <div><p class="section-kicker">PLAYLIST ITEMS</p><h2 id="playlist-detail-title">片单明细</h2></div>
+            <div class="playlist-detail-actions"><input id="playlist-item-query" aria-label="搜索片名或 IMDb ID" placeholder="搜索片名或 IMDb ID"><select id="playlist-library-filter" aria-label="Emby 入库状态"><option value="all">全部状态</option><option value="not_downloaded">待入库</option><option value="in_library">已入库</option><option value="unknown">未检查</option></select><button id="refresh-library" class="button button-secondary" disabled>刷新 Emby 状态</button><button id="recognize-playlist" class="button button-secondary" disabled>识别 TMDB</button><button id="delete-playlist" class="button button-danger" disabled>删除片单</button></div>
+            </div>
+            <div id="recognition-progress" class="recognition-progress" hidden><span id="recognition-text">准备识别</span><div class="progress-track"><i id="recognition-bar"></i></div></div>
+            <div class="table-wrap">
+              <table class="playlist-table"><thead><tr><th>序号</th><th>影片</th><th>年份</th><th>IMDb</th><th>TMDB</th><th>Emby</th></tr></thead><tbody id="playlist-items"></tbody></table>
+            </div>
+            <footer class="playlist-pagination">
+              <label>每页 <select id="playlist-page-size"><option value="20">20</option><option value="50" selected>50</option><option value="100">100</option><option value="200">200</option></select></label>
+              <span id="playlist-page-summary">0 条</span>
+              <div><button id="playlist-page-prev" class="button button-secondary">上一页</button><button id="playlist-page-next" class="button button-secondary">下一页</button></div>
+            </footer>
+          </section>
+        </div>
+      </section>
+
+      <section id="search-page" class="app-page" data-page="search" aria-label="资源搜索">
+        <div class="page-stack">
+          <section class="panel search-console">
+            <div class="panel-heading">
+              <div><p class="section-kicker">SEARCH CONTROL</p><h2>搜索控制台</h2></div>
+              <span id="task-pill" class="pill pill-neutral" role="status" aria-live="polite">就绪</span>
+            </div>
+
+            <div class="search-queue-summary" aria-live="polite">
+              <div><span>片单总数</span><strong id="search-total-count">0</strong></div>
+              <div><span>已入库</span><strong id="search-library-count">0</strong></div>
+              <div><span>Transmission 下载中</span><strong id="search-downloading-count">0</strong></div>
+              <div><span>待搜索</span><strong id="search-pending-count">0</strong></div>
+            </div>
+
+            <div class="search-form">
+              <label class="field field-playlist"><span>片单</span><select id="playlist" aria-label="选择片单"></select></label>
+              <label class="field"><span>搜索模式</span><select id="search-scope"><option value="pending">未下载</option><option value="range">序号范围</option></select></label>
+              <label id="search-count-field" class="field"><span>本次搜索前 N 部</span><input id="search-count" type="number" min="1" max="10000" value="50" inputmode="numeric"></label>
+              <label id="search-start-field" class="field" hidden><span>起始序号</span><input id="start" type="number" min="1" inputmode="numeric" placeholder="1"></label>
+              <span id="search-range-arrow" class="range-arrow" hidden>→</span>
+              <label id="search-end-field" class="field" hidden><span>结束序号</span><input id="end" type="number" min="1" inputmode="numeric" placeholder="50"></label>
+              <button id="search" class="button button-primary"><span class="button-icon">⌕</span><span>开始搜索</span></button>
+            </div>
+            <div class="search-automation-actions">
+              <button id="run-playlist-completion" class="button button-secondary">搜索未下载影片</button>
+              <button id="toggle-playlist-auto" class="button button-secondary">开启新片自动搜索</button>
+              <span id="playlist-automation-state" class="inline-message"></span>
+            </div>
+
+            <div id="task-progress" class="task-progress" aria-label="搜索任务进度" hidden>
+              <div class="progress-meta"><span id="task-text">准备搜索</span><strong id="task-percent">0%</strong></div>
+              <div class="progress-track"><i id="task-bar"></i></div>
+              <div class="task-actions">
+                <span id="task-attempt-summary">等待站点响应</span>
+                <button id="retry-task" class="text-button" hidden>重试失败站点</button>
+                <button id="restart-task" class="text-button" hidden>重新搜索整项</button>
+                <button id="cancel-task" class="text-button">取消任务</button>
+              </div>
+            </div>
+            <p id="task-error-summary" class="inline-message error" aria-live="polite" hidden></p>
+            <details id="task-log-panel" class="task-log-panel">
+              <summary>搜索日志 <span id="task-log-count">0</span></summary>
+              <div id="task-attempts" class="task-attempts"></div>
+              <div id="task-logs" class="task-logs"><p>启动搜索后会在这里显示识别、入库和站点搜索过程。</p></div>
+            </details>
+          </section>
+
+          <section class="panel candidates-panel">
+            <div class="panel-heading candidate-heading">
+              <div><p class="section-kicker">RESOURCE MATCHES</p><h2>候选资源</h2></div>
+              <div class="filter-group" role="group" aria-label="候选筛选">
+                <button class="filter-chip active" data-filter="all">全部</button>
+                <button class="filter-chip" data-filter="preferred">优先</button>
+                <button class="filter-chip" data-filter="2160p">2160p</button>
+                <button class="filter-chip" data-filter="x265">x265</button>
+                <button class="filter-chip" data-filter="fallback">保底</button>
+                <button class="filter-chip" data-filter="excluded">已排除</button>
+              </div>
+            </div>
+            <div class="candidate-labels" aria-hidden="true"><span>影片 / 资源</span><span>推荐依据</span><span>来源与规格</span><span>评分</span><span></span></div>
+            <div id="candidates" class="candidate-list">
+              <div class="empty-state"><span>⌕</span><strong>等待搜索结果</strong><p>选择片单和序号范围，候选会在这里实时出现。</p></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="cart-page" class="app-page" data-page="cart" aria-label="下载列表">
+        <section class="panel cart-page-panel">
+          <div class="panel-heading cart-page-heading">
+            <div><p class="section-kicker">DOWNLOAD LIST</p><h2>待提交资源</h2></div>
+            <span id="cart-count" class="count-badge">0</span>
+          </div>
+          <div id="cart-list" class="cart-list cart-list-page">
+            <div class="empty-state"><span>＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class="button button-secondary" data-route-target="search">前往资源搜索</button></div>
+          </div>
+          <footer class="cart-checkout">
+            <div><span>已选资源</span><strong id="cart-checkout-count">0 个</strong></div>
+            <div><span>预计体积</span><strong id="cart-total-size">0 GB</strong></div>
+            <button id="download" class="button button-primary" disabled>提交下载</button>
+          </footer>
+          <p id="cart-result" class="inline-message cart-message" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <section id="rules-page" class="app-page" data-page="rules" aria-label="候选规则">
+        <div class="page-stack">
+          <section class="panel rules-editor-panel">
+            <div class="panel-heading candidate-heading"><div><p class="section-kicker">MOVIE DECISION POLICY</p><h2>电影候选决策</h2><p class="panel-lead">先决定能不能下，再按允许组合、站点和分辨率选出最合适的版本。</p></div><button id="save-rules" class="button button-primary">保存规则</button></div>
+            <div class="rule-summary" aria-label="候选决策顺序"><span>硬性排除</span><i>→</i><span>允许组合</span><i>→</i><span>站点优先</span><i>→</i><span>分辨率</span><i>→</i><span>做种与优惠</span></div>
+            <div class="policy-layout">
+              <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">01</span><div><h3>硬性排除</h3><p>命中后不会进入下载列表；普通 BluRay 压制不受影响。</p></div></div><div id="hard-exclusion-options" class="exclusion-grid"></div></section>
+              <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">02</span><div><h3>允许组合</h3><p>编码与制作组必须同时命中。第一层永远排在保底层之前。</p></div></div><div class="profile-grid"><article class="policy-profile primary"><div><span>第一优先级</span><strong>x265 压制</strong></div><label class="field"><span>允许制作组</span><input id="rules-primary-groups" value="ADE, FRDS, HDS, CHD"></label></article><article class="policy-profile fallback"><div><span>无首选资源时</span><strong>x264 保底</strong></div><label class="field"><span>允许制作组</span><input id="rules-fallback-groups" value="CMCT"></label></article></div></section>
+              <section class="rule-card"><div class="rule-card-head"><span class="rule-number">03</span><div><h3>排序顺序</h3><p>允许组合命中后，先比站点，再比分辨率。</p></div></div><ol class="priority-chain"><li><strong>站点优先级</strong><span>在“站点与服务”中设置</span></li><li><strong>分辨率</strong><span><select id="rules-resolution-first" aria-label="首选分辨率"><option>2160p</option><option>1080p</option></select> 优先，<select id="rules-resolution-second" aria-label="保底分辨率"><option>1080p</option><option>2160p</option></select> 保底</span></li><li><strong>做种与优惠</strong><span>只处理同层级、同站点的并列资源</span></li></ol></section>
+              <section class="rule-card"><div class="rule-card-head"><span class="rule-number">04</span><div><h3>候选保留</h3><p>合格与排除样本分别限量，便于检查适配结果。</p></div></div><label class="field"><span>每部最多保留</span><input id="rules-limit" type="number" min="1" max="20" value="6"></label><div class="policy-note">自动任务只会选择第一优先级；保底候选仍需人工确认。</div></section>
+              <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">05</span><div><h3>制作组词表</h3><p>内置 MoviePilot 兼容词表与自定义正则合并去重，解析由 AutoList 独立完成。</p></div><button id="import-mp-groups" class="button button-secondary" type="button">导入 MP 自定义词表</button><span id="release-group-count" class="catalog-count">读取中</span></div><details class="catalog-details"><summary>查看内置制作组</summary><div id="builtin-release-groups" class="catalog-tags"></div></details><label class="field"><span>自定义制作组 / 正则（每行一条）</span><textarea id="rules-custom-groups" rows="6" placeholder="例如：MyEncode&#10;Studio-[A-Z]+"></textarea></label></section>
+              <section class="rule-card policy-card-wide rule-card-preview"><div class="rule-card-head"><span class="rule-number">06</span><div><h3>标题试算</h3><p>直接查看资源是首选、保底还是被哪条规则排除。</p></div></div><div class="score-preview-controls"><input id="rules-preview-title" aria-label="标题试算资源标题" value="Movie.2024.2160p.BluRay.x265-FRDS"><input id="rules-preview-seeders" type="number" min="0" value="20" aria-label="做种数"><button id="run-score-preview" class="button button-secondary" type="button">开始试算</button></div><div id="score-preview-result" class="score-preview-result">等待试算</div></section>
+            </div>
+            <p id="rules-result" class="inline-message"></p>
+          </section>
+        </div>
+      </section>
+
+      <section id="sites-page" class="app-page" data-page="sites" aria-label="站点配置">
+        <section class="sites-management-panel">
+          <div class="service-rail" aria-label="服务状态">
+            <article><img src="/assets/service-tmdb.svg" alt="TMDB 标志"><span><strong>TMDB</strong><small id="rail-tmdb-status">检测中</small></span></article>
+            <article><img src="/assets/service-transmission.svg" alt="Transmission 标志"><span><strong>Transmission</strong><small id="rail-tr-status">检测中</small></span></article>
+            <article><img src="/assets/service-emby.svg" alt="Emby 标志"><span><strong>Emby</strong><small id="rail-emby-status">检测中</small></span></article>
+            <article><img src="/assets/service-moviepilot.svg" alt="MoviePilot 标志"><span><strong>MoviePilot</strong><small id="rail-mp-status">检测中</small></span></article>
+          </div>
+          <div class="site-toolbar">
+            <div><p class="section-kicker">PT SITES</p><h2>站点</h2></div>
+            <div class="site-page-actions"><button id="sync-cookiecloud-sites" class="button button-secondary">同步站点登录</button><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary">＋ 添加站点</button></div>
+          </div>
+          <div class="site-filterbar" role="tablist" aria-label="站点筛选"><button class="site-filter active" data-site-filter="all">全部</button><button class="site-filter" data-site-filter="active">已启用</button><button class="site-filter" data-site-filter="inactive">未启用</button><button class="site-filter" data-site-filter="normal">正常</button><button class="site-filter" data-site-filter="slow">缓慢</button><button class="site-filter" data-site-filter="failed">失败</button><button class="site-filter" data-site-filter="unknown">未知</button></div>
+          <div class="site-workspace"><div id="sites-list" class="site-card-grid mp-site-grid"></div><aside id="site-inspector-panel" class="site-inspector-panel"><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一个站点</strong><p>查看连接状态和账户数据。</p></div></div></aside></div>
+        </section>
+      </section>
+
+      <section id="history-page" class="app-page" data-page="history" aria-label="下载历史">
+        <section class="panel history-panel history-page-panel">
+          <div class="panel-heading">
+            <div><p class="section-kicker">ACTIVITY</p><h2>全部下载记录</h2><p class="panel-lead">追踪提交、下载与入库状态。</p></div>
+            <button id="refresh-history" class="icon-button" aria-label="刷新下载历史">↻</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>状态</th><th>影片与资源</th><th>站点</th><th>时间</th></tr></thead>
+            <tbody id="history" aria-live="polite"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="import-dialog" class="dialog" aria-labelledby="import-dialog-title">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-heading"><div><p class="section-kicker">NEW PLAYLIST</p><h2 id="import-dialog-title">导入片单</h2></div><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
+      <p class="dialog-copy">支持电影网站网址、XLSX、JSON 与 CSV。</p>
+      <div class="import-tabs"><button class="active" type="button" data-import-mode="url">粘贴网址</button><button type="button" data-import-mode="file">上传文件</button><button type="button" data-import-mode="paste">粘贴内容</button></div>
+      <section class="import-mode" data-import-panel="url"><label class="field"><span>片单网址</span><input id="import-url" placeholder="TMDB、Letterboxd、IMDb 或 MDBList"></label><label class="field"><span>最多导入</span><input id="import-limit" type="number" min="1" max="10000" value="5000"></label></section>
+      <section class="import-mode" data-import-panel="file" hidden><label class="drop-zone" for="file"><span class="drop-icon">⇧</span><strong id="file-label">选择片单文件</strong><small>点击选择 .xlsx、.json 或 .csv</small><input id="file" type="file" accept=".xlsx,.json,.csv"></label></section>
+      <section class="import-mode" data-import-panel="paste" hidden><label class="field"><span>JSON 或 CSV 内容</span><textarea id="import-content" rows="8" placeholder='{"name":"我的片单","items":[...]}'></textarea></label><label class="toggle-field"><input id="import-content-csv" type="checkbox"><span>内容是 CSV</span></label></section>
+      <label class="field"><span>片单名称（可选）</span><input id="name" placeholder="例如：年度电影计划"></label>
+      <div id="import-preview" class="import-preview" hidden></div>
+      <p id="import-result" class="inline-message" aria-live="polite"></p>
+      <div class="dialog-actions"><button class="button button-secondary" value="cancel">取消</button><button id="preview-import" class="button button-secondary" type="button">预览片单</button><button id="import" class="button button-primary" value="default" type="button">确认导入</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="dialog confirm-dialog" aria-labelledby="confirm-dialog-title">
+    <form method="dialog" class="dialog-card">
+    <span class="confirm-icon" aria-hidden="true">↗</span><h2 id="confirm-dialog-title">提交下载列表？</h2><p id="confirm-copy" class="dialog-copy">确认后将开始下载。</p>
+      <div class="dialog-actions"><button class="button button-secondary" value="cancel">返回检查</button><button id="confirm-download" class="button button-primary" value="confirm">确认提交</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-dialog-title">
+    <form method="dialog" class="dialog-card settings-card">
+      <div class="dialog-heading"><div><p class="section-kicker">PREFERENCES</p><h2 id="settings-dialog-title">AutoList 设置</h2></div><button class="icon-button" value="cancel" aria-label="关闭设置">×</button></div>
+      <p class="dialog-copy">管理识别、下载、媒体库与网络连接。</p>
+      <div class="settings-grid settings-grid-rebuilt">
+        <section class="settings-section">
+          <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt="TMDB"></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em></div>
+          <label class="field"><span>API Key</span><input id="settings-tmdb-key" type="text" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label>
+          <label class="field"><span>语言</span><input id="settings-tmdb-language" value="zh-CN"></label>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-title"><span class="settings-icon proxy"><img src="/assets/service-proxy.svg" alt="代理"></span><div><strong>网络与代理</strong><small>按服务分流；地址按当前偏好显示</small></div><em id="settings-proxy-status">未配置</em></div>
+          <label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" type="text" autocomplete="off" placeholder="http://127.0.0.1:7890"></label>
+          <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-tmdb-proxy" type="checkbox"><span>TMDB 走代理</span></label><label class="toggle-field"><input id="settings-pt-proxy" type="checkbox"><span>PT 站点允许代理</span></label></div>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt="Emby"></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em></div>
+          <label class="field"><span>服务地址</span><input id="settings-emby-url" type="url" placeholder="http://192.168.31.100:8096"></label>
+          <label class="field"><span>API Key</span><input id="settings-emby-key" type="text" autocomplete="off"></label>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt="Transmission"></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em></div>
+          <label class="field"><span>RPC 地址</span><input id="settings-tr-url" type="url" placeholder="http://192.168.31.100:9191"></label>
+          <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username"></label><label class="field"><span>密码</span><input id="settings-tr-password" type="text" autocomplete="off"></label></div>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-title"><span class="settings-icon ai"><img src="/assets/service-ai.svg" alt="AI"></span><div><strong>AI 辅助识别</strong><small>可选 · OpenAI 兼容接口</small></div><em id="settings-ai-status">未配置</em></div>
+          <label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label>
+          <label class="field"><span>API Key</span><input id="settings-ai-key" type="text" autocomplete="off"></label>
+          <label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-title"><span class="settings-icon"><img src="/assets/service-mdblist.svg" alt="MDBList"></span><div><strong>MDBList</strong><small>可选 · 私有片单与更高额度</small></div><em id="settings-mdblist-status">未配置</em></div>
+          <label class="field"><span>API Key</span><input id="settings-mdblist-key" type="text" autocomplete="off" placeholder="公开片单可留空"></label>
+        </section>
+        <section class="settings-section settings-section-wide shelf-preference-section">
+          <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.74.0" alt="AutoList"></span><div><strong>首页海报</strong><small>控制首页“最近入库”的海报展示方式</small></div><em>界面偏好</em></div>
+          <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片，刷新期间保持不变。</p></div>
+        </section>
+        <section class="settings-section settings-section-wide cookiecloud-section">
+          <div class="settings-section-title"><span class="settings-icon cookiecloud"><img src="/assets/service-cookiecloud.svg" alt="CookieCloud"></span><div><strong>CookieCloud</strong><small>同步站点登录</small></div><em id="settings-cookiecloud-status">未配置</em></div>
+          <div class="settings-inline"><label class="field"><span>用户 KEY</span><input id="settings-cookiecloud-key" type="text" autocomplete="off" placeholder="与 Chrome 扩展保持一致"></label><label class="field"><span>端对端加密密码</span><input id="settings-cookiecloud-password" type="text" autocomplete="off" placeholder="留空保留已配置密码"></label><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" type="text" readonly value="/cookiecloud"></label></div>
+          <label class="toggle-field"><input id="settings-cookiecloud-forward" type="checkbox" checked><span>同时更新 MoviePilot</span></label>
+        </section>
+        <section class="settings-section settings-section-wide settings-mp-section">
+          <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt="MoviePilot"></span><div><strong>MoviePilot</strong><small>下载整理</small></div><em id="settings-mp-status">检测中</em></div>
+          <div class="settings-inline"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.168.31.100:3000"></label><label class="field"><span>API Key</span><input id="settings-mp-key" type="text" autocomplete="off"></label><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
+        </section>
+      </div>
+      <p id="settings-result" class="inline-message" aria-live="polite"></p>
+      <div class="dialog-actions settings-actions"><button id="test-settings" class="button button-secondary" type="button">测试连接</button><span class="settings-action-spacer"></span><button class="button button-secondary" value="cancel">取消</button><button id="save-settings" class="button button-primary" type="button">保存设置</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="site-dialog" class="dialog" aria-labelledby="site-dialog-title">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-heading"><div><p class="section-kicker">PT SITE</p><h2 id="site-dialog-title">添加站点</h2></div><button class="icon-button" value="cancel" aria-label="关闭站点设置">×</button></div>
+      <p class="dialog-copy">填写站点地址和登录信息。</p>
+      <input id="site-id" type="hidden">
+      <label class="field"><span>站点名称</span><input id="site-name" placeholder="例如：馒头"></label>
+      <div class="settings-inline"><label class="field"><span>优先级</span><input id="site-priority" type="number" min="1" max="999" value="100"></label><label class="field"><span>超时（秒）</span><input id="site-timeout" type="number" min="3" max="300" value="30"></label></div>
+      <label class="field"><span>站点地址</span><input id="site-url" placeholder="https://kp.m-team.cc/"></label>
+      <div class="settings-inline"><label class="field"><span>API Key / Token</span><input id="site-api-key" type="text" autocomplete="off"></label><label class="field"><span>User-Agent</span><input id="site-user-agent" placeholder="浏览器对应 UA"></label></div>
+      <label class="field"><span>Cookie</span><textarea id="site-cookie" rows="4" placeholder="NexusPHP 站点请求头 Cookie"></textarea></label>
+      <div class="settings-inline"><label class="field"><span>RSS 地址（可选）</span><input id="site-rss-url"></label><label class="field"><span>图标地址（可选）</span><input id="site-icon-url"></label></div>
+      <div class="settings-inline"><label class="toggle-field"><input id="site-enabled" type="checkbox" checked><span>启用站点</span></label><label class="toggle-field"><input id="site-search-enabled" type="checkbox"><span>参与搜索</span></label><label class="toggle-field"><input id="site-proxy" type="checkbox"><span>使用代理</span></label><label class="toggle-field"><input id="site-render" type="checkbox"><span>浏览器渲染</span></label></div>
+      <p id="site-result" class="inline-message"></p>
+      <div class="dialog-actions"><button class="button button-secondary" value="cancel">取消</button><button id="save-site" class="button button-primary" type="button">保存站点</button></div>
+    </form>
+  </dialog>
+
+  <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>电影库</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" type="button"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
+
+  <script src="/assets/app.js?v=0.74.0"></script>
+</body>
+</html>

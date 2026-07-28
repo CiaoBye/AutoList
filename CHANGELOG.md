@@ -2,6 +2,23 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 0.76 - 2026-07-28
+
+### 工程
+
+- `main.py` 拆分第一刀：抽出 `app/util.py`、`app/domain/titles.py`、`app/services/history.py`；路由层继续 re-export，测试与调用方无需改路径。
+- `main.py` 由约 2780 行降至约 2450 行；片名匹配与下载历史投影可独立阅读与单测。
+
+### 文档
+
+- 明确 TMDB **已支持代理**：设置代理地址并开启「TMDB 走代理」即可；与 Compose `extra_hosts` 的关系写入 README。
+
+### 验证
+
+- `python3 -m compileall -q app`
+- `node --check app/static/app.js`
+- `python3 -m unittest discover -s tests -v`（39 通过）
+
 ## 0.75 - 2026-07-26
 
 ### 安全

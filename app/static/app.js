@@ -15,10 +15,17 @@ let taskTimer = null;
 let activeTaskState = null;
 let booting = true;
 let selectedPlaylistId = null;
-let expandedPlaylistId;
+let expandedPlaylistId = null;
 let playlistItemsCache = [];
 let playlistPage = 1;
-let playlistPageSize = ["20", "50", "100", "200"].includes(localStorage.getItem("autolist-playlist-page-size")) ? localStorage.getItem("autolist-playlist-page-size") : "50";
+function safeStorageGet(key) {
+  try { return window.localStorage.getItem(key); } catch (_error) { return null; }
+}
+function safeStorageSet(key, value) {
+  try { window.localStorage.setItem(key, value); } catch (_error) { /* 浏览器禁用存储时保留当前会话值 */ }
+}
+const storedPlaylistPageSize = safeStorageGet("autolist-playlist-page-size");
+let playlistPageSize = ["20", "50", "100", "200"].includes(storedPlaylistPageSize) ? storedPlaylistPageSize : "50";
 let playlistItemTotal = 0;
 let playlistPageCount = 1;
 let playlistQueryTimer = null;
@@ -46,7 +53,7 @@ const pageMeta = {
   search: {eyebrow: "QUEUE / RESOURCE SEARCH", title: "资源搜索", lead: "搜索并挑选合适的版本。"},
   cart: {eyebrow: "QUEUE / DOWNLOAD LIST", title: "下载列表", lead: "确认即将下载的资源。"},
   rules: {eyebrow: "QUEUE / CANDIDATE POLICY", title: "候选规则", lead: "调整自动优选的评分方式。"},
-  sites: {eyebrow: "MANAGEMENT / SITES & SERVICES", title: "站点与服务", lead: "查看连接、流量与站点状态。"},
+  sites: {eyebrow: "MANAGEMENT / SITES & SERVICES", title: "站点与服务", lead: "管理 AutoList 搜索、Cookie 与站点健康状态。"},
   history: {eyebrow: "QUEUE / ACTIVITY", title: "下载历史", lead: "追踪提交、下载与入库状态。"},
 };
 
@@ -218,7 +225,7 @@ async function loadPlaylists(showDetails = false) {
     if (!$("#start").value) $("#start").value = 1;
     if (!$("#end").value) $("#end").value = Math.min(50, Number(lists[0].item_count));
   }
-  if (showDetails && expandedPlaylistId === undefined && selectedPlaylistId) expandedPlaylistId = selectedPlaylistId;
+  // 片单默认保持折叠，只有用户主动点击卡片时才展开详情。
   $("#playlist-cards").innerHTML = lists.length
     ? lists.map((item, index) => `<article class="playlist-card ${item.id === expandedPlaylistId ? "active" : ""}">
         <button class="playlist-card-main" data-playlist-id="${item.id}" aria-expanded="${item.id === expandedPlaylistId}"><span>${escapeHtml(item.source_type || "片单")}</span><strong>${escapeHtml(item.name)}</strong><small>${Number(item.recognized_count || 0)}/${Number(item.item_count)} 已识别 · ${item.source_url ? `同步于 ${formatTime(item.last_synced_at)}` : `创建于 ${formatTime(item.created_at)}`}</small><i>${item.id === expandedPlaylistId ? "收起明细 ↑" : "展开明细 ↓"}</i></button>
@@ -483,7 +490,6 @@ async function loadSettings() {
   $("#settings-cookiecloud-key").value = runtime.cookiecloud_key || "";
   $("#settings-cookiecloud-key").placeholder = runtime.cookiecloud_key_configured ? "已配置；留空保留原值" : "与 Chrome 扩展保持一致";
   $("#settings-cookiecloud-password").value = runtime.cookiecloud_password || "";
-  $("#settings-cookiecloud-forward").checked = Boolean(runtime.cookiecloud_forward_moviepilot);
   $("#settings-cookiecloud-endpoint").value = `${window.location.origin}${runtime.cookiecloud_endpoint || "/cookiecloud"}`;
   $("#settings-cookiecloud-status").textContent = cookiecloud.received ? "已收到 Chrome 数据" : cookiecloud.configured ? "等待首次同步" : "未配置";
   $("#settings-cookiecloud-status").className = cookiecloud.received ? "ok" : "";
@@ -537,7 +543,6 @@ async function saveSettings() {
     mdblist_api_key: $("#settings-mdblist-key").value.trim() || null,
     cookiecloud_key: $("#settings-cookiecloud-key").value.trim(),
     cookiecloud_password: $("#settings-cookiecloud-password").value.trim() || null,
-    cookiecloud_forward_moviepilot: $("#settings-cookiecloud-forward").checked,
     outbound_proxy_url: $("#settings-proxy-url").value.trim() || null,
     tmdb_proxy_enabled: $("#settings-tmdb-proxy").checked,
     pt_proxy_enabled: $("#settings-pt-proxy").checked,
@@ -613,7 +618,6 @@ async function loadSites() {
   if (selectedSiteId) loadSiteHealth(selectedSiteId).catch(() => {});
 }
 
-function formatTraffic(bytes) { return formatSize(Number(bytes || 0)); }
 function siteConnectionState(site) {
   // 完全基于 AutoList 自身检测结果
   if (site.last_status === "ok") return "normal";
@@ -635,26 +639,26 @@ function renderSites() {
   const list = siteCache.filter(matchesSiteFilter);
   $("#sites-list").innerHTML = list.length ? list.map((site) => {
     const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
-    const user = site.mp_user || {};
+    const stats = site.local_stats || {}, account = site.account_stats || {};
     const state = siteConnectionState(site);
     return `<article class="mp-site-card ${selectedSiteId === site.id ? "selected" : ""}" data-open-site="${site.id}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(site.name)}，${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}">
       <header><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><strong>${escapeHtml(site.name)}</strong><i class="mp-state ${state}" title="${escapeHtml(state)}"></i></header>
       <a class="site-url-link" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(site.base_url)}">${escapeHtml(site.base_url)}</a>
-      <div class="traffic-line upload"><span>↑ ${formatTraffic(user.upload)}</span><i style="width:${Math.min(100, Math.max(4, Number(user.ratio || 0) * 8))}%"></i></div>
-      <div class="traffic-line download"><span>↓ ${formatTraffic(user.download)}</span><i style="width:${Math.min(100, Math.max(4, Number(user.ratio || 0) * 3))}%"></i></div>
+      <div class="site-local-stats"><div><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong><span>上传量</span></div><div><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong><span>下载量</span></div><div><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong><span>分享率</span></div></div>
+      <div class="site-local-meta"><span>${site.search_enabled ? "参与搜索" : "不参与搜索"}</span><span>${site.cookie_configured ? "Cookie 已配置" : "Cookie 未配置"}</span><span>${site.user_agent_configured ? "UA 已配置" : "默认 UA"}</span></div>
     </article>`;
   }).join("") : "<div class='empty-state compact'><strong>没有符合条件的站点</strong></div>";
   bindSiteLogoFallback($("#sites-list"));
 }
 function renderSiteInspector(site) {
   if (!site) return;
-  const user = site.mp_user || {}, stat = site.mp_status || {}, state = siteConnectionState(site);
+  const stats = site.local_stats || {}, account = site.account_stats || {}, state = siteConnectionState(site);
   const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
   $("#site-inspector-content").innerHTML = `<header class="site-detail-head"><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><div><strong>${escapeHtml(site.name)}</strong><a class="site-detail-url" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(site.base_url)}</a></div><em class="site-state ${state}">${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}</em><button class="icon-button site-inspector-close" data-close-site-inspector aria-label="关闭">×</button></header>
-    <div class="site-detail-stats"><div><span>上传</span><strong>${formatTraffic(user.upload)}</strong></div><div><span>下载</span><strong>${formatTraffic(user.download)}</strong></div><div><span>分享率</span><strong>${Number(user.ratio || 0).toFixed(3)}</strong></div><div><span>做种 / 下载</span><strong>${Number(user.seeding || 0)} / ${Number(user.leeching || 0)}</strong></div></div>
-    <dl class="site-detail-list"><dt>状态</dt><dd>${escapeHtml(stat.lst_mod_date || user.updated_time || "未更新")}</dd><dt>用户等级</dt><dd>${escapeHtml(user.user_level || "—")}</dd><dt>积分</dt><dd>${Number(user.bonus || 0).toLocaleString()}</dd><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">等待搜索样本</dd></dl>
-    <div class="site-detail-actions"><button class="button button-secondary" data-refresh-userdata="${site.id}">刷新数据</button><button class="button button-secondary" data-edit-site="${site.id}">编辑站点</button><button class="button button-danger" data-delete-site="${site.id}">删除站点</button></div>
-    <details class="cookie-update"><summary>更新站点登录信息</summary><div class="cookie-update-fields"><input data-cookie-user placeholder="站点用户名"><input data-cookie-password type="text" placeholder="站点密码"><input data-cookie-code placeholder="二步验证码（可选）"><button class="button button-primary" data-update-site-cookie="${site.id}">更新</button></div></details>`;
+    <div class="site-detail-stats"><div><span>上传量</span><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong></div><div><span>下载量</span><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong></div><div><span>分享率</span><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong></div><div><span>做种数</span><strong>${account.seeding == null ? "—" : Number(account.seeding).toLocaleString()}</strong></div></div>
+    <dl class="site-detail-list"><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>本地 Cookie</dt><dd>${site.cookie_configured ? "已配置" : "未配置"}</dd><dt>User-Agent</dt><dd class="site-ua-value">${escapeHtml(site.user_agent || "AutoList 默认 UA")}</dd><dt>账户统计更新</dt><dd>${escapeHtml(account.checked_at ? formatTime(account.checked_at) : "等待后台刷新")}${account.error ? ` · ${escapeHtml(account.error)}` : ""}</dd><dt>最近搜索</dt><dd>${escapeHtml(stats.last_attempt_at || "暂无记录")}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">${stats.total ? `${Number(stats.success_rate || 0).toFixed(1)}% 成功 · ${Number(stats.average_ms || 0)}ms · ${Number(stats.total)} 次` : "等待搜索样本"}</dd></dl>
+    <div class="site-detail-actions"><button class="button button-secondary" data-test-site="${site.id}">检测站点</button><button class="button button-secondary" data-refresh-site-cookie="${site.id}">刷新 Cookie</button><button class="button button-secondary" data-edit-site="${site.id}">编辑站点 / UA</button><button class="button button-danger" data-delete-site="${site.id}">删除站点</button></div>
+    <p class="site-login-hint">CookieCloud 每次收到浏览器上传后会自动匹配域名并更新本站 Cookie；单站“刷新 Cookie”仅用于手动重试。AutoList 不保存站点密码。</p>`;
   bindSiteLogoFallback($("#site-inspector-content"));
 }
 
@@ -790,31 +794,15 @@ document.addEventListener("click", async (event) => {
     $("#site-inspector-panel").classList.remove("open");
     return;
   }
-  const refreshUserdata = event.target.closest("[data-refresh-userdata]");
-  if (refreshUserdata) {
-    refreshUserdata.disabled = true;
-    try { const result = await api(`/api/sites/${refreshUserdata.dataset.refreshUserdata}/refresh-moviepilot-userdata`, {method: "POST"}); showToast(result.message); await loadSites(); }
-    catch (error) { showToast(error.message); }
-    finally { refreshUserdata.disabled = false; }
-    return;
-  }
-  const syncMoviePilotSite = event.target.closest("[data-sync-mp-site]");
-  if (syncMoviePilotSite) {
-    syncMoviePilotSite.disabled = true;
-    try { const result = await api(`/api/sites/${syncMoviePilotSite.dataset.syncMpSite}/sync-moviepilot`, {method: "POST"}); showToast(result.message); await loadSites(); }
-    catch (error) { showToast(error.message); }
-    finally { syncMoviePilotSite.disabled = false; }
-    return;
-  }
-  const updateCookie = event.target.closest("[data-update-site-cookie]");
-  if (updateCookie) {
-    const panel = updateCookie.closest(".cookie-update");
-    updateCookie.disabled = true;
+  const refreshSiteCookie = event.target.closest("[data-refresh-site-cookie]");
+  if (refreshSiteCookie) {
+    refreshSiteCookie.disabled = true;
     try {
-      const result = await api(`/api/sites/${updateCookie.dataset.updateSiteCookie}/update-cookie-ua`, {method: "POST", body: JSON.stringify({username: panel.querySelector("[data-cookie-user]").value, password: panel.querySelector("[data-cookie-password]").value, code: panel.querySelector("[data-cookie-code]").value})});
-      showToast(result.message); await loadSites();
+      const result = await api(`/api/sites/${refreshSiteCookie.dataset.refreshSiteCookie}/refresh-cookie`, {method: "POST"});
+      showToast(result.message);
+      await loadSites();
     } catch (error) { showToast(error.message); }
-    finally { updateCookie.disabled = false; }
+    finally { refreshSiteCookie.disabled = false; }
     return;
   }
   const testSiteButton = event.target.closest("[data-test-site]");
@@ -885,9 +873,38 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("hashchange", () => navigate(window.location.hash.slice(1), false));
 
+function activateSettingsTab(name, focus = false) {
+  const tabs = $$("[data-settings-tab]");
+  tabs.forEach((tab) => {
+    const active = tab.dataset.settingsTab === name;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    if (active && focus) tab.focus();
+  });
+  $$("[data-settings-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.settingsPanel !== name;
+  });
+}
+
+$$("[data-settings-tab]").forEach((tab) => {
+  tab.addEventListener("click", () => activateSettingsTab(tab.dataset.settingsTab));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$("[data-settings-tab]");
+    const current = tabs.indexOf(event.currentTarget);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? tabs.length - 1
+      : (current + (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1) + tabs.length) % tabs.length;
+    activateSettingsTab(tabs[next].dataset.settingsTab, true);
+  });
+});
+
 $("#open-settings").addEventListener("click", async () => {
   const dialog = $("#settings-dialog");
   const output = $("#settings-result");
+  activateSettingsTab("recognition");
   dialog.showModal();
   output.textContent = "正在读取设置…";
   output.className = "inline-message";
@@ -982,20 +999,6 @@ $("#save-rules").addEventListener("click", async () => {
   }
 });
 
-$("#import-mp-groups").addEventListener("click", async () => {
-  const button = $("#import-mp-groups");
-  setButtonLoading(button, true, "正在导入…");
-  try {
-    const result = await api("/api/config/release-groups/import-moviepilot", {method: "POST"});
-    await loadRules();
-    showToast(result.message);
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    setButtonLoading(button, false);
-  }
-});
-
 $("#run-score-preview").addEventListener("click", async () => {
   const output = $("#score-preview-result");
   output.textContent = "正在解析…";
@@ -1007,15 +1010,6 @@ $("#run-score-preview").addEventListener("click", async () => {
 });
 
 $("#open-site-dialog").addEventListener("click", () => openSiteDialog());
-$("#sync-cookiecloud-sites").addEventListener("click", async () => {
-  const button = $("#sync-cookiecloud-sites");
-  setButtonLoading(button, true, "同步中…");
-  try {
-    const result = await api("/api/sites/sync-cookiecloud", {method: "POST"});
-    await loadSites();
-    showToast(result.message);
-  } catch (error) { showToast(error.message); } finally { setButtonLoading(button, false); }
-});
 $("#test-all-sites").addEventListener("click", async () => {
   const button = $("#test-all-sites");
   setButtonLoading(button, true, "检测中…");
@@ -1118,7 +1112,7 @@ $("#recognize-playlist").addEventListener("click", async () => {
 });
 $("#playlist-page-size").addEventListener("change", async () => {
   playlistPageSize = $("#playlist-page-size").value;
-  localStorage.setItem("autolist-playlist-page-size", playlistPageSize);
+  safeStorageSet("autolist-playlist-page-size", playlistPageSize);
   playlistPage = 1;
   if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId);
 });
@@ -1130,7 +1124,7 @@ $("#delete-playlist").addEventListener("click", async () => {
   try {
     await api(`/api/playlists/${selectedPlaylistId}`, {method: "DELETE"});
     selectedPlaylistId = null;
-    expandedPlaylistId = undefined;
+    expandedPlaylistId = null;
     playlistItemsCache = [];
     await Promise.all([loadPlaylists(true), loadOverview()]);
     showToast("片单已删除");
@@ -1286,6 +1280,23 @@ $$(".filter-chip").forEach((button) => button.addEventListener("click", () => {
 }));
 
 $("#refresh-history").addEventListener("click", () => refreshHistory().then(() => showToast("历史已刷新")).catch((error) => showToast(error.message)));
+$("#clear-history")?.addEventListener("click", async () => {
+  const select = $("#history-status-filter");
+  const status = select?.value || "all";
+  const label = select?.selectedOptions?.[0]?.textContent || "全部状态";
+  if (!window.confirm(`确定清除“${label}”中的下载历史吗？此操作不会删除下载任务或媒体文件。`)) return;
+  const button = $("#clear-history");
+  setButtonLoading(button, true, "清除中…");
+  try {
+    const result = await api(`/api/history?status=${encodeURIComponent(status)}`, {method: "DELETE"});
+    await Promise.all([refreshHistory(), loadOverview()]);
+    showToast(`已清除 ${Number(result.deleted || 0)} 条下载历史`);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
 $("#history-status-filter")?.addEventListener("change", (event) => {
   historyStatusFilter = event.target.value || "all";
   renderHistoryTable();
@@ -1329,10 +1340,13 @@ $("#confirm-download").addEventListener("click", async (event) => {
 (async () => {
   applyTheme(document.documentElement.dataset.theme);
   const initialPage = window.location.hash.slice(1);
-  navigate(initialPage, false);
+  const initialTarget = pageMeta[initialPage] ? initialPage : "dashboard";
+  navigate(initialTarget, false);
   try {
-    const initialPageData = pageMeta[initialPage] ? refreshPageData(initialPage) : Promise.resolve();
-    await Promise.all([loadConnection(), loadPlaylists(), loadOverview(), refreshCart(), refreshHistory(), loadSettings(), initialPageData]);
+    const startup = [loadSettings(), refreshPageData(initialTarget)];
+    if (initialTarget !== "dashboard") startup.push(loadConnection());
+    if (!["dashboard", "cart"].includes(initialTarget)) startup.push(refreshCart());
+    await Promise.all(startup);
     await recoverLatestTask();
   } catch (error) {
     showToast(error.message);

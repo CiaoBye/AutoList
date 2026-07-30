@@ -18,7 +18,7 @@ running_recognition_tasks: dict[int, asyncio.Task[None]] = {}
 running_library_tasks: dict[int, asyncio.Task[None]] = {}
 running_automation_tasks: dict[int, asyncio.Task[None]] = {}
 scheduler_task: asyncio.Task[None] | None = None
-moviepilot_site_ids: dict[int, int] = {}
+download_cart_lock = asyncio.Lock()
 site_icon_cache: dict[int, tuple[bytes, str]] = {}
 poster_cache: dict[str, tuple[bytes, str]] = {}
 
@@ -49,7 +49,9 @@ def require_configured_cookiecloud_uuid(uuid_value: str) -> None:
         raise HTTPException(403, "CookieCloud 用户 KEY 与服务端配置不匹配")
 
 
-def enforce_search_task_capacity() -> None:
-    active = sum(1 for task in running_tasks.values() if task and not task.done())
+def enforce_search_task_capacity(active_count: int | None = None) -> None:
+    active = active_count
+    if active is None:
+        active = sum(1 for task in running_tasks.values() if task and not task.done())
     if active >= MAX_RUNNING_SEARCH_TASKS:
         raise HTTPException(429, f"已有 {active} 个搜索任务在运行，请等待完成后再试")

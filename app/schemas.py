@@ -56,7 +56,6 @@ class RuntimeSettingsPayload(BaseModel):
     mdblist_api_key: str | None = None
     cookiecloud_key: str = ""
     cookiecloud_password: str | None = None
-    cookiecloud_forward_moviepilot: bool = True
     outbound_proxy_url: str | None = None
     tmdb_proxy_enabled: bool = False
     pt_proxy_enabled: bool = False
@@ -87,12 +86,6 @@ class SitePayload(BaseModel):
     search_enabled: bool = False
 
 
-class SiteCookiePayload(BaseModel):
-    username: str = ""
-    password: str = ""
-    code: str = ""
-
-
 class CookieCloudUploadPayload(BaseModel):
     uuid: str = Field(min_length=5, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     encrypted: str = Field(min_length=16, max_length=32_000_000)
@@ -116,4 +109,3 @@ class PlaylistAutomationPayload(BaseModel):
 class PlaylistSyncPayload(BaseModel):
     enabled: bool = False
     interval_hours: int = Field(default=24, ge=1, le=720)
-

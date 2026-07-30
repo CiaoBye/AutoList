@@ -257,6 +257,93 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(history[0]["success"])
         self.assertNotIn("super-secret", json.dumps(history, ensure_ascii=False))
 
+    async def test_retry_runs_only_the_exact_failed_item_site_pairs(self) -> None:
+        playlist_id, first_item_id = self.create_playlist_item("First Movie", 2020)
+        with connect() as conn:
+            second_item_id = int(conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title)
+                   VALUES(?,?,?,?,?,?)""",
+                (playlist_id, 2, "tt7654321", "Second Movie", 2021, "第二部"),
+            ).lastrowid)
+            site_ids = []
+            for name in ("Alpha", "Beta"):
+                site_ids.append(int(conn.execute(
+                    """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
+                       VALUES(?,?,?,1,1,?)""",
+                    (name, "nexusphp", f"https://{name.lower()}.example", main.utc_now()),
+                ).lastrowid))
+            source_id = int(conn.execute(
+                """INSERT INTO search_tasks(
+                     playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (playlist_id, 1, 2, "partial", 2, json.dumps(site_ids), json.dumps([first_item_id, second_item_id]),
+                 main.utc_now(), main.utc_now()),
+            ).lastrowid)
+            now = main.utc_now()
+            conn.executemany(
+                """INSERT INTO search_attempts(
+                     task_id,playlist_item_id,site_id,site_name,status,result_count,duration_ms,created_at,finished_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                [
+                    (source_id, first_item_id, site_ids[0], "Alpha", "failed", 0, 1, now, now),
+                    (source_id, second_item_id, site_ids[1], "Beta", "failed", 0, 1, now, now),
+                ],
+            )
+        retry_id, _ = main.create_followup_search_task(source_id, True)
+        with connect() as conn:
+            retry = conn.execute("SELECT pair_scope_json FROM search_tasks WHERE id=?", (retry_id,)).fetchone()
+        self.assertEqual(
+            {tuple(pair) for pair in json.loads(retry["pair_scope_json"])},
+            {(first_item_id, site_ids[0]), (second_item_id, site_ids[1])},
+        )
+        seen: list[tuple[int, int]] = []
+
+        async def fake_search_site(_task_id: int, item: object, site: dict, *_args: object) -> tuple[dict, list, None, int]:
+            seen.append((int(item["id"]), int(site["id"])))  # type: ignore[index]
+            return site, [], None, 1
+
+        media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
+        with patch("app.services.search.recognize_movie", AsyncMock(return_value=media)), \
+             patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.services.search.search_one_site", new=fake_search_site):
+            await main.run_search(retry_id)
+        self.assertEqual(set(seen), {(first_item_id, site_ids[0]), (second_item_id, site_ids[1])})
+        self.assertEqual(len(seen), 2)
+
+    async def test_restart_copies_original_item_and_site_snapshots(self) -> None:
+        playlist_id, item_id = self.create_playlist_item()
+        with connect() as conn:
+            site_id = int(conn.execute(
+                """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
+                   VALUES(?,?,?,1,1,?)""",
+                ("Original", "rss", "https://original.example/feed", main.utc_now()),
+            ).lastrowid)
+            source_id = int(conn.execute(
+                """INSERT INTO search_tasks(
+                     playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (playlist_id, 1, 1, "completed", 1, json.dumps([site_id]), json.dumps([item_id]),
+                 main.utc_now(), main.utc_now()),
+            ).lastrowid)
+            conn.execute(
+                """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
+                   VALUES(?,?,?,1,1,?)""",
+                ("New Site", "rss", "https://new.example/feed", main.utc_now()),
+            )
+            conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year)
+                   VALUES(?,?,?,?)""",
+                (playlist_id, 2, "New Movie", 2024),
+            )
+        restart_id, restart_total = main.create_followup_search_task(source_id, False)
+        with connect() as conn:
+            restart = conn.execute(
+                "SELECT site_ids_json,item_ids_json FROM search_tasks WHERE id=?", (restart_id,),
+            ).fetchone()
+        self.assertEqual(restart_total, 1)
+        self.assertEqual(json.loads(restart["site_ids_json"]), [site_id])
+        self.assertEqual(json.loads(restart["item_ids_json"]), [item_id])
+
     async def test_excluded_candidate_cannot_enter_cart(self) -> None:
         playlist_id, item_id = self.create_playlist_item()
         candidate_id = "excluded-candidate"
@@ -308,6 +395,30 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["title"], "Movie.2020.1080p.x265-FRDS")
         self.assertEqual(rows[0]["size"], int(8.25 * 1024**3))
         self.assertEqual(rows[0]["seeders"], 12)
+
+    async def test_nexusphp_account_stats_parse_combined_profile_cell(self) -> None:
+        home = Mock()
+        home.text = '<a href="userdetails.php?id=42">账户</a>'
+        home.raise_for_status = Mock()
+        details = Mock()
+        details.text = """<table><tr><td>
+          上传量：12.5 TiB<br>下载量：2.5 TiB<br>分享率：5.00<br>魔力值：1234.5<br>做种数：86
+        </td></tr></table>"""
+        details.raise_for_status = Mock()
+        client = AsyncMock()
+        client.get.side_effect = [home, details]
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        with patch("app.clients.httpx.AsyncClient", return_value=context):
+            stats = await NexusPHPClient().account_stats({
+                "name": "测试站",
+                "base_url": "https://tracker.example",
+                "cookie": "session=dummy",
+            })
+        self.assertEqual(stats["uploaded"], int(12.5 * 1024**4))
+        self.assertEqual(stats["downloaded"], int(2.5 * 1024**4))
+        self.assertEqual(stats["ratio"], 5.0)
+        self.assertEqual(stats["seeding"], 86)
 
     async def test_moviepilot_payload_maps_internal_torrent_fields(self) -> None:
         response = Mock()

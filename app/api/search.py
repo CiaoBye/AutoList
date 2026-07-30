@@ -18,7 +18,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
 from ..config import load_runtime_settings, save_runtime_settings, settings
 from ..cookiecloud import cookie_for_host, cookie_groups
 from ..database import config_values, connect, json_value, save_config
@@ -33,7 +32,6 @@ from ..schemas import (
     PlaylistUpdatePayload,
     RuntimeSettingsPayload,
     ScorePreviewPayload,
-    SiteCookiePayload,
     SitePayload,
     TaskPayload,
 )
@@ -45,15 +43,15 @@ from ..services.imports import normalize_import_items, resolve_import
 from ..services.library import run_library_scan
 from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
 from ..services.search import (
+    begin_search_task_slot,
     create_followup_search_task,
     run_search,
     searchable_playlist_items,
 )
-from ..services.sites import domain_match, moviepilot_site_snapshot, resolve_site_adapter, test_site_config
+from ..services.sites import resolve_site_adapter, test_site_config
 from ..state import (
     enforce_cookiecloud_rate_limit,
     enforce_search_task_capacity,
-    moviepilot_site_ids,
     poster_cache,
     raw_candidates,
     require_configured_cookiecloud_uuid,
@@ -79,7 +77,6 @@ router = APIRouter()
 
 @router.post("/api/search-tasks")
 async def create_task(payload: TaskPayload) -> dict[str, Any]:
-    enforce_search_task_capacity()
     if payload.scope == "range" and payload.range_end < payload.range_start:
         raise HTTPException(422, "结束序号不能小于起始序号")
     item_ids: list[int] = []
@@ -93,19 +90,29 @@ async def create_task(payload: TaskPayload) -> dict[str, Any]:
     else:
         range_start, range_end = payload.range_start, payload.range_end
     with connect() as conn:
-        total = conn.execute(
-            "SELECT COUNT(*) FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ?",
+        begin_search_task_slot(conn)
+        selected_items = conn.execute(
+            "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ? ORDER BY rank_no",
             (payload.playlist_id, range_start, range_end),
-        ).fetchone()[0]
+        ).fetchall()
+        total = len(selected_items)
         if not total:
             raise HTTPException(422, "所选范围没有影片")
-        if not conn.execute("SELECT 1 FROM pt_sites WHERE enabled=1 AND search_enabled=1 LIMIT 1").fetchone():
+        site_ids = [
+            int(row["id"]) for row in conn.execute(
+                "SELECT id FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id",
+            ).fetchall()
+        ]
+        if not site_ids:
             raise HTTPException(422, "请先在站点配置中选择至少一个参与搜索的站点")
+        if not item_ids:
+            item_ids = [int(row["id"]) for row in selected_items]
         task_id = conn.execute(
-            """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,trigger,item_ids_json,created_at,updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?)""",
-            (payload.playlist_id, range_start, range_end, "queued", len(item_ids) or total,
-             "pending" if payload.scope == "pending" else "manual", json_value(item_ids) if item_ids else None,
+            """INSERT INTO search_tasks(
+                 playlist_id,range_start,range_end,status,total,trigger,site_ids_json,item_ids_json,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (payload.playlist_id, range_start, range_end, "queued", len(item_ids),
+             "pending" if payload.scope == "pending" else "manual", json_value(site_ids), json_value(item_ids),
              utc_now(), utc_now()),
         ).lastrowid
     running_tasks[task_id] = asyncio.create_task(run_search(task_id))
@@ -116,10 +123,13 @@ async def search_tasks(playlist_id: int | None = None, limit: int = 20) -> list[
     safe_limit = max(1, min(limit, 100))
     with connect() as conn:
         if playlist_id is None:
-            rows = conn.execute("SELECT * FROM search_tasks ORDER BY id DESC LIMIT ?", (safe_limit,)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM search_tasks WHERE status!='archived' ORDER BY id DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM search_tasks WHERE playlist_id=? ORDER BY id DESC LIMIT ?",
+                "SELECT * FROM search_tasks WHERE playlist_id=? AND status!='archived' ORDER BY id DESC LIMIT ?",
                 (playlist_id, safe_limit),
             ).fetchall()
         result = rows_to_dicts(rows)
@@ -184,14 +194,12 @@ async def task_attempts(task_id: int, limit: int = 500) -> dict[str, Any]:
 
 @router.post("/api/search-tasks/{task_id}/retry")
 async def retry_task(task_id: int) -> dict[str, Any]:
-    enforce_search_task_capacity()
     new_id, total = create_followup_search_task(task_id, True)
     running_tasks[new_id] = asyncio.create_task(run_search(new_id))
     return {"id": new_id, "status": "queued", "total": total, "parent_task_id": task_id}
 
 @router.post("/api/search-tasks/{task_id}/restart")
 async def restart_task(task_id: int) -> dict[str, Any]:
-    enforce_search_task_capacity()
     with connect() as conn:
         source = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
     if not source:
@@ -280,4 +288,3 @@ async def candidates(task_id: int) -> list[dict[str, Any]]:
         grouped.append(primary)
     grouped.sort(key=lambda item: (int(item["rank_no"] or 0), int(item.get("ranking") or 0)))
     return grouped
-

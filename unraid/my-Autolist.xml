@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Autolist</Name>
+  <Repository>autolist:0.84</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>独立片单识别、PT 站点搜索与下载决策服务。MoviePilot 仅负责下载分类与整理。</Overview>
+  <Category>MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:8585]/</WebUI>
+  <TemplateURL/>
+  <Icon>file:///mnt/user/appdata/Autolist/autolist-icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>先在 Unraid 终端构建 autolist:0.84，并将 autolist-icon.png 放入 /mnt/user/appdata/Autolist/。</Requires>
+  <Config Name="Web UI" Target="8080" Default="8585" Mode="tcp" Description="AutoList Web 端口" Type="Port" Display="always" Required="true" Mask="false">8585</Config>
+  <Config Name="持久化数据" Target="/data" Default="/mnt/user/appdata/Autolist/data" Mode="rw" Description="数据库、运行设置与 CookieCloud 密文" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/Autolist/data</Config>
+  <Config Name="访问令牌" Target="AUTOLIST_ACCESS_TOKEN" Default="" Mode="" Description="非可信内网必须设置强随机令牌" Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="TMDB API Key" Target="TMDB_API_KEY" Default="" Mode="" Description="支持 TMDB v3 Key 或 v4 Token，也可稍后在网页设置" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="MoviePilot 地址" Target="MP_BASE_URL" Default="" Mode="" Description="下载分类与整理下游地址" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="MoviePilot API Key" Target="MP_API_KEY" Default="" Mode="" Description="MoviePilot API Key" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>

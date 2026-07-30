@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.79.0">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.84.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=0.79.0">
+  <link rel="stylesheet" href="/assets/style.css?v=0.84.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -26,7 +26,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=0.79.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=0.84.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -42,7 +42,7 @@
         <span class="nav-group-label">管理</span>
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.79</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.84</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -236,7 +236,7 @@
               <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">02</span><div><h3>允许组合</h3><p>编码与制作组必须同时命中。第一层永远排在保底层之前。</p></div></div><div class="profile-grid"><article class="policy-profile primary"><div><span>第一优先级</span><strong>x265 压制</strong></div><label class="field"><span>允许制作组</span><input id="rules-primary-groups" value="ADE, FRDS, HDS, CHD"></label></article><article class="policy-profile fallback"><div><span>无首选资源时</span><strong>x264 保底</strong></div><label class="field"><span>允许制作组</span><input id="rules-fallback-groups" value="CMCT"></label></article></div></section>
               <section class="rule-card"><div class="rule-card-head"><span class="rule-number">03</span><div><h3>排序顺序</h3><p>允许组合命中后，先比站点，再比分辨率。</p></div></div><ol class="priority-chain"><li><strong>站点优先级</strong><span>在“站点与服务”中设置</span></li><li><strong>分辨率</strong><span><select id="rules-resolution-first" aria-label="首选分辨率"><option>2160p</option><option>1080p</option></select> 优先，<select id="rules-resolution-second" aria-label="保底分辨率"><option>1080p</option><option>2160p</option></select> 保底</span></li><li><strong>做种与优惠</strong><span>只处理同层级、同站点的并列资源</span></li></ol></section>
               <section class="rule-card"><div class="rule-card-head"><span class="rule-number">04</span><div><h3>候选保留</h3><p>合格与排除样本分别限量，便于检查适配结果。</p></div></div><label class="field"><span>每部最多保留</span><input id="rules-limit" type="number" min="1" max="20" value="6"></label><div class="policy-note">自动任务只会选择第一优先级；保底候选仍需人工确认。</div></section>
-              <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">05</span><div><h3>制作组词表</h3><p>内置 MoviePilot 兼容词表与自定义正则合并去重，解析由 AutoList 独立完成。</p></div><button id="import-mp-groups" class="button button-secondary" type="button">导入 MP 自定义词表</button><span id="release-group-count" class="catalog-count">读取中</span></div><details class="catalog-details"><summary>查看内置制作组</summary><div id="builtin-release-groups" class="catalog-tags"></div></details><label class="field"><span>自定义制作组 / 正则（每行一条）</span><textarea id="rules-custom-groups" rows="6" placeholder="例如：MyEncode&#10;Studio-[A-Z]+"></textarea></label></section>
+              <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">05</span><div><h3>制作组词表</h3><p>内置词表与自定义正则均由 AutoList 本地维护和解析。</p></div><span id="release-group-count" class="catalog-count">读取中</span></div><details class="catalog-details"><summary>查看内置制作组</summary><div id="builtin-release-groups" class="catalog-tags"></div></details><label class="field"><span>自定义制作组 / 正则（每行一条）</span><textarea id="rules-custom-groups" rows="6" placeholder="例如：MyEncode&#10;Studio-[A-Z]+"></textarea></label></section>
               <section class="rule-card policy-card-wide rule-card-preview"><div class="rule-card-head"><span class="rule-number">06</span><div><h3>标题试算</h3><p>直接查看资源是首选、保底还是被哪条规则排除。</p></div></div><div class="score-preview-controls"><input id="rules-preview-title" aria-label="标题试算资源标题" value="Movie.2024.2160p.BluRay.x265-FRDS"><input id="rules-preview-seeders" type="number" min="0" value="20" aria-label="做种数"><button id="run-score-preview" class="button button-secondary" type="button">开始试算</button></div><div id="score-preview-result" class="score-preview-result">等待试算</div></section>
             </div>
             <p id="rules-result" class="inline-message"></p>
@@ -253,11 +253,11 @@
             <article><img src="/assets/service-moviepilot.svg" alt="MoviePilot 标志"><span><strong>MoviePilot</strong><small id="rail-mp-status">检测中</small></span></article>
           </div>
           <div class="site-toolbar">
-            <div><p class="section-kicker">PT SITES</p><h2>站点</h2></div>
-            <div class="site-page-actions"><button id="sync-cookiecloud-sites" class="button button-secondary">同步站点登录</button><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary">＋ 添加站点</button></div>
+            <div><p class="section-kicker">PT SITES</p><h2>站点</h2><p class="panel-lead">搜索、连接检测与 Cookie 由 AutoList 独立管理。</p></div>
+            <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary">＋ 添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-label="站点筛选"><button class="site-filter active" data-site-filter="all">全部</button><button class="site-filter" data-site-filter="active">已启用</button><button class="site-filter" data-site-filter="inactive">未启用</button><button class="site-filter" data-site-filter="normal">正常</button><button class="site-filter" data-site-filter="slow">缓慢</button><button class="site-filter" data-site-filter="failed">失败</button><button class="site-filter" data-site-filter="unknown">未知</button></div>
-          <div class="site-workspace"><div id="sites-list" class="site-card-grid mp-site-grid"></div><aside id="site-inspector-panel" class="site-inspector-panel"><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一个站点</strong><p>查看连接状态和账户数据。</p></div></div></aside></div>
+          <div class="site-workspace"><div id="sites-list" class="site-card-grid mp-site-grid"></div><aside id="site-inspector-panel" class="site-inspector-panel"><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一个站点</strong><p>查看 AutoList 搜索统计、Cookie 与 User-Agent 状态。</p></div></div></aside></div>
         </section>
       </section>
 
@@ -277,6 +277,7 @@
                   <option value="failed">失败</option>
                 </select>
               </label>
+              <button id="clear-history" class="button button-secondary button-danger-soft" type="button">清除当前分组</button>
               <button id="refresh-history" class="icon-button" aria-label="刷新下载历史">↻</button>
             </div>
           </div>
@@ -317,60 +318,70 @@
     <form method="dialog" class="dialog-card settings-card">
       <div class="dialog-heading"><div><p class="section-kicker">PREFERENCES</p><h2 id="settings-dialog-title">AutoList 设置</h2></div><button class="icon-button" value="cancel" aria-label="关闭设置">×</button></div>
       <p class="dialog-copy">管理识别、下载、媒体库与网络连接。</p>
-      <div class="settings-grid settings-grid-rebuilt">
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt="TMDB"></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em></div>
-          <label class="field"><span>API Key</span><input id="settings-tmdb-key" type="text" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label>
-          <label class="field"><span>语言</span><input id="settings-tmdb-language" value="zh-CN"></label>
-        </section>
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon proxy"><img src="/assets/service-proxy.svg" alt="代理"></span><div><strong>网络与代理</strong><small>按服务分流；地址按当前偏好显示</small></div><em id="settings-proxy-status">未配置</em></div>
-          <label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" type="text" autocomplete="off" placeholder="http://127.0.0.1:7890"></label>
-          <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-tmdb-proxy" type="checkbox"><span>TMDB 走代理</span></label><label class="toggle-field"><input id="settings-pt-proxy" type="checkbox"><span>PT 站点允许代理</span></label></div>
-          <p class="dialog-copy" style="margin:0.6rem 0 0">大陆访问 TMDB 优先用代理；不再依赖 Compose 写死 hosts IP。可在宿主机 DNS 或自建 extra_hosts 维护映射。</p>
-        </section>
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.79.0" alt="AutoList"></span><div><strong>本机访问令牌</strong><small>仅保存在浏览器；服务端令牌只读环境变量</small></div><em id="settings-access-token-status">检测中</em></div>
-          <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
-          <div class="settings-inline setting-toggles">
-            <button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button>
-            <button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button>
+      <div class="settings-layout">
+        <nav class="settings-tabs" role="tablist" aria-label="设置分类">
+          <button id="settings-tab-recognition" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-recognition" data-settings-tab="recognition"><strong>识别与片单</strong><small>TMDB、MDBList、AI</small></button>
+          <button id="settings-tab-download" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-download" data-settings-tab="download"><strong>下载与入库</strong><small>MoviePilot、Transmission、Emby</small></button>
+          <button id="settings-tab-sites" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-sites" data-settings-tab="sites"><strong>站点与网络</strong><small>CookieCloud、代理</small></button>
+          <button id="settings-tab-system" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-system" data-settings-tab="system"><strong>安全与界面</strong><small>访问令牌、首页海报</small></button>
+        </nav>
+        <div class="settings-panels">
+          <div id="settings-panel-recognition" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-recognition" data-settings-panel="recognition">
+            <section class="settings-section">
+              <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt=""></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em></div>
+              <label class="field"><span>API Key</span><input id="settings-tmdb-key" type="password" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label>
+              <label class="field"><span>语言</span><input id="settings-tmdb-language" value="zh-CN"></label>
+            </section>
+            <section class="settings-section">
+              <div class="settings-section-title"><span class="settings-icon"><img src="/assets/service-mdblist.svg" alt=""></span><div><strong>MDBList</strong><small>可选 · 私有片单与更高额度</small></div><em id="settings-mdblist-status">未配置</em></div>
+              <label class="field"><span>API Key</span><input id="settings-mdblist-key" type="password" autocomplete="off" placeholder="公开片单可留空"></label>
+            </section>
+            <section class="settings-section settings-section-wide">
+              <div class="settings-section-title"><span class="settings-icon ai"><img src="/assets/service-ai.svg" alt=""></span><div><strong>AI 辅助识别</strong><small>可选 · OpenAI 兼容接口</small></div><em id="settings-ai-status">未配置</em></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label><label class="field"><span>API Key</span><input id="settings-ai-key" type="password" autocomplete="off"></label><label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label></div>
+            </section>
           </div>
-          <p class="dialog-copy" style="margin:0.6rem 0 0" id="settings-access-token-hint">未启用服务端访问令牌时，此栏仅用于多机调试。</p>
-        </section>
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt="Emby"></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em></div>
-          <label class="field"><span>服务地址</span><input id="settings-emby-url" type="url" placeholder="http://192.0.2.10:8096"></label>
-          <label class="field"><span>API Key</span><input id="settings-emby-key" type="text" autocomplete="off"></label>
-        </section>
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt="Transmission"></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em></div>
-          <label class="field"><span>RPC 地址</span><input id="settings-tr-url" type="url" placeholder="http://192.0.2.10:9191"></label>
-          <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username"></label><label class="field"><span>密码</span><input id="settings-tr-password" type="text" autocomplete="off"></label></div>
-        </section>
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon ai"><img src="/assets/service-ai.svg" alt="AI"></span><div><strong>AI 辅助识别</strong><small>可选 · OpenAI 兼容接口</small></div><em id="settings-ai-status">未配置</em></div>
-          <label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label>
-          <label class="field"><span>API Key</span><input id="settings-ai-key" type="text" autocomplete="off"></label>
-          <label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label>
-        </section>
-        <section class="settings-section">
-          <div class="settings-section-title"><span class="settings-icon"><img src="/assets/service-mdblist.svg" alt="MDBList"></span><div><strong>MDBList</strong><small>可选 · 私有片单与更高额度</small></div><em id="settings-mdblist-status">未配置</em></div>
-          <label class="field"><span>API Key</span><input id="settings-mdblist-key" type="text" autocomplete="off" placeholder="公开片单可留空"></label>
-        </section>
-        <section class="settings-section settings-section-wide shelf-preference-section">
-          <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.79.0" alt="AutoList"></span><div><strong>首页海报</strong><small>控制首页“最近入库”的海报展示方式</small></div><em>界面偏好</em></div>
-          <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片，刷新期间保持不变。</p></div>
-        </section>
-        <section class="settings-section settings-section-wide cookiecloud-section">
-          <div class="settings-section-title"><span class="settings-icon cookiecloud"><img src="/assets/service-cookiecloud.svg" alt="CookieCloud"></span><div><strong>CookieCloud</strong><small>同步站点登录</small></div><em id="settings-cookiecloud-status">未配置</em></div>
-          <div class="settings-inline"><label class="field"><span>用户 KEY</span><input id="settings-cookiecloud-key" type="text" autocomplete="off" placeholder="与 Chrome 扩展保持一致"></label><label class="field"><span>端对端加密密码</span><input id="settings-cookiecloud-password" type="text" autocomplete="off" placeholder="留空保留已配置密码"></label><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" type="text" readonly value="/cookiecloud"></label></div>
-          <label class="toggle-field"><input id="settings-cookiecloud-forward" type="checkbox" checked><span>同时更新 MoviePilot</span></label>
-        </section>
-        <section class="settings-section settings-section-wide settings-mp-section">
-          <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt="MoviePilot"></span><div><strong>MoviePilot</strong><small>下载整理</small></div><em id="settings-mp-status">检测中</em></div>
-          <div class="settings-inline"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.0.2.10:3000"></label><label class="field"><span>API Key</span><input id="settings-mp-key" type="text" autocomplete="off"></label><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
-        </section>
+          <div id="settings-panel-download" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-download" data-settings-panel="download" hidden>
+            <section class="settings-section settings-section-wide settings-mp-section">
+              <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt=""></span><div><strong>MoviePilot</strong><small>仅负责下载分类与整理</small></div><em id="settings-mp-status">检测中</em></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.0.2.10:3000"></label><label class="field"><span>API Key</span><input id="settings-mp-key" type="password" autocomplete="off"></label><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
+            </section>
+            <section class="settings-section">
+              <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt=""></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em></div>
+              <label class="field"><span>RPC 地址</span><input id="settings-tr-url" type="url" placeholder="http://192.0.2.10:9191"></label>
+              <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username" autocomplete="username"></label><label class="field"><span>密码</span><input id="settings-tr-password" type="password" autocomplete="current-password"></label></div>
+            </section>
+            <section class="settings-section">
+              <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt=""></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em></div>
+              <label class="field"><span>服务地址</span><input id="settings-emby-url" type="url" placeholder="http://192.0.2.10:8096"></label>
+              <label class="field"><span>API Key</span><input id="settings-emby-key" type="password" autocomplete="off"></label>
+            </section>
+          </div>
+          <div id="settings-panel-sites" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-sites" data-settings-panel="sites" hidden>
+            <section class="settings-section settings-section-wide cookiecloud-section">
+              <div class="settings-section-title"><span class="settings-icon cookiecloud"><img src="/assets/service-cookiecloud.svg" alt=""></span><div><strong>CookieCloud</strong><small>上传后自动按域名更新站点 Cookie</small></div><em id="settings-cookiecloud-status">未配置</em></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>用户 KEY</span><input id="settings-cookiecloud-key" autocomplete="off" placeholder="与 Chrome 扩展保持一致"></label><label class="field"><span>端对端加密密码</span><input id="settings-cookiecloud-password" type="password" autocomplete="off" placeholder="留空保留已配置密码"></label><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" readonly value="/cookiecloud"></label></div>
+            </section>
+            <section class="settings-section settings-section-wide">
+              <div class="settings-section-title"><span class="settings-icon proxy"><img src="/assets/service-proxy.svg" alt=""></span><div><strong>网络与代理</strong><small>按服务独立分流</small></div><em id="settings-proxy-status">未配置</em></div>
+              <label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" autocomplete="off" placeholder="http://127.0.0.1:7890"></label>
+              <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-tmdb-proxy" type="checkbox"><span>TMDB 走代理</span></label><label class="toggle-field"><input id="settings-pt-proxy" type="checkbox"><span>PT 站点允许代理</span></label></div>
+              <p class="settings-help">代理只应用到勾选的服务；站点 Cookie、User-Agent 和图标均由 AutoList 自主管理。</p>
+            </section>
+          </div>
+          <div id="settings-panel-system" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-system" data-settings-panel="system" hidden>
+            <section class="settings-section">
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.84.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
+              <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
+              <p class="settings-help" id="settings-access-token-hint">未启用服务端访问令牌时，此栏仅用于多机调试。</p>
+            </section>
+            <section class="settings-section shelf-preference-section">
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.84.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
+              <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片。</p></div>
+            </section>
+          </div>
+        </div>
       </div>
       <p id="settings-result" class="inline-message" aria-live="polite"></p>
       <div class="dialog-actions settings-actions"><button id="test-settings" class="button button-secondary" type="button">测试连接</button><span class="settings-action-spacer"></span><button class="button button-secondary" value="cancel">取消</button><button id="save-settings" class="button button-primary" type="button">保存设置</button></div>
@@ -397,6 +408,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>电影库</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" type="button"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=0.79.0"></script>
+  <script type="module" src="/assets/app.js?v=0.84.0"></script>
 </body>
 </html>

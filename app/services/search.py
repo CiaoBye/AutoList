@@ -25,7 +25,7 @@ from ..domain.titles import (
     torrent_matches_item,
 )
 from ..security import safe_error, sanitize_sensitive_text
-from ..state import raw_candidates, running_tasks
+from ..state import enforce_search_task_capacity, raw_candidates, running_tasks
 from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, utc_now, volume_factor_value
 from .library import library_details
 from .recognition import analyze_candidate, persist_tmdb_item, recognize_movie
@@ -131,6 +131,15 @@ def task_log(task_id: int, level: str, stage: str, message: str) -> None:
             "INSERT INTO search_task_logs(task_id,level,stage,message,created_at) VALUES(?,?,?,?,?)",
             (task_id, level, stage, sanitize_sensitive_text(message, 1000), utc_now()),
         )
+
+
+def begin_search_task_slot(conn: sqlite3.Connection) -> None:
+    """Lock task admission and enforce the process-wide persisted capacity."""
+    conn.execute("BEGIN IMMEDIATE")
+    active = int(conn.execute(
+        "SELECT COUNT(*) FROM search_tasks WHERE status IN ('queued','running')",
+    ).fetchone()[0])
+    enforce_search_task_capacity(active)
 
 
 SEARCH_ERROR_MESSAGES = {
@@ -246,11 +255,17 @@ async def run_search(task_id: int) -> None:
             (task["playlist_id"], task["range_start"], task["range_end"]),
         ).fetchall())
         sites = rows_to_dicts(conn.execute("SELECT * FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id").fetchall())
+    pair_scope: set[tuple[int, int]] = set()
     try:
         selected_item_ids = {int(value) for value in json.loads(task["item_ids_json"] or "[]")}
         selected_site_ids = {int(value) for value in json.loads(task["site_ids_json"] or "[]")}
+        pair_scope = {
+            (int(pair[0]), int(pair[1]))
+            for pair in json.loads(task["pair_scope_json"] or "[]")
+            if isinstance(pair, list) and len(pair) == 2
+        }
     except (TypeError, ValueError, json.JSONDecodeError):
-        selected_item_ids, selected_site_ids = set(), set()
+        selected_item_ids, selected_site_ids, pair_scope = set(), set(), set()
     if selected_item_ids:
         items = [item for item in items if int(item["id"]) in selected_item_ids]
     if selected_site_ids:
@@ -300,8 +315,12 @@ async def run_search(task_id: int) -> None:
                 site_semaphore = asyncio.Semaphore(4)
                 queries = build_search_queries(item, media)
                 task_log(task_id, "info", "search", "检索词：" + " → ".join(query[2] for query in queries))
+                item_sites = [
+                    site for site in sites
+                    if not pair_scope or (int(item["id"]), int(site["id"])) in pair_scope
+                ]
                 site_results = await asyncio.gather(*(
-                    search_one_site(task_id, item, site, clients, site_semaphore, queries) for site in sites
+                    search_one_site(task_id, item, site, clients, site_semaphore, queries) for site in item_sites
                 ))
                 for site, torrents, reason, query_count in site_results:
                     if reason:
@@ -407,8 +426,13 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
         source = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         if not source:
             raise HTTPException(404, "搜索任务不存在")
+        begin_search_task_slot(conn)
+        source = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+        if not source:
+            raise HTTPException(404, "搜索任务不存在")
         site_ids: list[int] = []
         item_ids: list[int] = []
+        pair_scope: list[list[int]] = []
         if failed_only:
             failed = conn.execute(
                 """SELECT DISTINCT site_id,playlist_item_id FROM search_attempts
@@ -416,16 +440,28 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
             ).fetchall()
             site_ids = sorted({int(row["site_id"]) for row in failed})
             item_ids = sorted({int(row["playlist_item_id"]) for row in failed})
+            pair_scope = sorted([
+                [int(row["playlist_item_id"]), int(row["site_id"])]
+                for row in failed
+            ])
             if not failed:
                 raise HTTPException(422, "该任务没有可重试的站点失败记录")
-        total = len(item_ids) if failed_only else int(source["total"])
+        else:
+            try:
+                site_ids = [int(value) for value in json.loads(source["site_ids_json"] or "[]")]
+                item_ids = [int(value) for value in json.loads(source["item_ids_json"] or "[]")]
+                pair_scope = json.loads(source["pair_scope_json"] or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                site_ids, item_ids, pair_scope = [], [], []
+        total = len(item_ids) if item_ids else int(source["total"])
         now = utc_now()
         new_id = conn.execute(
             """INSERT INTO search_tasks(
-                 playlist_id,range_start,range_end,status,total,parent_task_id,trigger,site_ids_json,item_ids_json,created_at,updated_at
-               ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                 playlist_id,range_start,range_end,status,total,parent_task_id,trigger,site_ids_json,item_ids_json,
+                 pair_scope_json,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (source["playlist_id"], source["range_start"], source["range_end"], "queued", total, task_id,
              "retry" if failed_only else "restart", json_value(site_ids) if site_ids else None,
-             json_value(item_ids) if item_ids else None, now, now),
+             json_value(item_ids) if item_ids else None, json_value(pair_scope) if pair_scope else None, now, now),
         ).lastrowid
     return int(new_id), total

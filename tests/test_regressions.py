@@ -1,5 +1,7 @@
+import asyncio
 import base64
 import gzip
+import hashlib
 import json
 import os
 import tempfile
@@ -9,19 +11,42 @@ from unittest.mock import AsyncMock, patch
 
 from defusedxml import ElementTree
 from defusedxml.common import EntitiesForbidden
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from app import main
-from app.clients import TransmissionClient
+from app.api import search as search_routes
+from app.api import sites as site_routes
+from app.clients import MoviePilotClient, TransmissionClient
 from app.config import settings
-from app.database import connect, initialize
+from app.cookiecloud import cookie_for_host
+from app.database import cleanup_old_data, connect, initialize
 from app.list_sources import validate_source_url
 from app.security import sanitize_sensitive_text
+from app.services.automation import run_playlist_automation
+from app.services.history import clear_download_history
+from app.services.sites import apply_cookie_groups, refresh_stale_site_account_stats
 
 
 class SecurityTests(unittest.TestCase):
+    def test_moviepilot_gateway_has_no_search_compatibility_methods(self) -> None:
+        client = MoviePilotClient()
+        for removed in (
+            "search_title", "search_media", "add_download", "sites", "site_statistics",
+            "site_user_data", "refresh_site_user_data", "update_site_cookie", "site_icon",
+            "custom_release_groups",
+        ):
+            self.assertFalse(hasattr(client, removed))
+        self.assertTrue(callable(client.check))
+        self.assertTrue(callable(client.download))
+        route_paths = {route.path for route in main.app.routes}
+        self.assertNotIn("/api/sites/moviepilot-enhancements", route_paths)
+        self.assertNotIn("/api/config/release-groups/import-moviepilot", route_paths)
+        self.assertNotIn("cookiecloud_forward_moviepilot", settings.public_values())
+
     def test_sensitive_values_are_redacted_in_urls_headers_and_json(self) -> None:
         message = (
             "GET https://user:password@tracker.test/download?passkey=secret&api_key=key "
@@ -73,6 +98,15 @@ class SecurityTests(unittest.TestCase):
         finally:
             settings.cookiecloud_key = previous
 
+    def test_cookiecloud_does_not_apply_subdomain_cookie_to_parent_site(self) -> None:
+        groups = {
+            "example.org": "parent=1",
+            "private.example.org": "child=1",
+        }
+        self.assertEqual(cookie_for_host(groups, "pt.example.org"), ("example.org", "parent=1"))
+        self.assertEqual(cookie_for_host(groups, "private.example.org"), ("private.example.org", "child=1"))
+        self.assertIsNone(cookie_for_host({"private.example.org": "child=1"}, "example.org"))
+
     def test_cookiecloud_rejects_write_without_configured_key(self) -> None:
         previous = settings.cookiecloud_key
         settings.cookiecloud_key = ""
@@ -121,6 +155,7 @@ class SecurityTests(unittest.TestCase):
                 health = client.get("/api/health")
                 self.assertEqual(health.status_code, 200)
                 self.assertTrue(health.json().get("access_token_required"))
+                self.assertEqual(client.get("/favicon.ico").status_code, 200)
                 denied = client.get("/api/settings")
                 self.assertEqual(denied.status_code, 401)
                 allowed = client.get("/api/settings", headers={"X-AutoList-Token": "unit-test-token"})
@@ -177,15 +212,220 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             playlist_columns = {row["name"] for row in conn.execute("PRAGMA table_info(playlists)")}
             task_columns = {row["name"] for row in conn.execute("PRAGMA table_info(search_tasks)")}
             download_columns = {row["name"] for row in conn.execute("PRAGMA table_info(download_history)")}
+            site_columns = {row["name"] for row in conn.execute("PRAGMA table_info(pt_sites)")}
         self.assertTrue({"automation_enabled", "sync_enabled", "next_sync_at"}.issubset(playlist_columns))
-        self.assertTrue({"parent_task_id", "trigger", "site_ids_json", "item_ids_json"}.issubset(task_columns))
+        self.assertTrue({"parent_task_id", "trigger", "site_ids_json", "item_ids_json", "pair_scope_json"}.issubset(task_columns))
         self.assertTrue({"playlist_item_id", "submission_hash"}.issubset(download_columns))
+        self.assertTrue({
+            "account_uploaded", "account_downloaded", "account_ratio",
+            "account_stats_checked_at", "account_stats_error",
+        }.issubset(site_columns))
+
+    async def test_local_site_list_does_not_call_moviepilot(self) -> None:
+        with connect() as conn:
+            site_id = conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,cookie,enabled,search_enabled,created_at) VALUES(?,?,?,?,?,?,?)",
+                ("独立站点", "nexusphp", "https://tracker.example", "session=secret", 1, 1, main.utc_now()),
+            ).lastrowid
+            item_id = conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1", (self.playlist_id,),
+            ).fetchone()[0]
+            task_id = conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid
+            conn.execute(
+                """INSERT INTO search_attempts(
+                       task_id,playlist_item_id,site_id,site_name,status,result_count,duration_ms,created_at,finished_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (task_id, item_id, site_id, "独立站点", "success", 3, 240, main.utc_now(), main.utc_now()),
+            )
+        rows = await site_routes.sites()
+        self.assertEqual(rows[-1]["name"], "独立站点")
+        self.assertTrue(rows[-1]["cookie_configured"])
+        self.assertEqual(rows[-1]["cookie"], "")
+        self.assertEqual(rows[-1]["local_stats"]["success_rate"], 100.0)
+        self.assertEqual(rows[-1]["local_stats"]["average_ms"], 240)
+        self.assertEqual(rows[-1]["local_stats"]["result_count"], 3)
+        self.assertNotIn("mp_enhancement", rows[-1])
+
+    async def test_add_site_keeps_url_validation_available_after_route_split(self) -> None:
+        payload = site_routes.SitePayload(
+            name="新增站点",
+            base_url="https://tracker.example",
+            cookie="session=test",
+            limit_interval=1,
+            limit_count=1,
+            enabled=True,
+            search_enabled=True,
+        )
+        result = await site_routes.add_site(payload)
+        self.assertEqual(result["name"], "新增站点")
+        with connect() as conn:
+            stored = conn.execute("SELECT base_url FROM pt_sites WHERE id=?", (result["id"],)).fetchone()
+        self.assertEqual(stored["base_url"], "https://tracker.example")
+
+    async def test_cookiecloud_updates_local_site_without_moviepilot(self) -> None:
+        with connect() as conn:
+            site_id = conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,cookie,created_at) VALUES(?,?,?,?,?)",
+                ("Cookie 站点", "nexusphp", "https://tracker.example", "", main.utc_now()),
+            ).lastrowid
+        with patch.object(site_routes, "stored_cookiecloud_payload", return_value={
+            "cookie_data": {
+                ".tracker.example": [
+                    {"domain": ".tracker.example", "name": "session", "value": "fresh-cookie"},
+                ],
+            },
+        }):
+            result = await site_routes.sync_sites_from_cookiecloud()
+        with connect() as conn:
+            cookie = conn.execute("SELECT cookie FROM pt_sites WHERE id=?", (site_id,)).fetchone()[0]
+        self.assertEqual(cookie, "session=fresh-cookie")
+        self.assertEqual(result["updated"], 1)
+
+    async def test_single_site_cookie_refresh_uses_autolist_cookiecloud(self) -> None:
+        with connect() as conn:
+            site_id = conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,cookie,user_agent,created_at) VALUES(?,?,?,?,?,?)",
+                ("单站刷新", "nexusphp", "https://tracker.example", "old=1", "Local UA", main.utc_now()),
+            ).lastrowid
+        with patch.object(site_routes, "stored_cookiecloud_payload", return_value={
+            "cookie_data": {
+                ".tracker.example": [
+                    {"domain": ".tracker.example", "name": "session", "value": "new-cookie"},
+                ],
+            },
+        }):
+            result = await site_routes.refresh_site_cookie(int(site_id))
+        with connect() as conn:
+            row = conn.execute("SELECT cookie,user_agent FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+        self.assertTrue(result["ok"])
+        self.assertEqual(row["cookie"], "session=new-cookie")
+        self.assertEqual(row["user_agent"], "Local UA")
+
+    async def test_cookie_groups_apply_automatically_without_overwriting_user_agent(self) -> None:
+        with connect() as conn:
+            site_id = int(conn.execute(
+                """INSERT INTO pt_sites(
+                       name,adapter,base_url,cookie,user_agent,account_stats_checked_at,created_at
+                   ) VALUES(?,?,?,?,?,?,?)""",
+                ("自动 Cookie", "nexusphp", "https://pt.example.org", "old=1", "Browser UA", main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        result = apply_cookie_groups({"example.org": "session=fresh"})
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT cookie,user_agent,account_stats_checked_at FROM pt_sites WHERE id=?", (site_id,),
+            ).fetchone()
+        self.assertEqual(result["updated"], ["自动 Cookie"])
+        self.assertEqual(row["cookie"], "session=fresh")
+        self.assertEqual(row["user_agent"], "Browser UA")
+        self.assertIsNone(row["account_stats_checked_at"])
+
+    async def test_cookiecloud_upload_immediately_updates_matching_site(self) -> None:
+        previous_key, previous_password = settings.cookiecloud_key, settings.cookiecloud_password
+        settings.cookiecloud_key, settings.cookiecloud_password = "upload-test", "end-to-end-password"
+        with connect() as conn:
+            site_id = int(conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,cookie,user_agent,created_at) VALUES(?,?,?,?,?,?)",
+                ("上传自动更新", "nexusphp", "https://upload.example", "old=1", "Keep UA", main.utc_now()),
+            ).lastrowid)
+        plaintext = json.dumps({
+            "cookie_data": {
+                ".upload.example": [
+                    {"domain": ".upload.example", "name": "session", "value": "uploaded-cookie"},
+                ],
+            },
+        }).encode()
+        key = hashlib.md5(
+            b"upload-test-end-to-end-password", usedforsecurity=False,
+        ).hexdigest()[:16].encode()
+        encrypted = base64.b64encode(
+            AES.new(key, AES.MODE_CBC, b"\0" * 16).encrypt(pad(plaintext, AES.block_size)),
+        ).decode()
+        try:
+            with TestClient(main.app) as client:
+                response = client.post("/cookiecloud/update", json={
+                    "uuid": "upload-test",
+                    "encrypted": encrypted,
+                    "crypto_type": "aes-128-cbc-fixed",
+                })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["updated_sites"], 1)
+            with connect() as conn:
+                row = conn.execute("SELECT cookie,user_agent FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+            self.assertEqual(row["cookie"], "session=uploaded-cookie")
+            self.assertEqual(row["user_agent"], "Keep UA")
+        finally:
+            settings.cookiecloud_key, settings.cookiecloud_password = previous_key, previous_password
+
+    async def test_site_account_statistics_are_cached_between_scheduler_runs(self) -> None:
+        with connect() as conn:
+            site_id = int(conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,cookie,enabled,created_at) VALUES(?,?,?,?,?,?)",
+                ("统计站点", "nexusphp", "https://stats.example", "session=1", 1, main.utc_now()),
+            ).lastrowid)
+        stats = {"uploaded": 10 * 1024**4, "downloaded": 2 * 1024**4, "ratio": 5.0, "bonus": 123.4, "seeding": 8}
+        with patch("app.services.sites.NexusPHPClient.account_stats", new=AsyncMock(return_value=stats)) as mocked:
+            first = await refresh_stale_site_account_stats()
+            second = await refresh_stale_site_account_stats()
+        self.assertTrue(first[0]["ok"])
+        self.assertEqual(second, [])
+        self.assertEqual(mocked.await_count, 1)
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT account_uploaded,account_downloaded,account_ratio,account_seeding FROM pt_sites WHERE id=?",
+                (site_id,),
+            ).fetchone()
+        self.assertEqual(row["account_uploaded"], stats["uploaded"])
+        self.assertEqual(row["account_downloaded"], stats["downloaded"])
+        self.assertEqual(row["account_ratio"], 5.0)
+        self.assertEqual(row["account_seeding"], 8)
 
     async def test_playlist_automation_and_sync_settings_are_explicitly_safe(self) -> None:
         automation = await main.configure_playlist_automation(
             self.playlist_id, main.PlaylistAutomationPayload(enabled=True, auto_cart=False, batch_size=25),
         )
         self.assertFalse(automation["auto_download"])
+        with self.assertRaises(HTTPException) as raised:
+            await main.configure_playlist_automation(
+                self.playlist_id, main.PlaylistAutomationPayload(enabled=True, auto_cart=True, batch_size=25),
+            )
+        self.assertEqual(raised.exception.status_code, 422)
+
+    async def test_nonempty_automation_uses_canonical_titles_without_auto_cart(self) -> None:
+        with connect() as conn:
+            item = dict(conn.execute(
+                "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no=2", (self.playlist_id,),
+            ).fetchone())
+            conn.execute(
+                """UPDATE playlist_items
+                   SET tmdb_id=22,tmdb_title='标准标题',tmdb_original_title='Canonical',tmdb_year=2002,
+                       tmdb_imdb_id='tt0000002'
+                   WHERE id=?""",
+                (item["id"],),
+            )
+            item.update({
+                "tmdb_id": 22, "tmdb_title": "标准标题", "tmdb_original_title": "Canonical",
+                "tmdb_year": 2002, "tmdb_imdb_id": "tt0000002",
+            })
+            now = main.utc_now()
+            run_id = int(conn.execute(
+                """INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (self.playlist_id, "manual", "queued", "queued", now, now),
+            ).lastrowid)
+        queue = {"items": [item]}
+        with patch("app.services.automation.searchable_playlist_items", AsyncMock(return_value=queue)), \
+             patch("app.services.automation.library_details", AsyncMock(return_value=("in_library", "emby-1", "tag"))):
+            await run_playlist_automation(run_id)
+        with connect() as conn:
+            run = conn.execute("SELECT status,message FROM automation_runs WHERE id=?", (run_id,)).fetchone()
+            cart_count = conn.execute("SELECT COUNT(*) FROM cart_items").fetchone()[0]
+        self.assertEqual(run["status"], "completed")
+        self.assertIn("候选需人工确认", run["message"])
+        self.assertEqual(cart_count, 0)
         with self.assertRaises(HTTPException) as raised:
             await main.configure_playlist_sync(
                 self.playlist_id, main.PlaylistSyncPayload(enabled=True, interval_hours=24),
@@ -324,6 +564,139 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history[0]["success"], 0)
         self.assertNotIn("http", history[0]["message"].lower())
 
+    async def test_concurrent_cart_submission_calls_moviepilot_once(self) -> None:
+        with connect() as conn:
+            task_id = conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid
+            item_id = conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO candidates(
+                     id,task_id,playlist_item_id,candidate_index,title,site_name,ranking,metadata_json,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                ("concurrent", task_id, item_id, 0, "Movie.1.1080p", "Test", 1, "{}", main.utc_now()),
+            )
+            conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", ("concurrent", main.utc_now()))
+        main.raw_candidates["concurrent"] = {
+            "media": {"id": 1, "title": "Movie 1", "type": "电影"},
+            "torrent": {"title": "Movie.1.1080p"},
+        }
+        entered = asyncio.Event()
+        calls = 0
+
+        async def delayed_download(*_args: object, **_kwargs: object) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            entered.set()
+            await asyncio.sleep(0.03)
+            return {"success": True, "hash": "one"}
+
+        with patch.object(main.MoviePilotClient, "download", new=delayed_download):
+            first = asyncio.create_task(main.download_cart())
+            await entered.wait()
+            with self.assertRaises(HTTPException) as raised:
+                await main.download_cart()
+            result = await first
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(result["submitted"], 1)
+        self.assertEqual(calls, 1)
+
+    async def test_source_refresh_rechecks_tasks_before_replacing_items(self) -> None:
+        with connect() as conn:
+            conn.execute(
+                "UPDATE playlists SET source_url='https://letterboxd.com/test/list/sample/' WHERE id=?",
+                (self.playlist_id,),
+            )
+
+        async def fetch_and_start_task(*_args: object, **_kwargs: object) -> dict[str, object]:
+            with connect() as conn:
+                conn.execute(
+                    """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (self.playlist_id, 1, 1, "queued", 1, main.utc_now(), main.utc_now()),
+                )
+            return {
+                "source_name": "竞态来源",
+                "items": [{"rank_no": 1, "imdb_id": "tt9999999", "original_title": "Replacement", "year": 2025}],
+            }
+
+        with patch("app.api.playlists.PlaylistSourceFetcher.fetch", new=fetch_and_start_task):
+            with self.assertRaises(HTTPException) as raised:
+                await main.refresh_playlist_source(self.playlist_id)
+        self.assertEqual(raised.exception.status_code, 409)
+        with connect() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM playlist_items WHERE playlist_id=?", (self.playlist_id,),
+            ).fetchone()[0]
+            first_title = conn.execute(
+                "SELECT original_title FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1",
+                (self.playlist_id,),
+            ).fetchone()[0]
+        self.assertEqual(count, 250)
+        self.assertEqual(first_title, "Movie 1")
+
+    async def test_cleanup_preserves_download_history(self) -> None:
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO download_history(title,torrent_name,success,message,created_at)
+                   VALUES(?,?,?,?,datetime('now','-365 days'))""",
+                ("Old Movie", "Old Torrent", 1, None),
+            )
+        cleanup_old_data()
+        with connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM download_history WHERE title='Old Movie'",
+            ).fetchone()
+        self.assertIsNotNone(exists)
+
+    async def test_cleanup_archives_failed_search_without_deleting_candidates(self) -> None:
+        with connect() as conn:
+            item_id = int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1",
+                (self.playlist_id,),
+            ).fetchone()[0])
+            task_id = int(conn.execute(
+                """INSERT INTO search_tasks(
+                       playlist_id,range_start,range_end,status,total,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,datetime('now','-2 days'),datetime('now','-2 days'))""",
+                (self.playlist_id, 1, 1, "failed", 1),
+            ).lastrowid)
+            conn.execute(
+                """INSERT INTO candidates(
+                       id,task_id,playlist_item_id,candidate_index,title,group_tier,ranking,metadata_json,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?,datetime('now','-2 days'))""",
+                ("archived-candidate", task_id, item_id, 0, "保留候选", 9, 1, "{}"),
+            )
+        cleanup_old_data()
+        with connect() as conn:
+            task = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+            candidate = conn.execute("SELECT 1 FROM candidates WHERE id='archived-candidate'").fetchone()
+        visible = await search_routes.search_tasks(limit=50)
+        self.assertEqual(task["status"], "archived")
+        self.assertIsNotNone(candidate)
+        self.assertNotIn(task_id, [item["id"] for item in visible])
+
+    async def test_history_clear_only_deletes_selected_lifecycle_group(self) -> None:
+        with connect() as conn:
+            conn.executemany(
+                """INSERT INTO download_history(title,torrent_name,success,message,created_at)
+                   VALUES(?,?,?,?,?)""",
+                [
+                    ("失败影片", "失败资源", 0, "提交失败", main.utc_now()),
+                    ("成功影片", "成功资源", 1, None, main.utc_now()),
+                ],
+            )
+        with patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[])):
+            deleted = await clear_download_history("failed")
+        with connect() as conn:
+            rows = conn.execute("SELECT title,success FROM download_history ORDER BY id").fetchall()
+        self.assertEqual(deleted, 1)
+        self.assertEqual([(row["title"], row["success"]) for row in rows], [("成功影片", 1)])
+
     async def test_initialize_scrubs_legacy_history(self) -> None:
         with connect() as conn:
             conn.execute(
@@ -408,6 +781,23 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total"], 50)
         self.assertEqual(len(selected), 50)
         self.assertEqual(task["trigger"], "pending")
+        self.assertTrue(json.loads(task["site_ids_json"]))
+
+    async def test_persisted_search_capacity_blocks_a_fourth_task(self) -> None:
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
+                ("容量站点", "rss", "https://example.com/feed", main.utc_now()),
+            )
+            now = main.utc_now()
+            conn.executemany(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                [(self.playlist_id, 1, 1, "queued", 1, now, now) for _ in range(main.MAX_RUNNING_SEARCH_TASKS)],
+            )
+        with self.assertRaises(HTTPException) as raised:
+            await main.create_task(main.TaskPayload(playlist_id=self.playlist_id, scope="range", range_start=1, range_end=1))
+        self.assertEqual(raised.exception.status_code, 429)
 
 
 if __name__ == "__main__":

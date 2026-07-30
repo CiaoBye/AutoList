@@ -61,5 +61,10 @@ def cookie_groups(payload: dict[str, Any]) -> dict[str, str]:
 
 def cookie_for_host(groups: dict[str, str], host: str) -> tuple[str, str] | None:
     normalized = normalize_domain(host)
-    matches = [(domain, value) for domain, value in groups.items() if normalized == domain or normalized.endswith(f".{domain}") or domain.endswith(f".{normalized}")]
+    # Cookie 只可从父域应用到当前主机；子域 Cookie 不能反向写给父域。
+    matches = [
+        (domain, value)
+        for domain, value in groups.items()
+        if normalized == domain or normalized.endswith(f".{domain}")
+    ]
     return max(matches, key=lambda item: len(item[0])) if matches else None

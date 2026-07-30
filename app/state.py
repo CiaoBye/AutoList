@@ -13,6 +13,7 @@ from .security import token_matches
 
 # 下载 URL、Cookie 等短命敏感字段只保存在进程内，容器重启后会自然失效。
 raw_candidates: dict[str, dict[str, Any]] = {}
+raw_candidate_seen_at: dict[str, float] = {}
 running_tasks: dict[int, asyncio.Task[None]] = {}
 running_recognition_tasks: dict[int, asyncio.Task[None]] = {}
 running_library_tasks: dict[int, asyncio.Task[None]] = {}
@@ -24,9 +25,35 @@ poster_cache: dict[str, tuple[bytes, str]] = {}
 
 AUTH_EXEMPT_PATHS = {"/", "/favicon.ico", "/api/health", "/cookiecloud", "/cookiecloud/"}
 MAX_RUNNING_SEARCH_TASKS = 3
+RAW_CANDIDATE_TTL_SECONDS = 2 * 60 * 60
+MAX_RAW_CANDIDATES = 5000
 COOKIECLOUD_RATE_LIMIT = 10
 COOKIECLOUD_RATE_WINDOW_SECONDS = 60
 _cookiecloud_upload_times: list[float] = []
+
+
+def remember_raw_candidate(candidate_id: str, value: dict[str, Any]) -> None:
+    raw_candidates[candidate_id] = value
+    raw_candidate_seen_at[candidate_id] = time.time()
+
+
+def forget_raw_candidate(candidate_id: str) -> None:
+    raw_candidates.pop(candidate_id, None)
+    raw_candidate_seen_at.pop(candidate_id, None)
+
+
+def prune_raw_candidates(now: float | None = None) -> None:
+    """Expire sensitive download contexts and keep memory bounded."""
+    current = time.time() if now is None else now
+    for candidate_id in list(raw_candidates):
+        seen_at = raw_candidate_seen_at.setdefault(candidate_id, current)
+        if current - seen_at > RAW_CANDIDATE_TTL_SECONDS:
+            forget_raw_candidate(candidate_id)
+    if len(raw_candidates) <= MAX_RAW_CANDIDATES:
+        return
+    ordered = sorted(raw_candidates, key=lambda candidate_id: raw_candidate_seen_at.get(candidate_id, current))
+    for candidate_id in ordered[:len(raw_candidates) - MAX_RAW_CANDIDATES]:
+        forget_raw_candidate(candidate_id)
 
 
 def enforce_cookiecloud_rate_limit() -> None:

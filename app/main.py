@@ -100,7 +100,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await asyncio.gather(state.scheduler_task, return_exceptions=True)
 
 
-app = FastAPI(title="AutoList", version="0.84", lifespan=lifespan)
+app = FastAPI(title="AutoList", version="0.85", lifespan=lifespan)
 app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
 system_routes.APP_VERSION = app.version
 

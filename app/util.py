@@ -15,6 +15,8 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
+from .security import sanitize_sensitive_text
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -25,12 +27,21 @@ def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
 
 
 def secret_free(value: Any) -> Any:
+    if isinstance(value, str):
+        sanitized = sanitize_sensitive_text(value)
+        sanitized = re.sub(r"(?i)magnet:\?[^\s<>\"']+", "[redacted]", sanitized)
+        return re.sub(r"(?i)https?://[^\s<>\"']+", "[redacted]", sanitized)
     if isinstance(value, list):
         return [secret_free(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(secret_free(item) for item in value)
     if not isinstance(value, dict):
         return value
-    blocked = re.compile(r"(url|cookie|passkey|token|authorization|api.?key|header)", re.I)
-    return {key: secret_free(item) for key, item in value.items() if not blocked.search(key)}
+    blocked = re.compile(
+        r"(?:magnet|enclosure|download|url|uri|cookie|passkey|token|authorization|api.?key|header|password|passwd|secret)",
+        re.I,
+    )
+    return {key: secret_free(item) for key, item in value.items() if not blocked.search(str(key))}
 
 
 def raster_image_media_type(content: bytes) -> str | None:

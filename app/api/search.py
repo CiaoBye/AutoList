@@ -47,12 +47,14 @@ from ..services.search import (
     create_followup_search_task,
     run_search,
     searchable_playlist_items,
+    update_task,
 )
 from ..services.sites import resolve_site_adapter, test_site_config
 from ..state import (
     enforce_cookiecloud_rate_limit,
     enforce_search_task_capacity,
     poster_cache,
+    prune_raw_candidates,
     raw_candidates,
     require_configured_cookiecloud_uuid,
     running_automation_tasks,
@@ -145,14 +147,21 @@ async def search_tasks(playlist_id: int | None = None, limit: int = 20) -> list[
 
 @router.post("/api/search-tasks/{task_id}/cancel")
 async def cancel_task(task_id: int) -> dict[str, Any]:
-    task = running_tasks.get(task_id)
-    if task:
-        task.cancel()
     with connect() as conn:
-        exists = conn.execute("SELECT 1 FROM search_tasks WHERE id=?", (task_id,)).fetchone()
-    if not exists:
+        task_row = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+    if not task_row:
         raise HTTPException(404, "搜索任务不存在")
-    update_task(task_id, status="cancelled")
+    if task_row["status"] not in {"queued", "running"}:
+        raise HTTPException(409, "任务已经结束，不能取消")
+    task = running_tasks.get(task_id)
+    if task and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    running_tasks.pop(task_id, None)
+    with connect() as conn:
+        current = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+    if current and current["status"] in {"queued", "running"}:
+        update_task(task_id, status="cancelled")
     return {"id": task_id, "status": "cancelled"}
 
 @router.get("/api/search-tasks/{task_id}")
@@ -224,13 +233,19 @@ async def task_logs(task_id: int, limit: int = 200) -> list[dict[str, Any]]:
 
 @router.get("/api/candidates")
 async def candidates(task_id: int) -> list[dict[str, Any]]:
+    prune_raw_candidates()
     with connect() as conn:
-        task = conn.execute("SELECT parent_task_id FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+        task = conn.execute("SELECT id,parent_task_id FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         if not task:
             raise HTTPException(404, "搜索任务不存在")
-        task_ids = [task_id]
-        if task["parent_task_id"]:
-            task_ids.append(int(task["parent_task_id"]))
+        task_ids: list[int] = []
+        seen_task_ids: set[int] = set()
+        current_task_id: int | None = task_id
+        while current_task_id and current_task_id not in seen_task_ids:
+            seen_task_ids.add(current_task_id)
+            task_ids.append(current_task_id)
+            parent = conn.execute("SELECT parent_task_id FROM search_tasks WHERE id=?", (current_task_id,)).fetchone()
+            current_task_id = int(parent["parent_task_id"]) if parent and parent["parent_task_id"] else None
         placeholders = ",".join("?" for _ in task_ids)
         rows = conn.execute(
             f"""SELECT c.*, p.rank_no, p.original_title, p.year, p.chinese_title,

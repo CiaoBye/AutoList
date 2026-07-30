@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from app import main
+from app.api import playlists as playlist_routes
 from app.api import search as search_routes
 from app.api import sites as site_routes
 from app.clients import MoviePilotClient, TransmissionClient
@@ -27,8 +28,9 @@ from app.database import cleanup_old_data, connect, initialize
 from app.list_sources import validate_source_url
 from app.security import sanitize_sensitive_text
 from app.services.automation import run_playlist_automation
-from app.services.history import clear_download_history
-from app.services.sites import apply_cookie_groups, refresh_stale_site_account_stats
+from app.services.history import clear_download_history, projected_download_history
+from app.services.sites import apply_cookie_groups, refresh_stale_site_account_stats, test_site_config
+from app.util import secret_free
 
 
 class SecurityTests(unittest.TestCase):
@@ -70,6 +72,34 @@ class SecurityTests(unittest.TestCase):
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):
             validate_source_url("https://letterboxd.com/user/list/example/?token=secret")
+
+    def test_service_urls_reject_secret_query_parameters(self) -> None:
+        for query in ("token=secret", "passkey=secret", "api_key=secret", "key=secret"):
+            with self.subTest(query=query):
+                with self.assertRaises(HTTPException):
+                    main.validated_base_url(f"https://service.example/api?{query}", "服务地址", False)
+
+    def test_public_settings_only_expose_proxy_configuration_state(self) -> None:
+        previous = settings.outbound_proxy_url
+        settings.outbound_proxy_url = "http://proxy-user:proxy-pass@example.test:8080"
+        try:
+            public = settings.public_values()
+        finally:
+            settings.outbound_proxy_url = previous
+        self.assertNotIn("outbound_proxy_url", public)
+        self.assertTrue(public["outbound_proxy_url_configured"])
+
+    def test_secret_free_redacts_download_urls_and_magnets(self) -> None:
+        safe = secret_free({
+            "enclosure": "https://tracker.example/download?passkey=secret",
+            "magnet": "magnet:?xt=urn:btih:privatehash",
+            "description": "详情见 https://tracker.example/details?id=1",
+            "labels": ["FREE"],
+        })
+        self.assertNotIn("secret", json.dumps(safe, ensure_ascii=False))
+        self.assertNotIn("privatehash", json.dumps(safe, ensure_ascii=False))
+        self.assertNotIn("https://tracker.example/details", json.dumps(safe, ensure_ascii=False))
+        self.assertEqual(safe["labels"], ["FREE"])
 
     def test_cookiecloud_gzip_expansion_is_bounded(self) -> None:
         payload = gzip.compress(b"x" * 2048)
@@ -215,11 +245,44 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             site_columns = {row["name"] for row in conn.execute("PRAGMA table_info(pt_sites)")}
         self.assertTrue({"automation_enabled", "sync_enabled", "next_sync_at"}.issubset(playlist_columns))
         self.assertTrue({"parent_task_id", "trigger", "site_ids_json", "item_ids_json", "pair_scope_json"}.issubset(task_columns))
-        self.assertTrue({"playlist_item_id", "submission_hash"}.issubset(download_columns))
+        self.assertTrue({"playlist_item_id", "submission_hash", "playlist_item_snapshot_json"}.issubset(download_columns))
         self.assertTrue({
             "account_uploaded", "account_downloaded", "account_ratio",
-            "account_stats_checked_at", "account_stats_error",
+            "account_stats_checked_at", "account_stats_error", "last_duration_ms",
         }.issubset(site_columns))
+
+    async def test_site_connection_records_slow_state_and_duration(self) -> None:
+        with connect() as conn:
+            site_id = int(conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
+                ("慢速站点", "nexusphp", "https://slow.example", main.utc_now()),
+            ).lastrowid)
+            site = dict(conn.execute("SELECT * FROM pt_sites WHERE id=?", (site_id,)).fetchone())
+        with patch("app.services.sites.time.monotonic", side_effect=[0, 4]), \
+             patch("app.services.sites.NexusPHPClient.check", new=AsyncMock(return_value={"ok": True, "message": "连接正常"})):
+            result = await test_site_config(site)
+        self.assertEqual(result["status"], "slow")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["duration_ms"], 4000)
+        with connect() as conn:
+            stored = conn.execute("SELECT last_status,last_duration_ms FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+        self.assertEqual((stored["last_status"], stored["last_duration_ms"]), ("slow", 4000))
+
+    async def test_site_connection_rejects_explicit_failed_result(self) -> None:
+        with connect() as conn:
+            site_id = int(conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
+                ("失败响应站点", "nexusphp", "https://failed.example", main.utc_now()),
+            ).lastrowid)
+            site = dict(conn.execute("SELECT * FROM pt_sites WHERE id=?", (site_id,)).fetchone())
+        with patch(
+            "app.services.sites.NexusPHPClient.check",
+            new=AsyncMock(return_value={"ok": False, "message": "认证失败"}),
+        ):
+            result = await test_site_config(site)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["message"], "认证失败")
 
     async def test_local_site_list_does_not_call_moviepilot(self) -> None:
         with connect() as conn:
@@ -563,6 +626,65 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["success"], 0)
         self.assertNotIn("http", history[0]["message"].lower())
+
+    async def test_source_refresh_reuses_item_ids_and_snapshots_removed_history(self) -> None:
+        with connect() as conn:
+            conn.execute(
+                "UPDATE playlists SET source_url='https://letterboxd.com/test/list/sample/' WHERE id=?",
+                (self.playlist_id,),
+            )
+            rows = conn.execute(
+                "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no IN (1,2)", (self.playlist_id,),
+            ).fetchall()
+            retained_id, removed_id = int(rows[0]["id"]), int(rows[1]["id"])
+            conn.execute(
+                "INSERT INTO download_history(playlist_item_id,title,torrent_name,success,created_at) VALUES(?,?,?,?,?)",
+                (removed_id, "Movie 2", "Movie 2 2002 1080p", 1, main.utc_now()),
+            )
+
+        async def fetch_source(*_args: object, **_kwargs: object) -> dict[str, object]:
+            return {
+                "source_name": "刷新来源",
+                "items": [{"rank_no": 1, "imdb_id": "tt0000001", "original_title": "Movie 1", "year": 2001}],
+            }
+
+        with patch("app.api.playlists.PlaylistSourceFetcher.fetch", new=fetch_source):
+            result = await main.refresh_playlist_source(self.playlist_id)
+        self.assertEqual(result["count"], 1)
+        with connect() as conn:
+            retained = conn.execute("SELECT id FROM playlist_items WHERE playlist_id=?", (self.playlist_id,)).fetchone()
+            snapshot = conn.execute(
+                "SELECT playlist_item_snapshot_json FROM download_history WHERE playlist_item_id=?",
+                (removed_id,),
+            ).fetchone()[0]
+        self.assertEqual(int(retained["id"]), retained_id)
+        self.assertIn("Movie 2", snapshot)
+        self.assertNotEqual(retained_id, removed_id)
+        with patch(
+            "app.services.history.TransmissionClient.current_downloads",
+            new=AsyncMock(return_value=[{"name": "Movie 2 2002 1080p", "status": 4, "percentDone": 0}]),
+        ):
+            history = await projected_download_history()
+        removed_history = next(item for item in history if item["title"] == "Movie 2")
+        self.assertEqual(removed_history["lifecycle_status"], "downloading")
+
+    async def test_delete_playlist_preserves_history_snapshot(self) -> None:
+        with connect() as conn:
+            item = conn.execute(
+                "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no=3", (self.playlist_id,)
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO download_history(playlist_item_id,title,torrent_name,success,created_at) VALUES(?,?,?,?,?)",
+                (item["id"], "Movie 3", "Movie 3 2003 1080p", 1, main.utc_now()),
+            )
+            item_id = int(item["id"])
+        await playlist_routes.delete_playlist(self.playlist_id)
+        with connect() as conn:
+            snapshot = conn.execute(
+                "SELECT playlist_item_snapshot_json FROM download_history WHERE playlist_item_id=?",
+                (item_id,),
+            ).fetchone()[0]
+        self.assertIn("Movie 3", snapshot)
 
     async def test_concurrent_cart_submission_calls_moviepilot_once(self) -> None:
         with connect() as conn:

@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS download_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   candidate_id TEXT,
   playlist_item_id INTEGER,
+  playlist_item_snapshot_json TEXT,
   title TEXT NOT NULL,
   torrent_name TEXT NOT NULL,
   site_name TEXT,
@@ -196,6 +197,7 @@ CREATE TABLE IF NOT EXISTS pt_sites (
   migration_note TEXT,
   last_status TEXT NOT NULL DEFAULT 'untested',
   last_message TEXT,
+  last_duration_ms INTEGER,
   last_tested_at TEXT,
   account_uploaded INTEGER,
   account_downloaded INTEGER,
@@ -283,9 +285,12 @@ def initialize() -> None:
         for column, definition in {
             "playlist_item_id": "INTEGER",
             "submission_hash": "TEXT",
+            "playlist_item_snapshot_json": "TEXT",
         }.items():
             if column not in download_columns:
                 conn.execute(f"ALTER TABLE download_history ADD COLUMN {column} {definition}")
+        if "last_duration_ms" not in site_columns:
+            conn.execute("ALTER TABLE pt_sites ADD COLUMN last_duration_ms INTEGER")
         conn.execute(
             """UPDATE download_history
                SET playlist_item_id=(SELECT playlist_item_id FROM candidates WHERE candidates.id=download_history.candidate_id)

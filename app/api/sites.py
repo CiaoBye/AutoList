@@ -205,11 +205,16 @@ async def update_site(site_id: int, payload: SitePayload) -> dict[str, Any]:
         current = conn.execute("SELECT * FROM pt_sites WHERE id=?", (site_id,)).fetchone()
         if not current:
             raise HTTPException(404, "站点不存在")
-        rss_url = validated_base_url(payload.rss_url, "RSS 地址", False) if payload.rss_url.strip() else str(current["rss_url"] or "")
+        rss_url = (
+            "" if payload.clear_rss_url else
+            (validated_base_url(payload.rss_url, "RSS 地址", False) if payload.rss_url.strip() else str(current["rss_url"] or ""))
+        )
         adapter = resolve_site_adapter(base_url, rss_url)
         conn.execute(
             """UPDATE pt_sites SET name=?,adapter=?,base_url=?,api_key=?,cookie=?,user_agent=?,priority=?,timeout_seconds=?,rss_url=?,icon_url=?,proxy=?,render=?,limit_interval=?,limit_count=?,enabled=?,search_enabled=?,migration_note=NULL WHERE id=?""",
-            (payload.name.strip(), adapter, base_url, payload.api_key or current["api_key"], payload.cookie or current["cookie"],
+            (payload.name.strip(), adapter, base_url,
+             "" if payload.clear_api_key else (payload.api_key or current["api_key"]),
+             "" if payload.clear_cookie else (payload.cookie or current["cookie"]),
              payload.user_agent, payload.priority, payload.timeout_seconds, rss_url, payload.icon_url, int(payload.proxy),
              int(payload.render), payload.limit_interval, payload.limit_count, int(payload.enabled), int(payload.search_enabled), site_id),
         )

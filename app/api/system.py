@@ -12,7 +12,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -82,17 +82,27 @@ def validated_base_url(value: str, label: str, required: bool) -> str:
         if required:
             raise HTTPException(422, f"{label}不能为空")
         return ""
-    parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    try:
+        parsed = urlparse(normalized)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise HTTPException(422, f"{label}地址格式无效") from exc
+    if parsed.scheme not in {"http", "https"} or not hostname:
         raise HTTPException(422, f"{label}必须以 http:// 或 https:// 开头")
     if parsed.username or parsed.password:
         raise HTTPException(422, f"{label}不能包含用户名或密码")
+    sensitive_query = re.compile(
+        r"^(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|token|passkey|password|passwd|secret|cookie|authorization|key)$",
+        re.I,
+    )
+    if any(sensitive_query.fullmatch(key.strip()) for key, _value in parse_qsl(parsed.query, keep_blank_values=True)):
+        raise HTTPException(422, f"{label}不能在查询参数中包含密钥或密码")
     return normalized
 
 
 
 # Populated by app.main after router registration.
-APP_VERSION = "0.84"
+APP_VERSION = "0.85"
 
 @router.get("/api/health")
 async def health() -> dict[str, Any]:
@@ -157,10 +167,16 @@ async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
 
 @router.get("/api/cookiecloud/status")
 async def cookiecloud_status() -> dict[str, Any]:
-    configured = bool(settings.cookiecloud_key and settings.cookiecloud_password)
-    path = cookiecloud_file(settings.cookiecloud_key) if settings.cookiecloud_key else None
+    key = (settings.cookiecloud_key or "").strip()
+    key_valid = bool(re.fullmatch(r"[A-Za-z0-9_-]{5,128}", key)) if key else False
+    configured = bool(key_valid and settings.cookiecloud_password)
+    try:
+        path = cookiecloud_file(key) if key_valid else None
+    except HTTPException:
+        path = None
     return {
         "configured": configured,
+        "key_valid": key_valid,
         "received": bool(path and path.exists()),
         "updated_at": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat() if path and path.exists() else None,
         "endpoint": "/cookiecloud",

@@ -106,8 +106,7 @@ function navigate(page, updateHash = true) {
     $("#page-lead").hidden = !meta.lead;
     $("#open-import").hidden = !["dashboard", "playlists", "search"].includes(target);
     document.title = `${meta.title} · AutoList`;
-    document.body.classList.remove("sidebar-open");
-    $("#mobile-menu")?.setAttribute("aria-expanded", "false");
+    setSidebarOpen(false, false);
   };
   // Let the hashchange handler perform the commit for link clicks so one
   // navigation cannot start two overlapping transitions.
@@ -493,9 +492,11 @@ async function loadSettings() {
   $("#settings-cookiecloud-endpoint").value = `${window.location.origin}${runtime.cookiecloud_endpoint || "/cookiecloud"}`;
   $("#settings-cookiecloud-status").textContent = cookiecloud.received ? "已收到 Chrome 数据" : cookiecloud.configured ? "等待首次同步" : "未配置";
   $("#settings-cookiecloud-status").className = cookiecloud.received ? "ok" : "";
-  $("#settings-proxy-url").value = runtime.outbound_proxy_url || "";
-  $("#settings-proxy-state").textContent = runtime.outbound_proxy_configured ? "已配置" : "未配置";
-  $("#settings-proxy-status").textContent = runtime.outbound_proxy_configured ? "已配置" : "未配置";
+  const proxyConfigured = Boolean(runtime.outbound_proxy_url_configured || runtime.outbound_proxy_configured);
+  $("#settings-proxy-url").value = "";
+  $("#settings-proxy-url").placeholder = proxyConfigured ? "已配置；留空保留原值" : "http://127.0.0.1:7890";
+  $("#settings-proxy-state").textContent = proxyConfigured ? "已配置" : "未配置";
+  $("#settings-proxy-status").textContent = proxyConfigured ? "已配置" : "未配置";
   $("#settings-tmdb-proxy").checked = Boolean(runtime.tmdb_proxy_enabled);
   $("#settings-pt-proxy").checked = Boolean(runtime.pt_proxy_enabled);
   const tokenRequired = Boolean(runtime.access_token_required);
@@ -511,7 +512,7 @@ async function loadSettings() {
   $("#settings-ai-url").value = runtime.ai_base_url || "";
   $("#settings-ai-key").value = runtime.ai_api_key || "";
   $("#settings-ai-model").value = runtime.ai_model || "";
-  $("#settings-ai-status").textContent = runtime.ai_base_url && runtime.ai_api_key && runtime.ai_model ? "已配置" : "未配置";
+  $("#settings-ai-status").textContent = runtime.ai_base_url && runtime.ai_api_key_configured && runtime.ai_model ? "已配置" : "未配置";
   $("#settings-tr-url").value = runtime.tr_base_url || "";
   $("#settings-tr-username").value = runtime.tr_username || "";
   $("#settings-tr-password").value = runtime.tr_password || "";
@@ -620,6 +621,7 @@ async function loadSites() {
 
 function siteConnectionState(site) {
   // 完全基于 AutoList 自身检测结果
+  if (site.last_status === "slow") return "slow";
   if (site.last_status === "ok") return "normal";
   if (site.last_status === "error") return "failed";
   return "unknown";
@@ -656,7 +658,7 @@ function renderSiteInspector(site) {
   const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
   $("#site-inspector-content").innerHTML = `<header class="site-detail-head"><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><div><strong>${escapeHtml(site.name)}</strong><a class="site-detail-url" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(site.base_url)}</a></div><em class="site-state ${state}">${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}</em><button class="icon-button site-inspector-close" data-close-site-inspector aria-label="关闭">×</button></header>
     <div class="site-detail-stats"><div><span>上传量</span><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong></div><div><span>下载量</span><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong></div><div><span>分享率</span><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong></div><div><span>做种数</span><strong>${account.seeding == null ? "—" : Number(account.seeding).toLocaleString()}</strong></div></div>
-    <dl class="site-detail-list"><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>本地 Cookie</dt><dd>${site.cookie_configured ? "已配置" : "未配置"}</dd><dt>User-Agent</dt><dd class="site-ua-value">${escapeHtml(site.user_agent || "AutoList 默认 UA")}</dd><dt>账户统计更新</dt><dd>${escapeHtml(account.checked_at ? formatTime(account.checked_at) : "等待后台刷新")}${account.error ? ` · ${escapeHtml(account.error)}` : ""}</dd><dt>最近搜索</dt><dd>${escapeHtml(stats.last_attempt_at || "暂无记录")}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">${stats.total ? `${Number(stats.success_rate || 0).toFixed(1)}% 成功 · ${Number(stats.average_ms || 0)}ms · ${Number(stats.total)} 次` : "等待搜索样本"}</dd></dl>
+    <dl class="site-detail-list"><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>本地 Cookie</dt><dd>${site.cookie_configured ? "已配置" : "未配置"}</dd><dt>User-Agent</dt><dd class="site-ua-value">${escapeHtml(site.user_agent || "AutoList 默认 UA")}</dd><dt>最近连接检测</dt><dd>${site.last_tested_at ? `${formatTime(site.last_tested_at)}${site.last_duration_ms == null ? "" : ` · ${Number(site.last_duration_ms)}ms`}` : "尚未检测"}</dd><dt>账户统计更新</dt><dd>${escapeHtml(account.checked_at ? formatTime(account.checked_at) : "等待后台刷新")}${account.error ? ` · ${escapeHtml(account.error)}` : ""}</dd><dt>最近搜索</dt><dd>${escapeHtml(stats.last_attempt_at || "暂无记录")}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">${stats.total ? `${Number(stats.success_rate || 0).toFixed(1)}% 成功 · ${Number(stats.average_ms || 0)}ms · ${Number(stats.total)} 次` : "等待搜索样本"}</dd></dl>
     <div class="site-detail-actions"><button class="button button-secondary" data-test-site="${site.id}">检测站点</button><button class="button button-secondary" data-refresh-site-cookie="${site.id}">刷新 Cookie</button><button class="button button-secondary" data-edit-site="${site.id}">编辑站点 / UA</button><button class="button button-danger" data-delete-site="${site.id}">删除站点</button></div>
     <p class="site-login-hint">CookieCloud 每次收到浏览器上传后会自动匹配域名并更新本站 Cookie；单站“刷新 Cookie”仅用于手动重试。AutoList 不保存站点密码。</p>`;
   bindSiteLogoFallback($("#site-inspector-content"));
@@ -674,17 +676,25 @@ function openSiteDialog(site = null) {
   $("#site-id").value = site?.id || "";
   $("#site-name").value = site?.name || "";
   $("#site-url").value = site?.base_url || "";
-  $("#site-api-key").value = site?.api_key || "";
-  $("#site-cookie").value = site?.cookie || "";
+  $("#site-api-key").value = "";
+  $("#site-api-key").placeholder = site?.api_key_configured ? "已配置；填写新值可替换" : "可选";
+  $("#site-cookie").value = "";
+  $("#site-cookie").placeholder = site?.cookie_configured ? "已配置；填写新值可替换" : "NexusPHP 站点请求头 Cookie";
   $("#site-user-agent").value = site?.user_agent || "";
   $("#site-priority").value = site?.priority || 100;
   $("#site-timeout").value = site?.timeout_seconds || 30;
-  $("#site-rss-url").value = site?.rss_url || "";
+  $("#site-rss-url").value = "";
+  $("#site-rss-url").placeholder = site?.rss_url_configured ? "已配置；填写新地址可替换" : "可选";
   $("#site-icon-url").value = site?.icon_url || "";
   $("#site-enabled").checked = site?.enabled ?? true;
   $("#site-search-enabled").checked = Boolean(site?.search_enabled);
   $("#site-proxy").checked = Boolean(site?.proxy);
   $("#site-render").checked = Boolean(site?.render);
+  $("#site-clear-fields").hidden = !site;
+  $("#site-clear-rss-wrap").hidden = !site;
+  $("#site-clear-api-key").checked = false;
+  $("#site-clear-cookie").checked = false;
+  $("#site-clear-rss-url").checked = false;
   $("#site-result").textContent = site ? `${site.api_key_configured ? "API 已配置" : "API 未配置"} · ${site.cookie_configured ? "Cookie 已配置" : "Cookie 未配置"}` : "";
   $("#site-dialog").showModal();
 }
@@ -863,6 +873,38 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (document.body.classList.contains("sidebar-open")) {
+    const sidebar = $("#sidebar");
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSidebarOpen(false);
+      return;
+    }
+    if (event.key === "Tab" && sidebar) {
+      const focusable = [...sidebar.querySelectorAll(sidebarFocusableSelector)];
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (!sidebar.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
+  }
+  if (event.key === "Escape") {
+    const dialog = document.querySelector("dialog[open]");
+    if (dialog) {
+      event.preventDefault();
+      dialog.close();
+      return;
+    }
+  }
   const siteCard = event.target.closest?.("[data-open-site]");
   if (!siteCard || event.target.closest("a, button, input, select, textarea, summary")) return;
   if (event.key === "Enter" || event.key === " ") {
@@ -926,9 +968,31 @@ $("#service-status").addEventListener("click", async () => {
   }
 });
 
-const setSidebarOpen = (open) => {
-  document.body.classList.toggle("sidebar-open", open);
-  $("#mobile-menu")?.setAttribute("aria-expanded", String(open));
+let sidebarReturnFocus = null;
+const sidebarFocusableSelector = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+const setSidebarOpen = (open, restoreFocus = true) => {
+  const menuButton = $("#mobile-menu");
+  const moreButton = $("#mobile-more");
+  const sidebar = $("#sidebar");
+  if (open) {
+    if (document.activeElement === menuButton || document.activeElement === moreButton) sidebarReturnFocus = document.activeElement;
+    document.body.classList.add("sidebar-open");
+    menuButton?.setAttribute("aria-expanded", "true");
+    menuButton?.setAttribute("aria-label", "关闭导航");
+    moreButton?.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => sidebar?.querySelector(sidebarFocusableSelector)?.focus({preventScroll: true}));
+    return;
+  }
+  document.body.classList.remove("sidebar-open");
+  menuButton?.setAttribute("aria-expanded", "false");
+  menuButton?.setAttribute("aria-label", "打开导航");
+  moreButton?.setAttribute("aria-expanded", "false");
+  if (restoreFocus) {
+    const target = document.activeElement === menuButton || document.activeElement === moreButton
+      ? document.activeElement : sidebarReturnFocus;
+    if (target && typeof target.focus === "function") target.focus({preventScroll: true});
+  }
+  sidebarReturnFocus = null;
 };
 $("#mobile-menu").addEventListener("click", () => setSidebarOpen(!document.body.classList.contains("sidebar-open")));
 $("#mobile-more").addEventListener("click", () => setSidebarOpen(true));
@@ -1019,11 +1083,30 @@ $("#test-all-sites").addEventListener("click", async () => {
     showToast(`检测完成：${result.ok}/${result.total} 个站点正常`);
   } catch (error) { showToast(error.message); } finally { setButtonLoading(button, false); }
 });
-$$('[data-site-filter]').forEach((button) => button.addEventListener("click", () => {
+function activateSiteFilter(button, focus = false) {
   siteFilter = button.dataset.siteFilter;
-  $$('[data-site-filter]').forEach((item) => item.classList.toggle("active", item === button));
+  $$('[data-site-filter]').forEach((item) => {
+    const active = item === button;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-selected", String(active));
+    item.tabIndex = active ? 0 : -1;
+  });
   renderSites();
-}));
+  if (focus) button.focus();
+}
+$$('[data-site-filter]').forEach((button) => {
+  button.addEventListener("click", () => activateSiteFilter(button));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$('[data-site-filter]');
+    const current = tabs.indexOf(event.currentTarget);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? tabs.length - 1
+      : (current + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + tabs.length) % tabs.length;
+    activateSiteFilter(tabs[next], true);
+  });
+});
 $("#save-site").addEventListener("click", async () => {
   const output = $("#site-result");
   try {
@@ -1037,6 +1120,9 @@ $("#save-site").addEventListener("click", async () => {
       rss_url: $("#site-rss-url").value.trim(), icon_url: $("#site-icon-url").value.trim(),
       proxy: $("#site-proxy").checked, render: $("#site-render").checked, enabled: $("#site-enabled").checked, search_enabled: $("#site-search-enabled").checked,
       limit_interval: existing?.limit_interval || null, limit_count: existing?.limit_count || null,
+      clear_api_key: Boolean(siteId && $("#site-clear-api-key").checked),
+      clear_cookie: Boolean(siteId && $("#site-clear-cookie").checked),
+      clear_rss_url: Boolean(siteId && $("#site-clear-rss-url").checked),
     };
     await api(siteId ? `/api/sites/${siteId}` : "/api/sites", {method: siteId ? "PUT" : "POST", body: JSON.stringify(payload)});
     $("#site-dialog").close();

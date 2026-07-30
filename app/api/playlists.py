@@ -37,11 +37,11 @@ from ..schemas import (
     TaskPayload,
 )
 from ..security import safe_error, sanitize_sensitive_text
-from ..services.automation import start_playlist_automation, sync_playlist_incremental, update_recognition_task
+from ..services.automation import run_recognition, start_playlist_automation, sync_playlist_incremental, update_recognition_task
 from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
-from ..services.history import projected_download_history
+from ..services.history import playlist_item_snapshot, projected_download_history
 from ..services.imports import normalize_import_items, resolve_import
-from ..services.library import run_library_scan
+from ..services.library import library_details, run_library_scan
 from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
 from ..services.search import (
     create_followup_search_task,
@@ -280,12 +280,73 @@ async def refresh_playlist_source(playlist_id: int) -> dict[str, Any]:
             (playlist_id,),
         ).fetchone():
             raise HTTPException(409, "片单刷新期间启动了自动化任务，已保留现有片单")
-        conn.execute("DELETE FROM playlist_items WHERE playlist_id=?", (playlist_id,))
-        conn.executemany(
-            """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,tmdb_id)
-               VALUES(:playlist_id,:rank_no,:imdb_id,:original_title,:year,:chinese_title,:tmdb_id)""",
-            [{"playlist_id": playlist_id, **item} for item in items],
-        )
+        existing_rows = list(conn.execute("SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,)).fetchall())
+
+        def identity_keys(value: Any) -> list[tuple[str, str]]:
+            keys: list[tuple[str, str]] = []
+            if value.get("imdb_id"):
+                keys.append(("imdb", str(value["imdb_id"]).casefold()))
+            if value.get("tmdb_id"):
+                keys.append(("tmdb", str(value["tmdb_id"])))
+            normalized_title = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value.get("original_title") or "").casefold())
+            if normalized_title:
+                keys.append(("title", f"{normalized_title}:{value.get('year') or ''}"))
+            return keys
+
+        indexed: dict[tuple[str, str], list[Any]] = {}
+        for old in existing_rows:
+            for key in identity_keys(dict(old)):
+                indexed.setdefault(key, []).append(old)
+        used_ids: set[int] = set()
+        matched_ids: set[int] = set()
+        rank_offset = max([int(row["rank_no"] or 0) for row in existing_rows] + [len(items), 1]) + len(existing_rows) + 1
+        conn.execute("UPDATE playlist_items SET rank_no=rank_no+? WHERE playlist_id=?", (rank_offset, playlist_id))
+        for item in items:
+            matches = [
+                old for key in identity_keys(item)
+                for old in indexed.get(key, [])
+                if int(old["id"]) not in used_ids
+            ]
+            old = matches[0] if matches else None
+            if old:
+                old_id = int(old["id"])
+                used_ids.add(old_id)
+                matched_ids.add(old_id)
+                incoming_tmdb_id = item.get("tmdb_id")
+                tmdb_changed = incoming_tmdb_id is not None and old["tmdb_id"] not in (None, incoming_tmdb_id)
+                if tmdb_changed:
+                    conn.execute(
+                        """UPDATE playlist_items SET rank_no=?,imdb_id=?,original_title=?,year=?,chinese_title=?,tmdb_id=?,
+                                  tmdb_title=NULL,tmdb_original_title=NULL,tmdb_year=NULL,tmdb_imdb_id=NULL,tmdb_checked_at=NULL,
+                                  library_state='unknown',library_checked_at=NULL,emby_item_id=NULL,emby_image_tag=NULL WHERE id=?""",
+                        (item["rank_no"], item.get("imdb_id") or old["imdb_id"], item["original_title"], item.get("year"), item.get("chinese_title"), incoming_tmdb_id, old_id),
+                    )
+                else:
+                    conn.execute(
+                        """UPDATE playlist_items SET rank_no=?,imdb_id=?,original_title=?,year=?,chinese_title=?,tmdb_id=? WHERE id=?""",
+                        (item["rank_no"], item.get("imdb_id") or old["imdb_id"], item["original_title"], item.get("year"), item.get("chinese_title"), incoming_tmdb_id if incoming_tmdb_id is not None else old["tmdb_id"], old_id),
+                    )
+            else:
+                new_id = conn.execute(
+                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,tmdb_id)
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (playlist_id, item["rank_no"], item.get("imdb_id"), item["original_title"], item.get("year"), item.get("chinese_title"), item.get("tmdb_id")),
+                ).lastrowid
+                matched_ids.add(int(new_id))
+        stale_ids = [int(row["id"]) for row in existing_rows if int(row["id"]) not in matched_ids]
+        for old in existing_rows:
+            old_id = int(old["id"])
+            if old_id in matched_ids:
+                continue
+            snapshot = json_value(playlist_item_snapshot(dict(old)))
+            conn.execute(
+                """UPDATE download_history SET playlist_item_snapshot_json=COALESCE(playlist_item_snapshot_json,?)
+                   WHERE playlist_item_id=? OR candidate_id IN (SELECT id FROM candidates WHERE playlist_item_id=?)""",
+                (snapshot, old_id, old_id),
+            )
+        if stale_ids:
+            placeholders = ",".join("?" for _ in stale_ids)
+            conn.execute(f"DELETE FROM playlist_items WHERE id IN ({placeholders})", stale_ids)  # nosec B608
         conn.execute("UPDATE playlists SET source_name=?,last_synced_at=? WHERE id=?", (source.get("source_name"), utc_now(), playlist_id))
     return {"id": playlist_id, "count": len(items), "message": f"已从来源刷新 {len(items)} 部电影"}
 
@@ -493,6 +554,7 @@ async def delete_playlist(playlist_id: int) -> dict[str, Any]:
             ("search_tasks", running_tasks),
             ("recognition_tasks", running_recognition_tasks),
             ("library_scan_tasks", running_library_tasks),
+            ("automation_runs", running_automation_tasks),
         ):
             ids = conn.execute(
                 f"SELECT id FROM {table} WHERE playlist_id=? AND status IN ('queued','running')", (playlist_id,),  # nosec B608
@@ -505,6 +567,16 @@ async def delete_playlist(playlist_id: int) -> dict[str, Any]:
     if tasks_to_cancel:
         await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
     with connect() as conn:
+        history_items = conn.execute(
+            "SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,)
+        ).fetchall()
+        for item in history_items:
+            snapshot = json_value(playlist_item_snapshot(dict(item)))
+            conn.execute(
+                """UPDATE download_history SET playlist_item_snapshot_json=COALESCE(playlist_item_snapshot_json,?)
+                   WHERE playlist_item_id=? OR candidate_id IN (SELECT id FROM candidates WHERE playlist_item_id=?)""",
+                (snapshot, item["id"], item["id"]),
+            )
         conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
     return {"deleted": playlist_id}
 

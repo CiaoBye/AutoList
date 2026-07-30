@@ -25,7 +25,12 @@ from ..domain.titles import (
     torrent_matches_item,
 )
 from ..security import safe_error, sanitize_sensitive_text
-from ..state import enforce_search_task_capacity, raw_candidates, running_tasks
+from ..state import (
+    enforce_search_task_capacity,
+    prune_raw_candidates,
+    remember_raw_candidate,
+    running_tasks,
+)
 from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, utc_now, volume_factor_value
 from .library import library_details
 from .recognition import analyze_candidate, persist_tmdb_item, recognize_movie
@@ -244,32 +249,83 @@ async def search_one_site(
             return site, [], reason, max(1, query_count)
 
 
+def _snapshot_ids(raw_value: Any, label: str) -> list[int] | None:
+    if raw_value is None:
+        return None
+    try:
+        values = json.loads(raw_value)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"任务保存的{label}快照无效") from exc
+    if not isinstance(values, list) or any(isinstance(value, bool) or not str(value).isdigit() for value in values):
+        raise RuntimeError(f"任务保存的{label}快照无效")
+    return list(dict.fromkeys(int(value) for value in values))
+
+
 async def run_search(task_id: int) -> None:
+    prune_raw_candidates()
     emby, torznab, mteam, nexusphp, rss, config = EmbyClient(), TorznabClient(), MTeamClient(), NexusPHPClient(), RSSClient(), config_values()
     with connect() as conn:
         task = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
-        if not task:
-            return
-        items = list(conn.execute(
-            "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ? ORDER BY rank_no",
-            (task["playlist_id"], task["range_start"], task["range_end"]),
-        ).fetchall())
-        sites = rows_to_dicts(conn.execute("SELECT * FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id").fetchall())
+    if not task:
+        return
+    if task["status"] not in {"queued", "running"}:
+        running_tasks.pop(task_id, None)
+        return
     pair_scope: set[tuple[int, int]] = set()
     try:
-        selected_item_ids = {int(value) for value in json.loads(task["item_ids_json"] or "[]")}
-        selected_site_ids = {int(value) for value in json.loads(task["site_ids_json"] or "[]")}
+        selected_item_ids = _snapshot_ids(task["item_ids_json"], "影片")
+        selected_site_ids = _snapshot_ids(task["site_ids_json"], "站点")
+        raw_pairs = json.loads(task["pair_scope_json"] or "[]")
+        if not isinstance(raw_pairs, list):
+            raise ValueError
         pair_scope = {
             (int(pair[0]), int(pair[1]))
-            for pair in json.loads(task["pair_scope_json"] or "[]")
+            for pair in raw_pairs
             if isinstance(pair, list) and len(pair) == 2
         }
-    except (TypeError, ValueError, json.JSONDecodeError):
-        selected_item_ids, selected_site_ids, pair_scope = set(), set(), set()
-    if selected_item_ids:
-        items = [item for item in items if int(item["id"]) in selected_item_ids]
-    if selected_site_ids:
-        sites = [site for site in sites if int(site["id"]) in selected_site_ids]
+        with connect() as conn:
+            if selected_item_ids is None:
+                items = list(conn.execute(
+                    "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ? ORDER BY rank_no",
+                    (task["playlist_id"], task["range_start"], task["range_end"]),
+                ).fetchall())
+            else:
+                if not selected_item_ids:
+                    raise RuntimeError("任务快照中没有影片")
+                item_placeholders = ",".join("?" for _ in selected_item_ids)
+                items = list(conn.execute(
+                    f"SELECT * FROM playlist_items WHERE playlist_id=? AND id IN ({item_placeholders}) ORDER BY rank_no",  # nosec B608
+                    (task["playlist_id"], *selected_item_ids),
+                ).fetchall())
+                missing_items = set(selected_item_ids) - {int(item["id"]) for item in items}
+                if missing_items:
+                    raise RuntimeError(f"任务快照中的影片已不存在：{', '.join(str(value) for value in sorted(missing_items))}")
+            if selected_site_ids is None:
+                sites = rows_to_dicts(conn.execute(
+                    "SELECT * FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id",
+                ).fetchall())
+            else:
+                if not selected_site_ids:
+                    raise RuntimeError("任务快照中没有搜索站点")
+                site_placeholders = ",".join("?" for _ in selected_site_ids)
+                site_rows = conn.execute(
+                    f"SELECT * FROM pt_sites WHERE id IN ({site_placeholders}) ORDER BY priority,id",  # nosec B608
+                    selected_site_ids,
+                ).fetchall()
+                sites = rows_to_dicts(site_rows)
+                missing_sites = set(selected_site_ids) - {int(site["id"]) for site in site_rows}
+                if missing_sites:
+                    raise RuntimeError(f"任务快照中的站点已不存在：{', '.join(str(value) for value in sorted(missing_sites))}")
+            if not items:
+                raise RuntimeError("任务快照中没有可搜索影片")
+            if not sites:
+                raise RuntimeError("没有可用的搜索站点")
+    except Exception as exc:
+        reason = safe_error(exc)
+        update_task(task_id, status="failed", error_message=reason)
+        task_log(task_id, "error", "snapshot", f"搜索快照校验失败：{reason}")
+        running_tasks.pop(task_id, None)
+        return
     update_task(task_id, status="running")
     task_log(task_id, "info", "task", f"开始搜索，共 {len(items)} 部影片、{len(sites)} 个搜索来源")
     matched = 0
@@ -396,7 +452,7 @@ async def run_search(task_id: int) -> None:
                              int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
                              analyzed.get("exclusion_reason"), analyzed.get("profile_id"), json_value(metadata), utc_now()),
                         )
-                    raw_candidates[candidate_id] = {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id}
+                    remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
                 matched += len(eligible_keys)
                 task_log(
                     task_id, "info", "candidate",
@@ -426,6 +482,8 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
         source = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         if not source:
             raise HTTPException(404, "搜索任务不存在")
+        if source["status"] in {"queued", "running"}:
+            raise HTTPException(409, "任务仍在执行，完成后才能重试或重新搜索")
         begin_search_task_slot(conn)
         source = conn.execute("SELECT * FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         if not source:

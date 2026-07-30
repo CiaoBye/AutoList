@@ -310,6 +310,62 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(seen), {(first_item_id, site_ids[0]), (second_item_id, site_ids[1])})
         self.assertEqual(len(seen), 2)
 
+    async def test_moviepilot_false_response_is_recorded_as_failure(self) -> None:
+        playlist_id, item_id = self.create_playlist_item()
+        with connect() as conn:
+            task_id = int(conn.execute(
+                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+            conn.execute(
+                """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,ranking,metadata_json,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                ("false-response", task_id, item_id, 0, "Workflow.Movie.1080p", "Test", 1, "{}", main.utc_now()),
+            )
+            conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", ("false-response", main.utc_now()))
+        main.raw_candidates["false-response"] = {
+            "media": {"id": 1, "title": "Workflow Movie", "type": "电影"},
+            "torrent": {"title": "Workflow.Movie.1080p"},
+        }
+        with patch.object(main.MoviePilotClient, "download", new=AsyncMock(return_value={"success": "false", "message": "下游拒绝"})):
+            result = await main.download_cart()
+        self.assertEqual(result["submitted"], 0)
+        self.assertEqual((await main.cart())[0]["id"], "false-response")
+        with connect() as conn:
+            history = conn.execute("SELECT success,message FROM download_history WHERE candidate_id=?", ("false-response",)).fetchone()
+        self.assertEqual(history["success"], 0)
+        self.assertIn("下游拒绝", history["message"])
+
+    async def test_search_snapshot_missing_item_fails_explicitly(self) -> None:
+        playlist_id, item_id = self.create_playlist_item()
+        with connect() as conn:
+            site_id = int(conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
+                ("Snapshot Site", "rss", "https://snapshot.example/feed", main.utc_now()),
+            ).lastrowid)
+            task_id = int(conn.execute(
+                """INSERT INTO search_tasks(
+                     playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (playlist_id, 1, 1, "queued", 1, json.dumps([site_id]), json.dumps([item_id]), main.utc_now(), main.utc_now()),
+            ).lastrowid)
+            conn.execute("DELETE FROM playlist_items WHERE id=?", (item_id,))
+        await main.run_search(task_id)
+        task = await main.task_status(task_id)
+        self.assertEqual(task["status"], "failed")
+        self.assertIn("影片已不存在", task["error_message"])
+
+    async def test_followup_rejects_running_source_task(self) -> None:
+        playlist_id, _item_id = self.create_playlist_item()
+        with connect() as conn:
+            task_id = int(conn.execute(
+                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (playlist_id, 1, 1, "running", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        with self.assertRaises(main.HTTPException) as raised:
+            main.create_followup_search_task(task_id, True)
+        self.assertEqual(raised.exception.status_code, 409)
+
     async def test_restart_copies_original_item_and_site_snapshots(self) -> None:
         playlist_id, item_id = self.create_playlist_item()
         with connect() as conn:

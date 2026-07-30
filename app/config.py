@@ -76,7 +76,7 @@ class Settings:
             "cookiecloud_password_configured": bool(self.cookiecloud_password),
             "cookiecloud_endpoint": "/cookiecloud",
             "outbound_proxy_configured": bool(self.outbound_proxy_url),
-            "outbound_proxy_url": self.outbound_proxy_url,
+            "outbound_proxy_url_configured": bool(self.outbound_proxy_url),
             "tmdb_proxy_enabled": self.tmdb_proxy_enabled,
             "pt_proxy_enabled": self.pt_proxy_enabled,
             "ai_base_url": self.ai_base_url,

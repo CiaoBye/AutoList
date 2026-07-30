@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from ..util import utc_now
 
 SITE_STATS_SUCCESS_TTL = timedelta(hours=6)
 SITE_STATS_FAILURE_TTL = timedelta(hours=1)
+SLOW_SITE_THRESHOLD_MS = 3000
 
 
 def resolve_site_adapter(base_url: str, rss_url: str = "") -> str:
@@ -29,6 +31,7 @@ def resolve_site_adapter(base_url: str, rss_url: str = "") -> str:
 
 
 async def test_site_config(site: dict[str, Any]) -> dict[str, Any]:
+    started = time.monotonic()
     try:
         if site["adapter"] == "mteam":
             result = await MTeamClient().check(site)
@@ -39,12 +42,29 @@ async def test_site_config(site: dict[str, Any]) -> dict[str, Any]:
         else:
             torrents = await TorznabClient().search(site, "AutoListConnectionProbe")
             result = {"ok": True, "message": f"Torznab 可用，探测返回 {len(torrents)} 条"}
-        status, message = "ok", sanitize_sensitive_text(result.get("message") or "连接正常")
+        duration_ms = max(0, int((time.monotonic() - started) * 1000))
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            status = "error"
+            message = sanitize_sensitive_text(
+                result.get("message") if isinstance(result, dict) else "站点检测返回格式无效"
+            ) or "站点连接失败"
+        else:
+            status = "slow" if duration_ms >= SLOW_SITE_THRESHOLD_MS else "ok"
+            message = sanitize_sensitive_text(
+                result.get("message") or ("连接正常，但响应较慢" if status == "slow" else "连接正常")
+            )
     except Exception as exc:
+        duration_ms = max(0, int((time.monotonic() - started) * 1000))
         status, message = "error", safe_error(exc)
     with connect() as conn:
-        conn.execute("UPDATE pt_sites SET last_status=?,last_message=?,last_tested_at=? WHERE id=?", (status, message[:500], utc_now(), site["id"]))
-    return {"id": site["id"], "name": site["name"], "ok": status == "ok", "message": message}
+        conn.execute(
+            "UPDATE pt_sites SET last_status=?,last_message=?,last_duration_ms=?,last_tested_at=? WHERE id=?",
+            (status, message[:500], duration_ms, utc_now(), site["id"]),
+        )
+    return {
+        "id": site["id"], "name": site["name"], "ok": status in {"ok", "slow"},
+        "status": status, "duration_ms": duration_ms, "message": message,
+    }
 
 
 def apply_cookie_groups(groups: dict[str, str], site_id: int | None = None) -> dict[str, Any]:

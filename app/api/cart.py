@@ -39,7 +39,7 @@ from ..schemas import (
 from ..security import safe_error, sanitize_sensitive_text
 from ..services.automation import start_playlist_automation, sync_playlist_incremental, update_recognition_task
 from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
-from ..services.history import clear_download_history, projected_download_history
+from ..services.history import clear_download_history, playlist_item_snapshot, projected_download_history
 from ..services.imports import normalize_import_items, resolve_import
 from ..services.library import run_library_scan
 from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
@@ -55,6 +55,8 @@ from ..state import (
     poster_cache,
     raw_candidates,
     download_cart_lock,
+    forget_raw_candidate,
+    prune_raw_candidates,
     require_configured_cookiecloud_uuid,
     running_automation_tasks,
     running_library_tasks,
@@ -76,8 +78,21 @@ from ..util import (
 
 router = APIRouter()
 
+
+def _moviepilot_success(response: Any) -> bool:
+    """Parse MoviePilot's success flag without treating the string 'false' as true."""
+    if not isinstance(response, dict):
+        return False
+    value = response.get("success")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value == 1
+    return str(value or "").strip().casefold() in {"true", "1", "yes", "ok", "success"}
+
 @router.post("/api/cart/items/{candidate_id}")
 async def toggle_cart(candidate_id: str) -> dict[str, Any]:
+    prune_raw_candidates()
     with connect() as conn:
         candidate = conn.execute("SELECT eligibility,exclusion_reason FROM candidates WHERE id=?", (candidate_id,)).fetchone()
         if not candidate:
@@ -95,6 +110,7 @@ async def toggle_cart(candidate_id: str) -> dict[str, Any]:
 
 @router.get("/api/cart")
 async def cart() -> list[dict[str, Any]]:
+    prune_raw_candidates()
     with connect() as conn:
         rows = conn.execute(
             """SELECT c.id, c.title, c.site_name, c.size, c.resolution, c.library_state, p.original_title
@@ -108,22 +124,43 @@ async def cart() -> list[dict[str, Any]]:
 
 @router.post("/api/cart/download")
 async def download_cart() -> dict[str, Any]:
+    prune_raw_candidates()
     if download_cart_lock.locked():
         raise HTTPException(409, "下载列表正在提交，请勿重复操作")
     async with download_cart_lock:
         with connect() as conn:
             rows = conn.execute(
-                """SELECT c.*, p.original_title FROM cart_items cart JOIN candidates c ON c.id=cart.candidate_id
+                """SELECT c.*, p.original_title AS playlist_original_title,p.chinese_title AS playlist_chinese_title,
+                          p.year AS playlist_year,p.imdb_id AS playlist_imdb_id,p.tmdb_id AS playlist_tmdb_id,
+                          p.tmdb_title AS playlist_tmdb_title,p.tmdb_original_title AS playlist_tmdb_original_title,
+                          p.tmdb_year AS playlist_tmdb_year,p.tmdb_imdb_id AS playlist_tmdb_imdb_id,
+                          p.library_state AS playlist_library_state,p.library_checked_at AS playlist_library_checked_at,
+                          p.id AS playlist_snapshot_id
+                   FROM cart_items cart JOIN candidates c ON c.id=cart.candidate_id
                    JOIN playlist_items p ON p.id=c.playlist_item_id ORDER BY cart.selected_at"""
             ).fetchall()
         if not rows:
             raise HTTPException(422, "下载列表为空")
         moviepilot, completed, needs_research, submitted_tasks, expired_items = MoviePilotClient(), 0, 0, [], []
         for candidate in rows:
+            item_snapshot = playlist_item_snapshot({
+                "id": candidate["playlist_snapshot_id"],
+                "imdb_id": candidate["playlist_imdb_id"],
+                "original_title": candidate["playlist_original_title"],
+                "chinese_title": candidate["playlist_chinese_title"],
+                "year": candidate["playlist_year"],
+                "tmdb_id": candidate["playlist_tmdb_id"],
+                "tmdb_title": candidate["playlist_tmdb_title"],
+                "tmdb_original_title": candidate["playlist_tmdb_original_title"],
+                "tmdb_year": candidate["playlist_tmdb_year"],
+                "tmdb_imdb_id": candidate["playlist_tmdb_imdb_id"],
+                "library_state": candidate["playlist_library_state"],
+                "library_checked_at": candidate["playlist_library_checked_at"],
+            })
             raw = raw_candidates.get(candidate["id"])
             if not raw:
                 needs_research += 1
-                expired_items.append({"candidate_id": candidate["id"], "title": candidate["original_title"]})
+                expired_items.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"]})
                 message = "搜索上下文已失效，请重新搜索后加入下载列表"
                 with connect() as conn:
                     already_recorded = conn.execute(
@@ -133,9 +170,9 @@ async def download_cart() -> dict[str, Any]:
                     if not already_recorded:
                         conn.execute(
                             """INSERT INTO download_history(
-                                   candidate_id,playlist_item_id,title,torrent_name,site_name,success,message,created_at
-                               ) VALUES(?,?,?,?,?,?,?,?)""",
-                            (candidate["id"], candidate["playlist_item_id"], candidate["original_title"], candidate["title"], candidate["site_name"], 0, message, utc_now()),
+                                   candidate_id,playlist_item_id,playlist_item_snapshot_json,title,torrent_name,site_name,success,message,created_at
+                               ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                            (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), candidate["playlist_original_title"], candidate["title"], candidate["site_name"], 0, message, utc_now()),
                         )
                 continue
             try:
@@ -144,24 +181,31 @@ async def download_cart() -> dict[str, Any]:
                 # 固定走 MoviePilot DownloadChain：它补全 TMDB 媒体信息、按 MP 分类目录选择路径，
                 # 再交由 Transmission 写入 MOVIEPILOT 与站点标签，供 MP 后续整理。
                 response = await moviepilot.download(raw["media"], raw["torrent"], downloader="Transmission")
-                success = bool(response.get("success", True)) if isinstance(response, dict) else True
-                message = response.get("message") or response.get("hash") if isinstance(response, dict) else None
+                success = _moviepilot_success(response)
+                if not isinstance(response, dict):
+                    message = "MoviePilot 返回格式无效，未确认提交成功"
+                    submission_hash = None
+                elif success:
+                    message = response.get("message") or response.get("hash")
+                    submission_hash = str(response.get("hash") or "").strip() or None
+                    submitted_tasks.append({"candidate_id": candidate["id"], "hash": submission_hash, "mode": "moviepilot"})
+                else:
+                    message = response.get("message") or "MoviePilot 未确认提交成功"
+                    submission_hash = None
                 message = sanitize_sensitive_text(message) if message else None
-                submission_hash = str(response.get("hash") or "").strip() or None if isinstance(response, dict) else None
-                if isinstance(response, dict):
-                    submitted_tasks.append({"candidate_id": candidate["id"], "hash": response.get("hash"), "mode": "moviepilot"})
             except Exception as exc:
                 success, message, submission_hash = False, safe_error(exc), None
             with connect() as conn:
                 conn.execute(
                     """INSERT INTO download_history(
-                           candidate_id,playlist_item_id,title,torrent_name,site_name,submission_hash,success,message,created_at
-                       ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (candidate["id"], candidate["playlist_item_id"], candidate["original_title"], candidate["title"], candidate["site_name"], submission_hash, int(success), message, utc_now()),
+                           candidate_id,playlist_item_id,playlist_item_snapshot_json,title,torrent_name,site_name,submission_hash,success,message,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), candidate["playlist_original_title"], candidate["title"], candidate["site_name"], submission_hash, int(success), message, utc_now()),
                 )
                 if success:
                     conn.execute("DELETE FROM cart_items WHERE candidate_id=?", (candidate["id"],))
                     completed += 1
+                    forget_raw_candidate(candidate["id"])
         if needs_research and completed == 0:
             raise HTTPException(409, f"下载列表中 {needs_research} 个资源的搜索上下文已失效，请重新搜索后加入下载列表")
         return {

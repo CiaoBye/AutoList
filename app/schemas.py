@@ -54,7 +54,7 @@ class RuntimeSettingsPayload(BaseModel):
     tmdb_api_key: str | None = None
     tmdb_language: str = "zh-CN"
     mdblist_api_key: str | None = None
-    cookiecloud_key: str = ""
+    cookiecloud_key: str = Field(default="", max_length=128, pattern=r"^(?:[A-Za-z0-9_-]{5,128})?$")
     cookiecloud_password: str | None = None
     outbound_proxy_url: str | None = None
     tmdb_proxy_enabled: bool = False
@@ -84,6 +84,9 @@ class SitePayload(BaseModel):
     limit_count: int | None = Field(default=None, ge=1)
     enabled: bool = True
     search_enabled: bool = False
+    clear_api_key: bool = False
+    clear_cookie: bool = False
+    clear_rss_url: bool = False
 
 
 class CookieCloudUploadPayload(BaseModel):

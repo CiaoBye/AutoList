@@ -18,9 +18,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
 from ..config import load_runtime_settings, save_runtime_settings, settings
-from ..cookiecloud import cookie_for_host, cookie_groups
+from ..cookiecloud import cookie_groups
 from ..database import config_values, connect, json_value, save_config
 from ..list_sources import PlaylistSourceFetcher
 from ..schemas import (
@@ -33,7 +32,6 @@ from ..schemas import (
     PlaylistUpdatePayload,
     RuntimeSettingsPayload,
     ScorePreviewPayload,
-    SiteCookiePayload,
     SitePayload,
     TaskPayload,
 )
@@ -49,11 +47,10 @@ from ..services.search import (
     run_search,
     searchable_playlist_items,
 )
-from ..services.sites import domain_match, moviepilot_site_snapshot, resolve_site_adapter, test_site_config
+from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_site_config
 from ..state import (
     enforce_cookiecloud_rate_limit,
     enforce_search_task_capacity,
-    moviepilot_site_ids,
     poster_cache,
     raw_candidates,
     require_configured_cookiecloud_uuid,
@@ -74,41 +71,58 @@ from ..util import (
     validate_remote_icon_url,
     volume_factor_value,
 )
+from .system import validated_base_url
 
 router = APIRouter()
 
 @router.get("/api/sites")
 async def sites() -> list[dict[str, Any]]:
     with connect() as conn:
-        rows = rows_to_dicts(conn.execute("SELECT * FROM pt_sites ORDER BY id").fetchall())
-    try:
-        mp_sites, statistics, users = await moviepilot_site_snapshot()
-    except Exception:
-        mp_sites, statistics, users = [], [], []
+        rows = rows_to_dicts(conn.execute(
+            """SELECT s.*,
+                      COUNT(a.id) AS search_total,
+                      SUM(CASE WHEN a.status='success' THEN 1 ELSE 0 END) AS search_succeeded,
+                      CAST(AVG(a.duration_ms) AS INTEGER) AS search_average_ms,
+                      SUM(a.result_count) AS search_result_count,
+                      MAX(a.finished_at) AS search_last_attempt_at
+               FROM pt_sites s
+               LEFT JOIN search_attempts a ON a.site_id=s.id
+               GROUP BY s.id
+               ORDER BY s.id"""
+        ).fetchall())
     for item in rows:
+        total = int(item.pop("search_total") or 0)
+        succeeded = int(item.pop("search_succeeded") or 0)
+        item["local_stats"] = {
+            "total": total,
+            "succeeded": succeeded,
+            "success_rate": round(succeeded / total * 100, 1) if total else None,
+            "average_ms": int(item.pop("search_average_ms") or 0) if total else None,
+            "result_count": int(item.pop("search_result_count") or 0),
+            "last_attempt_at": item.pop("search_last_attempt_at"),
+        }
+        item["account_stats"] = {
+            "uploaded": item.pop("account_uploaded"),
+            "downloaded": item.pop("account_downloaded"),
+            "ratio": item.pop("account_ratio"),
+            "bonus": item.pop("account_bonus"),
+            "seeding": item.pop("account_seeding"),
+            "checked_at": item.pop("account_stats_checked_at"),
+            "error": item.pop("account_stats_error"),
+        }
         item["api_key_configured"] = bool(item.get("api_key"))
         item["cookie_configured"] = bool(item.get("cookie"))
+        item["user_agent_configured"] = bool(item.get("user_agent"))
         item["api_key"] = ""
         item["cookie"] = ""
         item["rss_url_configured"] = bool(item.get("rss_url"))
         item["rss_url"] = ""
-        mp_site = next((candidate for candidate in mp_sites if domain_match(str(candidate.get("domain") or candidate.get("url") or ""), item["base_url"])), None)
-        stat = next((candidate for candidate in statistics if domain_match(str(candidate.get("domain") or ""), item["base_url"])), {})
-        user = next((candidate for candidate in users if domain_match(str(candidate.get("domain") or ""), item["base_url"])), {})
-        item["mp_site_id"] = mp_site.get("id") if mp_site else None
-        if item["mp_site_id"]:
-            moviepilot_site_ids[item["id"]] = int(item["mp_site_id"])
         item["icon_endpoint"] = f"/api/sites/{item['id']}/icon"
-        item["mp_active"] = bool(mp_site.get("is_active")) if mp_site else bool(item["enabled"])
-        item["mp_user"] = {key: user.get(key) for key in ("username", "user_level", "upload", "download", "ratio", "bonus", "seeding", "leeching", "updated_time", "err_msg")}
-        if item["mp_user"].get("err_msg"):
-            item["mp_user"]["err_msg"] = sanitize_sensitive_text(item["mp_user"]["err_msg"])
-        item["mp_status"] = {key: stat.get(key) for key in ("seconds", "lst_state", "lst_mod_date", "success", "fail")}
     return rows
 
 @router.get("/api/sites/{site_id}/icon")
 async def site_icon(site_id: int) -> Response:
-    """Serve MP's site icon locally so authenticated/private site favicons do not fail in the browser."""
+    """Validate, proxy and cache a local/custom site favicon."""
     if site_id in site_icon_cache:
         content, media_type = site_icon_cache[site_id]
         return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
@@ -117,21 +131,7 @@ async def site_icon(site_id: int) -> Response:
     if not row:
         raise HTTPException(404, "站点不存在")
     icon_value = str(row["icon_url"] or "")
-    mp_id = moviepilot_site_ids.get(site_id)
-    if not icon_value and not mp_id:
-        try:
-            mp_sites, _, _ = await moviepilot_site_snapshot()
-            match = next((item for item in mp_sites if domain_match(str(item.get("domain") or item.get("url") or ""), row["base_url"])), None)
-            mp_id = int(match["id"]) if match and match.get("id") else None
-            if mp_id:
-                moviepilot_site_ids[site_id] = mp_id
-        except Exception:
-            mp_id = None
     try:
-        if mp_id:
-            payload = await MoviePilotClient().site_icon(mp_id)
-            data = payload.get("data", payload) if isinstance(payload, dict) else payload
-            icon_value = str(data.get("icon") or data.get("url") or "") if isinstance(data, dict) else str(data or "")
         if icon_value.startswith("data:image/"):
             header, encoded = icon_value.split(",", 1)
             media_type = header.split(";", 1)[0].split(":", 1)[1]
@@ -247,17 +247,8 @@ async def test_all_sites() -> dict[str, Any]:
 @router.post("/api/sites/sync-cookiecloud")
 async def sync_sites_from_cookiecloud() -> dict[str, Any]:
     groups = cookie_groups(stored_cookiecloud_payload())
-    updated: list[str] = []
-    missing: list[str] = []
-    with connect() as conn:
-        rows = conn.execute("SELECT id,name,base_url FROM pt_sites ORDER BY id").fetchall()
-        for row in rows:
-            match = cookie_for_host(groups, urlparse(str(row["base_url"])).hostname or "")
-            if not match:
-                missing.append(str(row["name"]))
-                continue
-            conn.execute("UPDATE pt_sites SET cookie=?,migration_note=NULL WHERE id=?", (match[1], row["id"]))
-            updated.append(str(row["name"]))
+    applied = apply_cookie_groups(groups)
+    updated, missing = applied["updated"], applied["missing"]
     return {
         "ok": bool(updated),
         "updated": len(updated),
@@ -266,39 +257,19 @@ async def sync_sites_from_cookiecloud() -> dict[str, Any]:
         "message": f"已从 Chrome CookieCloud 更新 {len(updated)} 个站点 Cookie；UA 保留各站点现有配置",
     }
 
-async def get_local_and_mp_site(site_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
+@router.post("/api/sites/{site_id}/refresh-cookie")
+async def refresh_site_cookie(site_id: int) -> dict[str, Any]:
+    """Refresh one local site's Cookie from AutoList's own CookieCloud store."""
     with connect() as conn:
-        row = conn.execute("SELECT * FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+        row = conn.execute("SELECT id,name,base_url FROM pt_sites WHERE id=?", (site_id,)).fetchone()
     if not row:
         raise HTTPException(404, "站点不存在")
-    local = dict(row)
-    mp_sites, _, _ = await moviepilot_site_snapshot()
-    mp_site = next((candidate for candidate in mp_sites if domain_match(str(candidate.get("domain") or candidate.get("url") or ""), local["base_url"])), None)
-    if not mp_site:
-        raise HTTPException(404, "MoviePilot 未找到对应站点")
-    return local, mp_site
-
-@router.post("/api/sites/{site_id}/sync-moviepilot")
-async def sync_site_from_moviepilot(site_id: int) -> dict[str, Any]:
-    local, mp_site = await get_local_and_mp_site(site_id)
-    with connect() as conn:
-        conn.execute("UPDATE pt_sites SET cookie=?,user_agent=?,proxy=?,render=?,migration_note=NULL WHERE id=?", (
-            str(mp_site.get("cookie") or ""), str(mp_site.get("ua") or ""), int(bool(mp_site.get("proxy"))), int(bool(mp_site.get("render"))), local["id"],
-        ))
-    return {"ok": True, "name": local["name"], "message": "已从 MoviePilot 更新 Cookie 与 UA"}
-
-@router.post("/api/sites/{site_id}/update-cookie-ua")
-async def update_site_cookie_ua(site_id: int, payload: SiteCookiePayload) -> dict[str, Any]:
-    local, mp_site = await get_local_and_mp_site(site_id)
-    result = await MoviePilotClient().update_site_cookie(int(mp_site["id"]), payload.username, payload.password, payload.code)
-    if not result.get("success", False):
-        raise HTTPException(502, sanitize_sensitive_text(result.get("message") or "MoviePilot 更新 Cookie 失败"))
-    await sync_site_from_moviepilot(site_id)
-    return {"ok": True, "name": local["name"], "message": "MoviePilot 已更新并同步 Cookie 与 UA"}
-
-@router.post("/api/sites/{site_id}/refresh-moviepilot-userdata")
-async def refresh_site_moviepilot_userdata(site_id: int) -> dict[str, Any]:
-    _, mp_site = await get_local_and_mp_site(site_id)
-    result = await MoviePilotClient().refresh_site_user_data(int(mp_site["id"]))
-    return {"ok": bool(result.get("success", True)), "message": sanitize_sensitive_text(result.get("message") or "已请求刷新用户数据")}
-
+    applied = apply_cookie_groups(cookie_groups(stored_cookiecloud_payload()), site_id)
+    if not applied["updated"]:
+        raise HTTPException(404, f"CookieCloud 中没有匹配 {row['name']} 域名的 Cookie")
+    return {
+        "ok": True,
+        "id": int(row["id"]),
+        "name": str(row["name"]),
+        "message": f"已从 AutoList CookieCloud 刷新 {row['name']} 的 Cookie；UA 保留现有配置",
+    }

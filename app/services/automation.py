@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -11,14 +12,16 @@ from fastapi import HTTPException
 
 from ..clients import EmbyClient
 from ..database import cleanup_old_data, connect, json_value
+from ..domain.titles import canonical_item_title, canonical_item_year
 from ..list_sources import PlaylistSourceFetcher
 from ..security import safe_error, sanitize_sensitive_text
-from ..state import running_automation_tasks, running_tasks, scheduler_task
+from ..state import running_automation_tasks, running_recognition_tasks, running_tasks, scheduler_task
 from ..util import rows_to_dicts, utc_now
 from .library import library_details
 from .recognition import persist_tmdb_item, recognize_movie
 from .imports import normalize_import_items
-from .search import run_search, searchable_playlist_items
+from .search import begin_search_task_slot, run_search, searchable_playlist_items
+from .sites import refresh_stale_site_account_stats
 
 
 def update_recognition_task(task_id: int, **values: Any) -> None:
@@ -125,15 +128,25 @@ async def run_playlist_automation(run_id: int) -> None:
                 searchable_ids.append(int(item["id"]))
         if searchable_ids:
             with connect() as conn:
+                begin_search_task_slot(conn)
                 ranks = conn.execute(
                     f"SELECT MIN(rank_no),MAX(rank_no) FROM playlist_items WHERE id IN ({','.join('?' for _ in searchable_ids)})",  # nosec B608
                     searchable_ids,
                 ).fetchone()
                 now = utc_now()
+                site_ids = [
+                    int(row["id"]) for row in conn.execute(
+                        "SELECT id FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id",
+                    ).fetchall()
+                ]
+                if not site_ids:
+                    raise HTTPException(422, "请先在站点配置中选择至少一个参与搜索的站点")
                 task_id = int(conn.execute(
-                    """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,trigger,item_ids_json,created_at,updated_at)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (playlist["id"], ranks[0], ranks[1], "queued", len(searchable_ids), "automation", json_value(searchable_ids), now, now),
+                    """INSERT INTO search_tasks(
+                         playlist_id,range_start,range_end,status,total,trigger,site_ids_json,item_ids_json,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (playlist["id"], ranks[0], ranks[1], "queued", len(searchable_ids), "automation",
+                     json_value(site_ids), json_value(searchable_ids), now, now),
                 ).lastrowid)
             update_automation_run(run_id, stage="search")
             running_tasks[task_id] = asyncio.current_task()  # visible in health while the nested search runs
@@ -152,12 +165,7 @@ async def run_playlist_automation(run_id: int) -> None:
                         preferred.append(row)
                         seen_items.add(int(row["playlist_item_id"]))
                 recommended = len(preferred)
-                if playlist["automation_auto_cart"]:
-                    conn.executemany(
-                        "INSERT OR IGNORE INTO cart_items(candidate_id,selected_at) VALUES(?,?)",
-                        [(row["id"], utc_now()) for row in preferred],
-                    )
-        message = f"处理 {len(items)} 部，新增识别 {recognized}，搜索 {searched}，推荐 {recommended}；未自动下载"
+        message = f"处理 {len(items)} 部，新增识别 {recognized}，搜索 {searched}，推荐 {recommended}；候选需人工确认"
         update_automation_run(
             run_id, status="completed", stage="completed", completed=len(items), recognized=recognized,
             searched=searched, recommended=recommended, message=message,
@@ -256,6 +264,7 @@ async def sync_scheduler() -> None:
     while True:
         await asyncio.sleep(60)
         cleanup_old_data()
+        await refresh_stale_site_account_stats()
         now = utc_now()
         with connect() as conn:
             due = [int(row["id"]) for row in conn.execute(

@@ -58,13 +58,65 @@ class NexusTableParser(HTMLParser):
                 row["anchors"][-1]["text"].append(data)
 
 
+class AccountTableParser(HTMLParser):
+    """Collect simple label/value rows from tracker account pages."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[str]] = []
+        self.text: list[str] = []
+        self._row: list[list[str]] | None = None
+        self._cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "tr":
+            self._row = []
+        elif tag.lower() in {"td", "th"} and self._row is not None:
+            self._cell = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"td", "th"} and self._row is not None and self._cell is not None:
+            value = re.sub(r"\s+", " ", " ".join(self._cell)).strip()
+            self._row.append(value)
+            self._cell = None
+        elif tag.lower() == "tr" and self._row is not None:
+            if self._row:
+                self.rows.append(self._row)
+            self._row = None
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.text.append(data)
+        if self._cell is not None:
+            self._cell.append(data)
+
+
+def human_size_bytes(value: Any) -> int | None:
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    match = re.search(r"(\d+(?:[.,]\d+)?)\s*(B|Ki?B|Mi?B|Gi?B|Ti?B|Pi?B)\b", str(value or ""), re.I)
+    if not match:
+        return None
+    units = {"b": 1, "kb": 1024, "kib": 1024, "mb": 1024**2, "mib": 1024**2,
+             "gb": 1024**3, "gib": 1024**3, "tb": 1024**4, "tib": 1024**4,
+             "pb": 1024**5, "pib": 1024**5}
+    return int(float(match.group(1).replace(",", ".")) * units[match.group(2).lower()])
+
+
+def numeric_value(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    match = re.search(r"-?\d+(?:[.,]\d+)?", str(value or "").replace(",", ""))
+    return float(match.group(0)) if match else None
+
+
 def site_proxy(site: dict[str, Any]) -> str | None:
     """Only explicitly opted-in PT sites use the configured outbound proxy."""
     return settings.outbound_proxy_url if settings.pt_proxy_enabled and site.get("proxy") and settings.outbound_proxy_url else None
 
 
 class MoviePilotClient:
-    """Optional MoviePilot compatibility gateway for PT aggregation or smart download."""
+    """MoviePilot gateway kept only for download classification and organization."""
 
     def __init__(self) -> None:
         self.base_url = settings.mp_base_url
@@ -81,66 +133,6 @@ class MoviePilotClient:
             response.raise_for_status()
             return {"ok": True, "configured": True, "downloaders": response.json()}
 
-    async def search_title(self, title: str) -> Any:
-        async with self._client() as client:
-            response = await client.get("/api/v1/search/title", params={"keyword": title, "page": 0})
-            response.raise_for_status()
-            return response.json()
-
-    async def search_media(self, tmdb_id: int, title: str, year: int | None, site_ids: list[int] | None = None) -> Any:
-        async with self._client() as client:
-            response = await client.get(
-                f"/api/v1/search/media/tmdb:{tmdb_id}",
-                params={"mtype": "电影", "title": title, "year": str(year) if year else None, "sites": ",".join(map(str, site_ids)) if site_ids else None},
-            )
-            response.raise_for_status()
-            return response.json()
-
-    async def sites(self) -> Any:
-        async with self._client() as client:
-            response = await client.get("/api/v1/site/")
-            response.raise_for_status()
-            return response.json()
-
-    async def site_statistics(self) -> list[dict[str, Any]]:
-        async with self._client() as client:
-            response = await client.get("/api/v1/site/statistic")
-            response.raise_for_status()
-            return response.json()
-
-    async def site_user_data(self) -> list[dict[str, Any]]:
-        async with self._client() as client:
-            response = await client.get("/api/v1/site/userdata/latest")
-            response.raise_for_status()
-            return response.json()
-
-    async def refresh_site_user_data(self, site_id: int) -> Any:
-        async with self._client() as client:
-            response = await client.post(f"/api/v1/site/userdata/{site_id}")
-            response.raise_for_status()
-            return response.json()
-
-    async def update_site_cookie(self, site_id: int, username: str, password: str, code: str = "") -> Any:
-        async with self._client() as client:
-            response = await client.post(f"/api/v1/site/cookie/{site_id}", json={"username": username, "password": password, "code": code or None})
-            response.raise_for_status()
-            return response.json()
-
-    async def site_icon(self, site_id: int) -> Any:
-        async with self._client() as client:
-            response = await client.get(f"/api/v1/site/icon/{site_id}")
-            response.raise_for_status()
-            return response.json()
-
-    async def custom_release_groups(self) -> list[str]:
-        """One-time migration helper; candidate parsing never depends on MP at runtime."""
-        async with self._client() as client:
-            response = await client.get("/api/v1/system/setting/CustomReleaseGroups")
-            response.raise_for_status()
-            payload = response.json()
-        value = payload.get("data", {}).get("value") if isinstance(payload, dict) else None
-        return [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []
-
     async def download(self, media_in: dict[str, Any], torrent_in: dict[str, Any], downloader: str | None = None) -> Any:
         torrent_payload = dict(torrent_in)
         factor = torrent_payload.pop("volume_factor", None)
@@ -156,13 +148,6 @@ class MoviePilotClient:
             )
             response.raise_for_status()
             return response.json()
-
-    async def add_download(self, torrent_in: dict[str, Any], tmdb_id: int | None = None) -> Any:
-        async with self._client() as client:
-            response = await client.post("/api/v1/download/add", json={"torrent_in": torrent_in, "tmdbid": tmdb_id})
-            response.raise_for_status()
-            return response.json()
-
 
 class TMDBClient:
     base_url = "https://api.themoviedb.org/3"
@@ -510,6 +495,48 @@ class MTeamClient:
         results = await self.search(site, "AutoListConnectionProbe")
         return {"ok": True, "message": f"API 可用，探测返回 {len(results)} 条"}
 
+    async def account_stats(self, site: dict[str, Any]) -> dict[str, Any]:
+        timeout = int(site.get("timeout_seconds") or 30)
+        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site)) as client:
+            response = await client.post(
+                f"{self.api_base(site)}/api/member/profile",
+                headers=self.headers(site),
+                json={},
+            )
+            response.raise_for_status()
+            body = response.json()
+        if str(body.get("code")) not in ("0", "None") and body.get("message") != "SUCCESS":
+            raise RuntimeError(body.get("message") or "M-Team 账户统计请求失败")
+        source = body.get("data") or {}
+
+        def find(keys: set[str], value: Any = source) -> Any:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if str(key).casefold() in keys and child not in (None, ""):
+                        return child
+                for child in value.values():
+                    found = find(keys, child)
+                    if found not in (None, ""):
+                        return found
+            elif isinstance(value, list):
+                for child in value:
+                    found = find(keys, child)
+                    if found not in (None, ""):
+                        return found
+            return None
+
+        uploaded = human_size_bytes(find({"uploaded", "upload", "uploadamount"}))
+        downloaded = human_size_bytes(find({"downloaded", "download", "downloadamount"}))
+        if uploaded is None or downloaded is None:
+            raise RuntimeError("M-Team 返回数据中未找到上传量或下载量")
+        return {
+            "uploaded": uploaded,
+            "downloaded": downloaded,
+            "ratio": numeric_value(find({"ratio", "sharerate", "share_ratio"})),
+            "bonus": numeric_value(find({"bonus", "bonuspoints", "bonus_point"})),
+            "seeding": int(numeric_value(find({"seeding", "seedcount", "seed_count"})) or 0),
+        }
+
 
 class NexusPHPClient:
     """Conservative cookie-based adapter for common NexusPHP torrent tables."""
@@ -586,3 +613,57 @@ class NexusPHPClient:
     async def check(self, site: dict[str, Any]) -> dict[str, Any]:
         results = await self.search(site, "AutoListConnectionProbe")
         return {"ok": True, "message": f"Cookie 可用，解析到 {len(results)} 条探测结果"}
+
+    async def account_stats(self, site: dict[str, Any]) -> dict[str, Any]:
+        base = str(site.get("base_url") or "").rstrip("/") + "/"
+        headers = {
+            "Cookie": str(site.get("cookie") or ""),
+            "User-Agent": str(site.get("user_agent") or self._BROWSER_UA),
+        }
+        timeout = int(site.get("timeout_seconds") or 30)
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=True, proxy=site_proxy(site),
+        ) as client:
+            home = await client.get(base, headers=headers)
+            home.raise_for_status()
+            user_link = re.search(
+                r"""href=["']([^"']*userdetails\.php\?[^"']*\bid=\d+[^"']*)["']""",
+                home.text,
+                re.I,
+            )
+            details_url = urljoin(base, html.unescape(user_link.group(1))) if user_link else urljoin(base, "userdetails.php")
+            details = await client.get(details_url, headers=headers)
+            details.raise_for_status()
+        parser = AccountTableParser()
+        parser.feed(details.text)
+        values: dict[str, str] = {}
+        for row in parser.rows:
+            for index, cell in enumerate(row[:-1]):
+                label = re.sub(r"[\s:：]+", "", cell).casefold()
+                if label:
+                    values[label] = row[index + 1]
+
+        def match_value(labels: tuple[str, ...]) -> str | None:
+            table_value = next((value for label, value in values.items() if any(key in label for key in labels)), None)
+            if table_value:
+                return table_value
+            page_text = re.sub(r"\s+", " ", " ".join(parser.text))
+            label_pattern = "|".join(re.escape(label) for label in labels)
+            match = re.search(
+                rf"(?:{label_pattern})\s*[:：]?\s*([^|｜]{{1,60}})",
+                page_text,
+                re.I,
+            )
+            return match.group(1) if match else None
+
+        uploaded = human_size_bytes(match_value(("上传量", "uploaded")))
+        downloaded = human_size_bytes(match_value(("下载量", "downloaded")))
+        if uploaded is None or downloaded is None:
+            raise RuntimeError("站点账户页未找到上传量或下载量，请检查 Cookie 与 User-Agent")
+        return {
+            "uploaded": uploaded,
+            "downloaded": downloaded,
+            "ratio": numeric_value(match_value(("分享率", "ratio"))),
+            "bonus": numeric_value(match_value(("魔力", "积分", "bonus"))),
+            "seeding": int(numeric_value(match_value(("做种数", "seeding", "seedcount"))) or 0),
+        }

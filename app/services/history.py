@@ -145,7 +145,7 @@ def _project_history_state(
 
 
 async def projected_download_history(limit: int = 200) -> list[dict[str, Any]]:
-    safe_limit = max(1, min(limit, 200))
+    safe_limit = max(1, min(limit, 5000))
     with connect() as conn:
         rows = conn.execute(
             """SELECT h.*, COALESCE(h.playlist_item_id,c.playlist_item_id) AS resolved_playlist_item_id,
@@ -173,3 +173,22 @@ async def projected_download_history(limit: int = 200) -> list[dict[str, Any]]:
     matched_ids, ambiguous_ids = _active_history_matches(histories, torrents)
     checked_at = utc_now()
     return [_project_history_state(row, matched_ids, ambiguous_ids, transmission_error, checked_at) for row in histories]
+
+
+async def clear_download_history(status: str) -> int:
+    allowed = set(DOWNLOAD_LIFECYCLE_LABELS) | {"all"}
+    if status not in allowed:
+        raise ValueError("无效的下载历史分组")
+    with connect() as conn:
+        if status == "all":
+            return conn.execute("DELETE FROM download_history").rowcount
+    items = await projected_download_history(limit=5000)
+    ids = [int(item["id"]) for item in items if item.get("lifecycle_status") == status]
+    if not ids:
+        return 0
+    placeholders = ",".join("?" for _ in ids)
+    with connect() as conn:
+        return conn.execute(
+            f"DELETE FROM download_history WHERE id IN ({placeholders})",  # nosec B608
+            ids,
+        ).rowcount

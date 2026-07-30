@@ -7,20 +7,20 @@ import base64
 import json
 import math
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
+from ..candidate_policy import normalized_policy, release_group_catalog
 from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
 from ..config import access_token_required, load_runtime_settings, save_runtime_settings, settings
-from ..cookiecloud import cookie_for_host, cookie_groups
+from ..cookiecloud import cookie_groups, decrypt_cookiecloud
 from ..database import config_values, connect, json_value, save_config
 from ..list_sources import PlaylistSourceFetcher
 from ..schemas import (
@@ -33,7 +33,6 @@ from ..schemas import (
     PlaylistUpdatePayload,
     RuntimeSettingsPayload,
     ScorePreviewPayload,
-    SiteCookiePayload,
     SitePayload,
     TaskPayload,
 )
@@ -49,11 +48,10 @@ from ..services.search import (
     run_search,
     searchable_playlist_items,
 )
-from ..services.sites import domain_match, moviepilot_site_snapshot, resolve_site_adapter, test_site_config
+from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_site_config
 from ..state import (
     enforce_cookiecloud_rate_limit,
     enforce_search_task_capacity,
-    moviepilot_site_ids,
     poster_cache,
     raw_candidates,
     require_configured_cookiecloud_uuid,
@@ -94,7 +92,7 @@ def validated_base_url(value: str, label: str, required: bool) -> str:
 
 
 # Populated by app.main after router registration.
-APP_VERSION = "0.79"
+APP_VERSION = "0.84"
 
 @router.get("/api/health")
 async def health() -> dict[str, Any]:
@@ -121,22 +119,33 @@ async def cookiecloud_update(request: Request) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(422, f"CookieCloud 上传数据无效：{safe_error(exc)}") from exc
     require_configured_cookiecloud_uuid(payload.uuid)
+    if not settings.cookiecloud_password:
+        raise HTTPException(422, "请先在 AutoList 设置中配置 CookieCloud 端对端加密密码")
+    try:
+        decrypted = decrypt_cookiecloud(
+            payload.uuid,
+            settings.cookiecloud_password,
+            payload.encrypted,
+            payload.crypto_type,
+        )
+        groups = cookie_groups(decrypted)
+    except Exception as exc:
+        raise HTTPException(422, f"CookieCloud 解密失败：{safe_error(exc)}") from exc
     path = cookiecloud_file(payload.uuid)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload.model_dump(), ensure_ascii=False), encoding="utf-8")
-    temporary.chmod(0o600)
-    temporary.replace(path)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload.model_dump(), ensure_ascii=False), encoding="utf-8")
+        temporary.chmod(0o600)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
     path.chmod(0o600)
-    forwarded = False
-    if settings.cookiecloud_forward_moviepilot and settings.mp_base_url:
-        try:
-            forward_url = f"{settings.mp_base_url.rstrip('/')}/cookiecloud/update"
-            async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds) as client:
-                response = await client.post(forward_url, json=payload.model_dump())
-                forwarded = response.is_success
-        except Exception:
-            forwarded = False
-    return {"action": "done", "forwarded_moviepilot": forwarded}
+    applied = apply_cookie_groups(groups)
+    return {
+        "action": "done",
+        "updated_sites": len(applied["updated"]),
+        "missing_sites": applied["missing"],
+    }
 
 @router.get("/cookiecloud/get/{uuid_value}")
 async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
@@ -154,7 +163,6 @@ async def cookiecloud_status() -> dict[str, Any]:
         "configured": configured,
         "received": bool(path and path.exists()),
         "updated_at": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat() if path and path.exists() else None,
-        "forward_moviepilot": settings.cookiecloud_forward_moviepilot,
         "endpoint": "/cookiecloud",
     }
 
@@ -246,29 +254,14 @@ async def release_groups() -> dict[str, Any]:
         policy = normalized_policy({})
     return release_group_catalog(policy)
 
-@router.post("/api/config/release-groups/import-moviepilot")
-async def import_moviepilot_release_groups() -> dict[str, Any]:
-    """Import MP custom groups once, then keep the merged vocabulary inside AutoList."""
-    try:
-        imported = await MoviePilotClient().custom_release_groups()
-    except Exception as exc:
-        raise HTTPException(502, f"MoviePilot 自定义制作组读取失败：{safe_error(exc)}") from exc
-    config = config_values()
-    try:
-        policy = normalized_policy(json.loads(config.get("candidate_policy") or "{}"))
-    except (TypeError, json.JSONDecodeError):
-        policy = normalized_policy({})
-    before = len(policy["custom_release_groups"])
-    try:
-        policy["custom_release_groups"] = merge_custom_rules([*policy["custom_release_groups"], *imported])
-    except ValueError as exc:
-        raise HTTPException(422, safe_error(exc)) from exc
-    save_config({"candidate_policy": json_value(policy), "candidate_limit": str(policy["candidate_limit"])})
-    catalog = release_group_catalog(policy)
-    return {**catalog, "imported": len(policy["custom_release_groups"]) - before,
-            "message": f"已合并 {len(policy['custom_release_groups']) - before} 条 MoviePilot 自定义制作组规则"}
-
 @router.get("/")
 async def index() -> FileResponse:
     return FileResponse(Path(__file__).resolve().parent.parent / "static" / "index.html")
 
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    return FileResponse(
+        Path(__file__).resolve().parent.parent / "static" / "favicon.svg",
+        media_type="image/svg+xml",
+    )

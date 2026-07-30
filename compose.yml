@@ -1,12 +1,16 @@
 services:
   autolist:
     build: .
-    image: autolist:0.79
-    container_name: autolist
+    image: autolist:0.84
+    container_name: Autolist
     restart: unless-stopped
     env_file: .env
     ports:
       - "${APP_PORT:-8585}:8080"
+    labels:
+      net.unraid.docker.icon: "file:///mnt/user/appdata/Autolist/autolist-icon.png"
+      net.unraid.docker.managed: "dockerman"
+      net.unraid.docker.webui: "http://[IP]:[PORT:8585]/"
     # 不再写死 api.themoviedb.org IP（CDN 会漂移）。
     # 大陆访问 TMDB：在设置中配置代理并勾选「TMDB 走代理」，
     # 或自行在 extra_hosts / 上级 DNS 中维护 hosts。

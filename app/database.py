@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS search_tasks (
   completed INTEGER NOT NULL DEFAULT 0,
   matched INTEGER NOT NULL DEFAULT 0,
   error_message TEXT,
+  parent_task_id INTEGER,
+  trigger TEXT NOT NULL DEFAULT 'manual',
+  site_ids_json TEXT,
+  item_ids_json TEXT,
+  pair_scope_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -187,12 +192,18 @@ CREATE TABLE IF NOT EXISTS pt_sites (
   render INTEGER NOT NULL DEFAULT 0,
   limit_interval INTEGER,
   limit_count INTEGER,
-  mp_site_id INTEGER,
   search_enabled INTEGER NOT NULL DEFAULT 1,
   migration_note TEXT,
   last_status TEXT NOT NULL DEFAULT 'untested',
   last_message TEXT,
   last_tested_at TEXT,
+  account_uploaded INTEGER,
+  account_downloaded INTEGER,
+  account_ratio REAL,
+  account_bonus REAL,
+  account_seeding INTEGER,
+  account_stats_checked_at TEXT,
+  account_stats_error TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
@@ -249,16 +260,19 @@ def initialize() -> None:
             "timeout_seconds": "INTEGER NOT NULL DEFAULT 30", "rss_url": "TEXT NOT NULL DEFAULT ''",
             "icon_url": "TEXT NOT NULL DEFAULT ''", "proxy": "INTEGER NOT NULL DEFAULT 0",
             "render": "INTEGER NOT NULL DEFAULT 0", "limit_interval": "INTEGER", "limit_count": "INTEGER",
-            "mp_site_id": "INTEGER", "last_status": "TEXT NOT NULL DEFAULT 'untested'",
+            "last_status": "TEXT NOT NULL DEFAULT 'untested'",
             "last_message": "TEXT", "last_tested_at": "TEXT",
             "search_enabled": "INTEGER NOT NULL DEFAULT 1", "migration_note": "TEXT",
+            "account_uploaded": "INTEGER", "account_downloaded": "INTEGER",
+            "account_ratio": "REAL", "account_bonus": "REAL", "account_seeding": "INTEGER",
+            "account_stats_checked_at": "TEXT", "account_stats_error": "TEXT",
         }.items():
             if column not in site_columns:
                 conn.execute(f"ALTER TABLE pt_sites ADD COLUMN {column} {definition}")
         task_columns = {row["name"] for row in conn.execute("PRAGMA table_info(search_tasks)")}
         for column, definition in {
             "parent_task_id": "INTEGER", "trigger": "TEXT NOT NULL DEFAULT 'manual'",
-            "site_ids_json": "TEXT", "item_ids_json": "TEXT",
+            "site_ids_json": "TEXT", "item_ids_json": "TEXT", "pair_scope_json": "TEXT",
         }.items():
             if column not in task_columns:
                 conn.execute(f"ALTER TABLE search_tasks ADD COLUMN {column} {definition}")
@@ -277,6 +291,8 @@ def initialize() -> None:
                SET playlist_item_id=(SELECT playlist_item_id FROM candidates WHERE candidates.id=download_history.candidate_id)
                WHERE playlist_item_id IS NULL AND candidate_id IS NOT NULL""",
         )
+        # 历史版本曾允许自动把推荐候选加入下载列表；升级后统一恢复为人工确认。
+        conn.execute("UPDATE playlists SET automation_auto_cart=0 WHERE automation_auto_cart!=0")
         defaults = {
             "preferred_resolutions": "2160p,1080p",
             "minimum_resolution": "1080p",
@@ -304,7 +320,7 @@ def initialize() -> None:
         # 0.35 起不再经 MoviePilot 搜索。旧映射只保留为待补认证模板，绝不静默搜索。
         conn.execute(
             "UPDATE pt_sites SET adapter=CASE WHEN lower(base_url) LIKE '%m-team%' THEN 'mteam' ELSE 'nexusphp' END, "
-            "enabled=1, search_enabled=0, migration_note='由 MoviePilot 映射迁移，请补充独立认证后再参与搜索', mp_site_id=NULL "
+            "enabled=1, search_enabled=0, migration_note='旧站点映射已迁移，请补充独立认证后再参与搜索' "
             "WHERE adapter IN ('moviepilot','moviepilot_site')"
         )
         conn.execute(
@@ -372,24 +388,24 @@ def save_config(values: dict[str, str]) -> None:
 
 
 def cleanup_old_data() -> int:
-    """Remove old search attempts, candidates, download history, task logs, and notifications.
+    """Remove old short-lived search diagnostics and notifications.
     Retention is generous to preserve enough data for inspection; adjust as needed.
     Use SQLite datetime arithmetic instead of Python clock to remain consistent with
     the UTC strings stored in the database.
     """
     with connect() as conn:
         total = 0
+        # 失败/中断任务保留候选与诊断数据，只从常用任务列表中归档，避免长期显示为挂起。
+        total += conn.execute(
+            """UPDATE search_tasks SET status='archived'
+               WHERE status IN ('failed','partial','interrupted','cancelled')
+                 AND updated_at < datetime('now', '-24 hours')"""
+        ).rowcount
         total += conn.execute(
             "DELETE FROM search_attempts WHERE finished_at < datetime('now', '-30 days')"
         ).rowcount
         total += conn.execute(
-            "DELETE FROM candidates WHERE created_at < datetime('now', '-30 days') AND id NOT IN (SELECT candidate_id FROM cart_items)"
-        ).rowcount
-        total += conn.execute(
             "DELETE FROM search_task_logs WHERE created_at < datetime('now', '-14 days')"
-        ).rowcount
-        total += conn.execute(
-            "DELETE FROM download_history WHERE created_at < datetime('now', '-90 days')"
         ).rowcount
         total += conn.execute(
             "DELETE FROM notifications WHERE created_at < datetime('now', '-30 days')"

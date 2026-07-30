@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
+from ..clients import EmbyClient
 from ..config import load_runtime_settings, save_runtime_settings, settings
 from ..cookiecloud import cookie_for_host, cookie_groups
 from ..database import config_values, connect, json_value, save_config
@@ -33,7 +33,6 @@ from ..schemas import (
     PlaylistUpdatePayload,
     RuntimeSettingsPayload,
     ScorePreviewPayload,
-    SiteCookiePayload,
     SitePayload,
     TaskPayload,
 )
@@ -49,11 +48,10 @@ from ..services.search import (
     run_search,
     searchable_playlist_items,
 )
-from ..services.sites import domain_match, moviepilot_site_snapshot, resolve_site_adapter, test_site_config
+from ..services.sites import resolve_site_adapter, test_site_config
 from ..state import (
     enforce_cookiecloud_rate_limit,
     enforce_search_task_capacity,
-    moviepilot_site_ids,
     poster_cache,
     raw_candidates,
     require_configured_cookiecloud_uuid,
@@ -137,7 +135,9 @@ async def overview() -> dict[str, Any]:
                    FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 6""",
                 (playlist["id"],),
             ).fetchall()) if playlist else []
-        latest_task = conn.execute("SELECT * FROM search_tasks ORDER BY id DESC LIMIT 1").fetchone()
+        latest_task = conn.execute(
+            "SELECT * FROM search_tasks WHERE status!='archived' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
         latest_candidates = conn.execute(
             "SELECT playlist_item_id,title,size,resource_key FROM candidates WHERE task_id=? AND eligibility='eligible'", (latest_task["id"],),
         ).fetchall() if latest_task else []
@@ -250,6 +250,11 @@ async def refresh_playlist_source(playlist_id: int) -> dict[str, Any]:
         for table, label in active_tables:
             if conn.execute(f"SELECT 1 FROM {table} WHERE playlist_id=? AND status IN ('queued','running')", (playlist_id,)).fetchone():  # nosec B608
                 raise HTTPException(409, f"片单仍有{label}任务运行，请完成后再刷新")
+        if conn.execute(
+            "SELECT 1 FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running')",
+            (playlist_id,),
+        ).fetchone():
+            raise HTTPException(409, "片单仍有自动化任务运行，请完成后再刷新")
     try:
         source = await PlaylistSourceFetcher().fetch(str(playlist["source_url"]), 10000)
     except (ValueError, httpx.HTTPError) as exc:
@@ -258,6 +263,23 @@ async def refresh_playlist_source(playlist_id: int) -> dict[str, Any]:
     if not items:
         raise HTTPException(422, "来源没有返回可用电影，已保留现有片单")
     with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
+        if not playlist:
+            raise HTTPException(404, "片单不存在")
+        active_tables = (
+            ("search_tasks", "搜索"),
+            ("recognition_tasks", "识别"),
+            ("library_scan_tasks", "入库检查"),
+        )
+        for table, label in active_tables:
+            if conn.execute(f"SELECT 1 FROM {table} WHERE playlist_id=? AND status IN ('queued','running')", (playlist_id,)).fetchone():  # nosec B608
+                raise HTTPException(409, f"片单刷新期间启动了{label}任务，已保留现有片单")
+        if conn.execute(
+            "SELECT 1 FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running')",
+            (playlist_id,),
+        ).fetchone():
+            raise HTTPException(409, "片单刷新期间启动了自动化任务，已保留现有片单")
         conn.execute("DELETE FROM playlist_items WHERE playlist_id=?", (playlist_id,))
         conn.executemany(
             """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,tmdb_id)
@@ -278,14 +300,16 @@ async def playlists() -> list[dict[str, Any]]:
 
 @router.put("/api/playlists/{playlist_id}/automation")
 async def configure_playlist_automation(playlist_id: int, payload: PlaylistAutomationPayload) -> dict[str, Any]:
+    if payload.auto_cart:
+        raise HTTPException(422, "自动加入下载列表已停用；候选必须由操作者确认")
     with connect() as conn:
         if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
             raise HTTPException(404, "片单不存在")
         conn.execute(
             "UPDATE playlists SET automation_enabled=?,automation_auto_cart=?,automation_batch_size=? WHERE id=?",
-            (int(payload.enabled), int(payload.auto_cart), payload.batch_size, playlist_id),
+            (int(payload.enabled), 0, payload.batch_size, playlist_id),
         )
-    return {"id": playlist_id, **payload.model_dump(), "auto_download": False}
+    return {"id": playlist_id, **payload.model_dump(), "auto_cart": False, "auto_download": False}
 
 @router.post("/api/playlists/{playlist_id}/automation/run")
 async def run_playlist_automation_now(playlist_id: int) -> dict[str, Any]:
@@ -488,4 +512,3 @@ async def delete_playlist(playlist_id: int) -> dict[str, Any]:
 async def searchable_items(playlist_id: int, limit: int = 2000) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 10000))
     return await searchable_playlist_items(playlist_id, safe_limit)
-

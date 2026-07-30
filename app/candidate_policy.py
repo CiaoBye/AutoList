@@ -1,9 +1,4 @@
-"""Movie candidate parsing and deterministic policy evaluation.
-
-The release-group vocabulary is derived from MoviePilot's built-in matcher and
-is extended by AutoList-owned custom rules.  No runtime MoviePilot dependency is
-introduced: the merged vocabulary is stored with the rest of AutoList's policy.
-"""
+"""Movie candidate parsing and deterministic AutoList policy evaluation."""
 
 from __future__ import annotations
 
@@ -11,9 +6,9 @@ import re
 from typing import Any
 
 
-# Canonical names plus MoviePilot-compatible aliases.  The order matters: the
-# user's preferred groups are evaluated before broader site-family expressions.
-MP_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
+# AutoList's built-in canonical names and aliases. The order matters: preferred
+# groups are evaluated before broader site-family expressions.
+BUILTIN_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
     ("ADE", r"ADE"),
     ("FRDS", r"FRDS"),
     ("HDS", r"HDS(?:ky|TV|Pad|WEB|)"),
@@ -173,7 +168,7 @@ def merge_custom_rules(values: Any) -> list[str]:
         values = values.splitlines()
     if not isinstance(values, list):
         return []
-    builtins = {pattern.casefold() for _, pattern in MP_RELEASE_GROUP_RULES}
+    builtins = {pattern.casefold() for _, pattern in BUILTIN_RELEASE_GROUP_RULES}
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
@@ -194,11 +189,11 @@ def merge_custom_rules(values: Any) -> list[str]:
 
 def release_group_catalog(policy: dict[str, Any]) -> dict[str, Any]:
     custom = merge_custom_rules(policy.get("custom_release_groups", []))
-    names = list(dict.fromkeys(name for name, _ in MP_RELEASE_GROUP_RULES))
+    names = list(dict.fromkeys(name for name, _ in BUILTIN_RELEASE_GROUP_RULES))
     return {
-        "builtin_count": len(MP_RELEASE_GROUP_RULES),
+        "builtin_count": len(BUILTIN_RELEASE_GROUP_RULES),
         "custom_count": len(custom),
-        "merged_count": len(MP_RELEASE_GROUP_RULES) + len(custom),
+        "merged_count": len(BUILTIN_RELEASE_GROUP_RULES) + len(custom),
         "builtin_names": names,
         "custom_rules": custom,
     }
@@ -208,7 +203,7 @@ def match_release_group(title: str, policy: dict[str, Any]) -> str | None:
     wrapped = f" {title} "
     left = r"(?<=[\-@\[￡【&._\s])"
     right = r"(?=$|[@.\s\]\[】&/_-])"
-    for name, pattern in MP_RELEASE_GROUP_RULES:
+    for name, pattern in BUILTIN_RELEASE_GROUP_RULES:
         if re.search(f"{left}(?:{pattern}){right}", wrapped, re.I):
             return name.upper()
     for pattern in merge_custom_rules(policy.get("custom_release_groups", [])):

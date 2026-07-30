@@ -29,7 +29,6 @@ class Settings:
     mdblist_api_key: str = os.getenv("MDBLIST_API_KEY", "")
     cookiecloud_key: str = os.getenv("COOKIECLOUD_KEY", "")
     cookiecloud_password: str = os.getenv("COOKIECLOUD_PASSWORD", "")
-    cookiecloud_forward_moviepilot: bool = os.getenv("COOKIECLOUD_FORWARD_MOVIEPILOT", "true").lower() == "true"
     outbound_proxy_url: str = os.getenv("OUTBOUND_PROXY_URL", "")
     tmdb_proxy_enabled: bool = os.getenv("TMDB_PROXY_ENABLED", "false").lower() == "true"
     pt_proxy_enabled: bool = os.getenv("PT_PROXY_ENABLED", "false").lower() == "true"
@@ -51,7 +50,7 @@ class Settings:
             if key in values and values[key] is not None:
                 value = str(values[key]).strip()
                 setattr(self, key, value.rstrip("/") if key.endswith("base_url") else value)
-        for key in ("tmdb_proxy_enabled", "pt_proxy_enabled", "cookiecloud_forward_moviepilot", "dashboard_random_posters"):
+        for key in ("tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters"):
             if key in values and values[key] is not None:
                 setattr(self, key, bool(values[key]))
         if values.get("mp_timeout_seconds") is not None:
@@ -75,7 +74,6 @@ class Settings:
             "cookiecloud_key_configured": bool(self.cookiecloud_key),
             "cookiecloud_password": REDACTED_SECRET,
             "cookiecloud_password_configured": bool(self.cookiecloud_password),
-            "cookiecloud_forward_moviepilot": self.cookiecloud_forward_moviepilot,
             "cookiecloud_endpoint": "/cookiecloud",
             "outbound_proxy_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url": self.outbound_proxy_url,

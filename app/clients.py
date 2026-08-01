@@ -656,6 +656,47 @@ class NexusPHPClient:
         results = await self.search(site, "AutoListConnectionProbe")
         return {"ok": True, "message": f"Cookie 可用，解析到 {len(results)} 条探测结果"}
 
+    @staticmethod
+    def _banner_stats(text: str) -> dict[str, Any] | None:
+        """解析传统 NexusPHP 首页欢迎横幅（上传量/下载量/分享率/魔力值/当前活动）。
+        横幅是 NexusPHP 标准模板的已登录统计块，比用户详情页表格更通用。"""
+        home_text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text)))
+
+        def banner_value(labels: tuple[str, ...]) -> str | None:
+            pattern = "|".join(re.escape(label) for label in labels)
+            match = re.search(
+                rf"(?:{pattern})\s*[:：]?\s*([^\s][^<]{{0,60}}?)(?=\s*(?:{pattern})\s*[:：]|\s*$)",
+                home_text, re.I,
+            )
+            return match.group(1).strip() if match else None
+
+        uploaded = human_size_bytes(banner_value(("上传量", "上傳量", "uploaded")))
+        downloaded = human_size_bytes(banner_value(("下载量", "下載量", "downloaded")))
+        if uploaded is None or downloaded is None:
+            return None
+        return {
+            "uploaded": uploaded,
+            "downloaded": downloaded,
+            "ratio": numeric_value(banner_value(("分享率", "比率", "ratio"))),
+            "bonus": numeric_value(banner_value(("魔力值", "魔力", "积分", "bonus"))),
+            "seeding": int(numeric_value(banner_value(("当前活动", "做种数", "做種數", "seeding"))) or 0),
+        }
+
+    @staticmethod
+    def _tnode_stats(data: dict[str, Any]) -> dict[str, Any] | None:
+        """TNode SPA 站点（如站点T）的 /api/user/getInfo 用户信息。"""
+        uploaded = int(data.get("upload") or 0)
+        downloaded = int(data.get("download") or 0)
+        if not uploaded and not downloaded:
+            return None
+        return {
+            "uploaded": uploaded,
+            "downloaded": downloaded,
+            "ratio": (uploaded / downloaded) if downloaded > 0 else None,
+            "bonus": numeric_value(data.get("bonus")),
+            "seeding": int(data.get("seeding") or 0),
+        }
+
     async def account_stats(self, site: dict[str, Any]) -> dict[str, Any]:
         base = str(site.get("base_url") or "").rstrip("/") + "/"
         headers = {
@@ -668,6 +709,27 @@ class NexusPHPClient:
         ) as client:
             home = await client.get(base, headers=headers)
             home.raise_for_status()
+            banner = self._banner_stats(home.text)
+            if banner:
+                return banner
+            # TNode SPA（站点T等）：首页带 x-csrf-token，账户信息走 JSON API。
+            csrf = re.search(r'<meta name="x-csrf-token" content="([^"]+)"', home.text)
+            if csrf:
+                info = await client.get(
+                    urljoin(base, "api/user/getInfo"),
+                    headers={
+                        **headers, "x-csrf-token": csrf.group(1),
+                        "X-Requested-With": "XMLHttpRequest", "Referer": base,
+                    },
+                )
+                info.raise_for_status()
+                try:
+                    data = (info.json().get("data") or {})
+                except ValueError:
+                    data = {}
+                tnode = self._tnode_stats(data)
+                if tnode:
+                    return tnode
             user_link = re.search(
                 r"""href=["']([^"']*userdetails\.php\?[^"']*\bid=\d+[^"']*)["']""",
                 home.text,
@@ -698,14 +760,14 @@ class NexusPHPClient:
             )
             return match.group(1) if match else None
 
-        uploaded = human_size_bytes(match_value(("上传量", "uploaded")))
-        downloaded = human_size_bytes(match_value(("下载量", "downloaded")))
+        uploaded = human_size_bytes(match_value(("上传量", "上傳量", "uploaded")))
+        downloaded = human_size_bytes(match_value(("下载量", "下載量", "downloaded")))
         if uploaded is None or downloaded is None:
             raise RuntimeError("站点账户页未找到上传量或下载量，请检查 Cookie 与 User-Agent")
         return {
             "uploaded": uploaded,
             "downloaded": downloaded,
-            "ratio": numeric_value(match_value(("分享率", "ratio"))),
-            "bonus": numeric_value(match_value(("魔力", "积分", "bonus"))),
+            "ratio": numeric_value(match_value(("分享率", "比率", "ratio"))),
+            "bonus": numeric_value(match_value(("魔力值", "魔力", "积分", "bonus"))),
             "seeding": int(numeric_value(match_value(("做种数", "seeding", "seedcount"))) or 0),
         }

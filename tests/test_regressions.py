@@ -1276,6 +1276,44 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options_by_site["聚合测试站B"]["seeders"], 80)
 
 
+    async def test_nexusphp_banner_stats_parses_home_welcome_block(self) -> None:
+        """NexusPHP 账户统计优先从首页欢迎横幅解析，不依赖用户详情页。"""
+        client = main.NexusPHPClient()
+        banner = client._banner_stats(
+            "<b>欢迎回来</b> 上传量：16.605 TB 下载量：1.062 TB "
+            "分享率：15.631 魔力值 [ 2,345.67 ] 当前活动： 3 1"
+        )
+        self.assertIsNotNone(banner)
+        assert banner is not None
+        self.assertEqual(banner["uploaded"], 18257390579220)
+        self.assertEqual(banner["downloaded"], 1167681348698)
+        self.assertEqual(banner["ratio"], 15.631)
+        self.assertEqual(banner["bonus"], 2345.67)
+        self.assertEqual(banner["seeding"], 3)
+        # 繁体标签与英文标签同样兼容；无横幅时返回 None。
+        alt = client._banner_stats("上傳量: 1.5 TiB 下載量: 200 GiB 分享率: 7.68 做種數: 12")
+        self.assertIsNotNone(alt)
+        assert alt is not None
+        self.assertEqual(alt["ratio"], 7.68)
+        self.assertEqual(alt["seeding"], 12)
+        self.assertIsNone(client._banner_stats("<html><body>spinner page</body></html>"))
+
+    async def test_tnode_account_stats_from_user_api(self) -> None:
+        """TNode SPA 站点（站点T等）从 /api/user/getInfo 计算上传/下载/分享率。"""
+        client = main.NexusPHPClient()
+        stats = client._tnode_stats({"upload": 377842816983, "download": 92373125738, "bonus": 774586.57, "seeding": 0})
+        self.assertIsNotNone(stats)
+        assert stats is not None
+        self.assertEqual(stats["uploaded"], 377842816983)
+        self.assertEqual(stats["downloaded"], 92373125738)
+        self.assertAlmostEqual(float(stats["ratio"] or 0), 377842816983 / 92373125738, places=6)
+        self.assertEqual(stats["seeding"], 0)
+        # 下载量为 0 时分享率置空（避免除零），上传下载均为 0 时视为无数据。
+        zero = client._tnode_stats({"upload": 100, "download": 0})
+        self.assertIsNone(zero["ratio"])
+        self.assertIsNone(client._tnode_stats({}))
+
+
 
 if __name__ == "__main__":
     unittest.main()

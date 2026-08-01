@@ -271,6 +271,7 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .candidate-labels { padding: 13px 26px; color: var(--subtle); font: 600 10px var(--font-data); letter-spacing: .08em; text-transform: uppercase; }
 .candidate-row { position: relative; padding: 18px 26px; border-top: 1px solid var(--line-strong); transition: background .18s ease; }
 .candidate-row:first-child { border-top: 0; }
+.candidate-row.movie-start { border-top: 2px solid var(--line-strong); margin-top: 16px; }
 .candidate-row:hover { background: #f7f8f4; }
 .candidate-row.is-best { border-left: 4px solid var(--rust); background: #f9faf6; }
 .candidate-row.is-excluded { color: #687174; background: #f5f5f2; }

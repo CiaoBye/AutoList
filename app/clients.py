@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
+from datetime import datetime, timedelta
 from defusedxml import ElementTree
 
 from .config import settings
@@ -610,6 +611,36 @@ class NexusPHPClient:
                 return int(number * units[match.group(2).lower()])
         return 0
 
+    @staticmethod
+    def _parse_publish_time(cells: list[str]) -> str | None:
+        """从 NexusPHP 列表行解析发布时间：支持绝对日期与相对时间（如“2月 2天”“昨天”）。"""
+        for cell in cells:
+            match = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", cell)
+            if match:
+                return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+            match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", cell)
+            if match:
+                return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+            relative = NexusPHPClient._relative_publish_date(cell)
+            if relative:
+                return relative
+        return None
+
+    @staticmethod
+    def _relative_publish_date(cell: str) -> str | None:
+        """把“X年/X月/X周/X天/X小时/分钟/刚刚/昨天”换算为绝对日期。"""
+        now = datetime.now()
+        if "分钟" in cell or "小时" in cell or "刚刚" in cell or "今天" in cell:
+            return now.strftime("%Y-%m-%d")
+        if "昨天" in cell:
+            return (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        days = 0
+        for unit, factor in (("年", 365), ("月", 30), ("周", 7), ("天", 1)):
+            match = re.search(rf"(\d+)\s*{unit}", cell)
+            if match:
+                days += int(match.group(1)) * factor
+        return (now - timedelta(days=days)).strftime("%Y-%m-%d") if days else None
+
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
         base = str(site.get("base_url") or "").rstrip("/") + "/"
         host = (urlparse(base).hostname or "").lower()
@@ -636,13 +667,12 @@ class NexusPHPClient:
             title_text = self._text(detail["title"] or " ".join(detail["text"]))
             cells = [self._text(" ".join(cell)) for cell in row["cells"]]
             numeric = [int(value.replace(",", "")) for value in cells[-5:] if re.fullmatch(r"[\d,]+", value)]
-            publish_time = next((match.group(0) for cell in cells if (match := re.search(r"\d{4}-\d{2}-\d{2}", cell))), None)
             results.append({
                 "title": title_text, "site_name": site["name"], "size": self._size(cells),
                 "seeders": numeric[-3] if len(numeric) >= 3 else 0,
                 "enclosure": urljoin(base, download["href"]), "labels": ["FREE"] if row["free"] else [],
                 "volume_factor": 0 if row["free"] else 1, "site_cookie": site.get("cookie") or "", "site_ua": headers["User-Agent"],
-                "publish_time": publish_time, "detail_url": urljoin(base, detail["href"]),
+                "publish_time": self._parse_publish_time(cells), "detail_url": urljoin(base, detail["href"]),
             })
         unique: dict[str, dict[str, Any]] = {}
         for item in results:

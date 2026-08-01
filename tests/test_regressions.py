@@ -1334,6 +1334,9 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         filtered = await log_routes.log_events(query="Dreams")
         self.assertEqual([event["event"] for event in filtered], ["movie_search_summary"])
         self.assertEqual(await log_routes.log_events(limit=1), [events[0]])
+        # 清空日志后读取为空。
+        await log_routes.clear_log_events()
+        self.assertEqual(await log_routes.log_events(), [])
 
     async def test_configure_logging_writes_rotating_json_file(self) -> None:
         """configure_logging 在数据目录创建 JSON 行日志，事件字段进入文件。"""

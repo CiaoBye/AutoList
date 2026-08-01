@@ -1588,6 +1588,20 @@ $("#history-status-filter")?.addEventListener("change", (event) => {
 });
 
 $("#refresh-logs")?.addEventListener("click", () => loadLogEvents().catch((error) => showToast(error.message)));
+$("#clear-logs")?.addEventListener("click", async (event) => {
+  if (!window.confirm("确定清空全部事件日志？此操作不可恢复。")) return;
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "…");
+  try {
+    await api("/api/logs/events", {method: "DELETE"});
+    await loadLogEvents();
+    showToast("事件日志已清空");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
 $("#logs-level")?.addEventListener("change", () => loadLogEvents().catch((error) => showToast(error.message)));
 $("#logs-query")?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadLogEvents().catch((error) => showToast(error.message));

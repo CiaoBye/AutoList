@@ -1355,6 +1355,24 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["results"], 0)
 
 
+    async def test_nexusphp_publish_time_parses_absolute_and_relative(self) -> None:
+        """NexusPHP 列表行发布时间：绝对日期（含 / 与中文格式）与相对时间（x月 x天/昨天/小时）均解析。"""
+        client = main.NexusPHPClient()
+        self.assertEqual(client._parse_publish_time(["Dune 2024", "2026-04-22"]), "2026-04-22")
+        self.assertEqual(client._parse_publish_time(["", "2026/04/22"]), "2026-04-22")
+        self.assertEqual(client._parse_publish_time(["", "2026年4月22日"]), "2026-04-22")
+        self.assertIsNone(client._parse_publish_time(["", "无时间列"]))
+        # 相对时间换算为今天的绝对日期（偏移量级正确即可）。
+        relative = client._parse_publish_time(["", "2月 2天"])
+        self.assertIsNotNone(relative)
+        assert relative is not None
+        import datetime as _dt
+        expected = (_dt.date.today() - _dt.timedelta(days=62)).isoformat()
+        self.assertEqual(relative, expected)
+        self.assertEqual(client._parse_publish_time(["", "昨天"]), (_dt.date.today() - _dt.timedelta(days=1)).isoformat())
+        self.assertEqual(client._parse_publish_time(["", "3 小时前"]), _dt.date.today().isoformat())
+
+
 
 if __name__ == "__main__":
     unittest.main()

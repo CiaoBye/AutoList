@@ -445,14 +445,17 @@ function renderCandidates() {
     $("#candidates").innerHTML = `<div class="empty-state"><span>⌕</span><strong>${heading}</strong><p>${copy}</p>${actions}</div>`;
     return;
   }
+  let previousMovieId = null;
   $("#candidates").innerHTML = filtered.map((item) => {
     const [stateLabel, stateClass] = candidateState(item);
+    const movieStart = previousMovieId !== null && item.playlist_item_id !== previousMovieId;
+    previousMovieId = item.playlist_item_id;
     const excluded = item.eligibility === "excluded";
     const recommendation = {preferred: "首选", fallback: "保底", excluded: "已排除"}[item.recommendation] || (excluded ? "已排除" : "候选");
     const labels = Array.isArray(item.metadata?.labels) ? item.metadata.labels.slice(0, 2) : [];
     const breakdown = Array.isArray(item.score_breakdown) ? item.score_breakdown.slice(0, 3) : [];
     const movieTitle = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title;
-    return `<article class="candidate-row ${item.recommendation === "preferred" ? "is-best" : ""} ${excluded ? "is-excluded" : ""}">
+    return `<article class="candidate-row ${movieStart ? "movie-start " : ""}${item.recommendation === "preferred" ? "is-best" : ""} ${excluded ? "is-excluded" : ""}">
       <div class="candidate-title"><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${torrentLinkHtml(item.detail_url, item.title)}</small></div>
       <div class="recommendation-cell"><span class="recommendation-badge ${escapeHtml(item.recommendation)}">${recommendation}</span><small>${escapeHtml(item.recommendation_reason || "等待规则分析")}</small></div>
       <div class="candidate-source"><strong>${escapeHtml(item.site_name || "未知站点")} ${formatPublishDate(item.metadata?.publish_time) ? `<span class="publish-date">${formatPublishDate(item.metadata?.publish_time)}</span>` : ""} ${item.is_free ? '<em class="free-mark">FREE</em>' : ""}</strong><small class="site-selection-reason">${escapeHtml(item.site_selection_reason || "")}</small><div class="spec-stack"><span class="tag tag-accent">${escapeHtml(item.resolution || "其他")}</span><span class="tag">${escapeHtml(item.codec || "其他")}</span><span class="tag">${escapeHtml(item.group_name || "未知组")}</span><span class="tag">${Number(item.seeders || 0)} 做种</span><span class="tag">${formatSize(item.size)}</span><span class="tag ${stateClass}">${stateLabel}</span>${labels.map((label) => `<span class="tag tag-promo">${escapeHtml(label)}</span>`).join("")}</div>${item.site_count > 1 ? `<details class="site-options"><summary>另 ${item.site_count - 1} 个站点</summary>${item.site_options.slice(1).map((option) => `<div><strong>${torrentLinkHtml(option.detail_url, option.site_name || "未知")}</strong><span>${formatPublishDate(option.publish_time)}${formatPublishDate(option.publish_time) ? " · " : ""}优先级 ${Number(option.site_priority)} · ${option.volume_factor === 0 ? "FREE · " : option.volume_factor < 1 ? `下载 ${Math.round(option.volume_factor * 100)}% · ` : ""}${Number(option.seeders || 0)} 做种</span></div>`).join("")}</details>` : ""}</div>
@@ -664,9 +667,6 @@ async function loadSettings() {
     ? (localToken ? "服务端已启用 · 本机已保存" : "服务端已启用 · 本机未保存")
     : (localToken ? "服务端未启用 · 本机有缓存" : "服务端未启用");
   $("#settings-access-token-status").className = tokenRequired && localToken ? "ok" : tokenRequired ? "error" : "";
-  $("#settings-access-token-hint").textContent = tokenRequired
-    ? "服务端已设置 AUTOLIST_ACCESS_TOKEN。在此保存的值只存在本机浏览器，不会写回服务器。"
-    : "服务端未启用访问令牌。若之后开启，可在此预先保存本机令牌。";
   $("#settings-ai-url").value = runtime.ai_base_url || "";
   $("#settings-ai-key").value = runtime.ai_api_key || "";
   $("#settings-ai-model").value = runtime.ai_model || "";

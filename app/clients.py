@@ -757,18 +757,28 @@ class NexusPHPClient:
                 label = re.sub(r"[\s:：]+", "", cell).casefold()
                 if label:
                     values[label] = row[index + 1]
+        # 详情页正文同样先剥离 script/style，避免 JS 模板字符串里的标签干扰匹配。
+        page_text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", details.text)
+        page_text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", page_text)))
 
         def match_value(labels: tuple[str, ...]) -> str | None:
             table_value = next((value for label, value in values.items() if any(key in label for key in labels)), None)
             if table_value:
                 return table_value
-            page_text = re.sub(r"\s+", " ", " ".join(parser.text))
-            label_pattern = "|".join(re.escape(label) for label in labels)
+            pattern = "|".join(re.escape(label) for label in labels)
+            # 正向：标签[:：]值（标准 NexusPHP 详情页；值必须为数字[+单位]，避免截断）
             match = re.search(
-                rf"(?:{label_pattern})\s*[:：]?\s*([^|｜]{{1,60}})",
-                page_text,
-                re.I,
+                rf"(?:{pattern})\s*[:：]\s*([\d][\d.,]*(?:\s*[TGMK]i?B)?)(?=\s|$)",
+                page_text, re.I,
             )
+            if match:
+                return match.group(1)
+            # 反向：值 标签（如观众站“111.555 TB 上传量”，标签在数值之后、无冒号）
+            match = re.search(rf"([\d][\d.,]*(?:\s*[TGMK]i?B)?)\s+(?:{pattern})(?=\s|$)", page_text, re.I)
+            if match:
+                return match.group(1)
+            # 空格分隔正向：标签 值（无冒号）
+            match = re.search(rf"(?:{pattern})\s+([\d][\d.,]*(?:\s*[TGMK]i?B)?)(?=\s|$)", page_text, re.I)
             return match.group(1) if match else None
 
         uploaded = human_size_bytes(match_value(("上传量", "上傳量", "uploaded")))

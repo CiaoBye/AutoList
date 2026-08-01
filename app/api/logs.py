@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from ..config import settings
 
@@ -55,3 +55,15 @@ async def log_events(limit: int = 200, level: str = "", query: str = "") -> list
             continue
         events.append(event)
     return list(reversed(events[-safe_limit:]))
+
+
+@router.delete("/api/logs/events")
+async def clear_log_events() -> dict[str, Any]:
+    """Truncate the event log file (rotated backups are left untouched)."""
+    path = _log_path()
+    try:
+        if path.exists():
+            path.write_text("", encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(500, "日志文件不可写") from exc
+    return {"deleted": True}

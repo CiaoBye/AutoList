@@ -65,7 +65,14 @@ export const api = async (path, options = {}, allowRetry = true) => {
     const entered = promptAccessToken(data.detail || "需要有效的访问令牌");
     if (entered) return api(path, options, false);
   }
-  if (!response.ok) throw new Error(data.detail || data.message || `请求失败（${response.status}）`);
+  if (!response.ok) {
+    // pydantic 校验错误 detail 是数组，提取可读信息避免显示 [object Object]。
+    let detail = data.detail;
+    if (Array.isArray(detail)) {
+      detail = detail.map((item) => (item && item.msg) || String(item)).join("；");
+    }
+    throw new Error(detail || data.message || `请求失败（${response.status}）`);
+  }
   return data;
 };
 

@@ -77,6 +77,26 @@ def decode_cookiecloud_body(content: bytes, content_encoding: str, limit: int = 
     return content
 
 
+def is_private_or_reserved_address(address: Any) -> bool:
+    """True when an address must not be used as an outbound target.
+    Loopback, link-local, multicast, unspecified, RFC1918/ULA private space and
+    reserved ranges are rejected. 198.18.0.0/15 (benchmark range) is excluded:
+    Clash/Surge-style proxies commonly use it as fake-ip for every domain, so
+    treating it as private would break DNS validation on such networks.
+    """
+    if address.is_loopback or address.is_link_local or address.is_multicast or address.is_unspecified:
+        return True
+    if address.version == 4:
+        value = int(address)
+        if 0xC6120000 <= value < 0xC6140000:  # 198.18.0.0/15 fake-ip range（在 is_private 之前判断）
+            return False
+        if address.is_private:
+            return True
+    elif address.is_private:
+        return True
+    return address.is_reserved
+
+
 async def validate_remote_icon_url(source: str, site_base_url: str) -> None:
     """Allow configured-site icons while preventing cross-host requests into private networks."""
     parsed = urlparse(source)
@@ -89,7 +109,7 @@ async def validate_remote_icon_url(source: str, site_base_url: str) -> None:
         addresses = await asyncio.to_thread(socket.getaddrinfo, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
     except socket.gaierror as exc:
         raise RuntimeError("图标域名无法解析") from exc
-    if not addresses or any(not ipaddress.ip_address(address[4][0]).is_global for address in addresses):
+    if not addresses or any(is_private_or_reserved_address(ipaddress.ip_address(address[4][0])) for address in addresses):
         raise RuntimeError("图标地址不允许访问内网")
 
 
@@ -103,7 +123,8 @@ def first_value(data: dict[str, Any], names: tuple[str, ...], default: Any = Non
 def resource_fingerprint(title: str, size: int | None = None) -> str:
     normalized = re.sub(r"\b(?:free|2x|50%|30%)\b", "", title.lower())
     normalized = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", normalized)
-    size_bucket = round(int(size or 0) / (256 * 1024 * 1024)) if size else 0
+    # 64MB 体积桶：比 256MB 更能区分同标题的不同编码/体积发布。
+    size_bucket = round(int(size or 0) / (64 * 1024 * 1024)) if size else 0
     return f"{normalized}:{size_bucket}"
 
 

@@ -4,8 +4,10 @@ import gzip
 import hashlib
 import json
 import os
+import socket
 import tempfile
 import unittest
+import zipfile
 from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
@@ -21,7 +23,13 @@ from app import main
 from app.api import playlists as playlist_routes
 from app.api import search as search_routes
 from app.api import sites as site_routes
+from app.api import system as system_routes
+from app.candidate_policy import DEFAULT_POLICY, release_group_catalog
 from app.clients import MoviePilotClient, TransmissionClient
+from app.database import config_values
+from app.services.imports import MAX_XLSX_ENTRIES
+from app.schemas import RuntimeSettingsPayload
+from app.state import MAX_RUNNING_AUTOMATION_TASKS, MAX_RUNNING_RECOGNITION_TASKS, running_automation_tasks, running_recognition_tasks
 from app.config import settings
 from app.cookiecloud import cookie_for_host
 from app.database import cleanup_old_data, connect, initialize
@@ -29,7 +37,8 @@ from app.list_sources import validate_source_url
 from app.security import sanitize_sensitive_text
 from app.services.automation import run_playlist_automation
 from app.services.history import clear_download_history, projected_download_history
-from app.services.sites import apply_cookie_groups, refresh_stale_site_account_stats, test_site_config
+from app.services.sites import apply_cookie_groups, refresh_stale_site_account_stats
+from app.services.sites import test_site_config as _test_site_config  # noqa: F401 —— 别名导入避免 pytest 将其收集为测试用例
 from app.util import secret_free
 
 
@@ -260,7 +269,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             site = dict(conn.execute("SELECT * FROM pt_sites WHERE id=?", (site_id,)).fetchone())
         with patch("app.services.sites.time.monotonic", side_effect=[0, 4]), \
              patch("app.services.sites.NexusPHPClient.check", new=AsyncMock(return_value={"ok": True, "message": "连接正常"})):
-            result = await test_site_config(site)
+            result = await _test_site_config(site)
         self.assertEqual(result["status"], "slow")
         self.assertTrue(result["ok"])
         self.assertEqual(result["duration_ms"], 4000)
@@ -279,7 +288,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             "app.services.sites.NexusPHPClient.check",
             new=AsyncMock(return_value={"ok": False, "message": "认证失败"}),
         ):
-            result = await test_site_config(site)
+            result = await _test_site_config(site)
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["message"], "认证失败")
@@ -564,7 +573,15 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         first_ranks = [item["rank_no"] for item in first["recent_items"]]
         self.assertEqual(first_ranks, [item["rank_no"] for item in second["recent_items"]])
         self.assertEqual(len(first_ranks), 6)
-        self.assertTrue(all(rank % 2 for rank in first_ranks))
+        # 随机海报必须来自已入库影片集合，不依赖 fixture 的 rank 奇偶约定。
+        with connect() as conn:
+            in_library_ranks = {
+                int(row["rank_no"]) for row in conn.execute(
+                    "SELECT rank_no FROM playlist_items WHERE playlist_id=? AND library_state='in_library'",
+                    (self.playlist_id,),
+                )
+            }
+        self.assertTrue(set(first_ranks).issubset(in_library_ranks))
         self.assertNotEqual(first_ranks, [1, 2, 3, 4, 5, 6])
 
     async def test_emby_poster_is_proxied_and_validated(self) -> None:
@@ -883,8 +900,18 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue["downloading_count"], 1)
         self.assertEqual(queue["pending_count"], 124)
         self.assertEqual(len(queue["items"]), 50)
-        self.assertNotIn(2, [item["rank_no"] for item in queue["items"]])
-        self.assertEqual([item["rank_no"] for item in queue["items"][:3]], [4, 6, 8])
+        ranks = [item["rank_no"] for item in queue["items"]]
+        self.assertNotIn(2, ranks)
+        self.assertEqual(ranks, sorted(ranks))
+        # 队列不得包含已入库影片，且下载中的影片被排除。
+        with connect() as conn:
+            in_library_ranks = {
+                int(row["rank_no"]) for row in conn.execute(
+                    "SELECT rank_no FROM playlist_items WHERE playlist_id=? AND library_state='in_library'",
+                    (self.playlist_id,),
+                )
+            }
+        self.assertTrue(all(rank not in in_library_ranks for rank in ranks))
 
     async def test_pending_search_task_persists_selected_item_ids(self) -> None:
         with connect() as conn:
@@ -893,7 +920,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 ("测试站点", "rss", "https://example.com/feed", main.utc_now()),
             )
         with patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[])), \
-             patch.object(main, "run_search", new=AsyncMock()):
+             patch("app.api.search.run_search", new=AsyncMock()):
             result = await main.create_task(main.TaskPayload(playlist_id=self.playlist_id, scope="pending", count=50))
             await main.running_tasks[result["id"]]
             main.running_tasks.pop(result["id"], None)
@@ -920,6 +947,260 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as raised:
             await main.create_task(main.TaskPayload(playlist_id=self.playlist_id, scope="range", range_start=1, range_end=1))
         self.assertEqual(raised.exception.status_code, 429)
+
+    async def test_cleanup_archives_stale_failed_tasks_across_timestamp_formats(self) -> None:
+        """cleanup_old_data 的日期比较必须兼容 ISO 'T' 与空格两种存储格式。"""
+        with connect() as conn:
+            now = main.utc_now()
+            conn.executemany(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?) """,
+                [
+                    (self.playlist_id, 1, 1, "failed", 1, now, "2020-01-01T00:00:00+00:00"),
+                    (self.playlist_id, 2, 2, "failed", 1, now, "2020-01-01 00:00:00"),
+                    (self.playlist_id, 3, 3, "failed", 1, now, now),
+                ],
+            )
+        main.cleanup_old_data()
+        with connect() as conn:
+            rows = conn.execute(
+                "SELECT status FROM search_tasks WHERE playlist_id=? ORDER BY range_start", (self.playlist_id,),
+            ).fetchall()
+        self.assertEqual([row["status"] for row in rows], ["archived", "archived", "failed"])
+
+    async def test_cart_rejects_duplicate_release_and_download_skips_submitted(self) -> None:
+        """同影片同站点同发布只能入车一次；已成功提交过的发布再次提交会被跳过。"""
+        with connect() as conn:
+            task_id = conn.execute(
+                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid
+            item_id = int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
+            ).fetchone()[0])
+            now = main.utc_now()
+            for candidate_id in ("dup-a", "dup-b"):
+                conn.execute(
+                    """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,eligibility,resource_key,ranking,metadata_json,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (candidate_id, task_id, item_id, 0, "Movie.2020.1080p.x265-FRDS", "Alpha", 8 * 1024**3,
+                     "eligible", "movie20201080px265frds:128", 1, "{}", now),
+                )
+        main.raw_candidates["dup-a"] = {"media": {"id": 1}, "torrent": {"title": "t"}}
+        main.raw_candidates["dup-b"] = {"media": {"id": 1}, "torrent": {"title": "t"}}
+        await main.toggle_cart("dup-a")
+        with self.assertRaises(HTTPException) as raised:
+            await main.toggle_cart("dup-b")
+        self.assertEqual(raised.exception.status_code, 422)
+        # 已有成功提交记录时，再次提交同一发布应跳过而非重复下载。
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO download_history(candidate_id,playlist_item_id,title,torrent_name,site_name,success,created_at)
+                   VALUES(?,?,?,?,?,1,?)""",
+                ("dup-a", item_id, "Movie 1", "Movie.2020.1080p.x265-FRDS", "Alpha", main.utc_now()),
+            )
+        with patch.object(main.MoviePilotClient, "download", new=AsyncMock()) as download_mock, \
+             patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[])):
+            result = await main.download_cart()
+        self.assertEqual(result["submitted"], 0)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertEqual(result["skipped"][0]["reason"], "该发布已提交过")
+        download_mock.assert_not_awaited()
+
+    async def test_download_cart_skips_release_already_downloading(self) -> None:
+        """Transmission 已有同名活动任务时，提交自动跳过。"""
+        with connect() as conn:
+            task_id = conn.execute(
+                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid
+            item_id = int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
+            ).fetchone()[0])
+            conn.execute(
+                """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,eligibility,resource_key,ranking,metadata_json,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                ("downloading-candidate", task_id, item_id, 0, "Movie.2020.1080p.x265-FRDS", "Alpha",
+                 "eligible", "movie20201080px265frds:128", 1, "{}", main.utc_now()),
+            )
+            conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", ("downloading-candidate", main.utc_now()))
+        main.raw_candidates["downloading-candidate"] = {"media": {"id": 1}, "torrent": {"title": "Movie.2020.1080p.x265-FRDS"}}
+        with patch.object(main.MoviePilotClient, "download", new=AsyncMock()) as download_mock, \
+             patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[
+                 {"name": "Movie.2020.1080p.x265-FRDS", "status": 4, "percentDone": 0.3},
+             ])):
+            result = await main.download_cart()
+        self.assertEqual(result["submitted"], 0)
+        self.assertEqual(result["skipped"][0]["reason"], "Transmission 正在下载")
+        download_mock.assert_not_awaited()
+
+    async def test_candidate_identity_rejects_sequel_and_plural_variants(self) -> None:
+        item = {
+            "tmdb_title": "教父", "tmdb_original_title": "The Godfather",
+            "original_title": "The Godfather", "chinese_title": "教父", "year": 1972, "tmdb_year": 1972,
+        }
+        media = {"year": "1972"}
+        accepted, reason = main.candidate_identity(item, media, "The.Godfather.Part.II.1080p")
+        self.assertFalse(accepted)
+        self.assertIn("续集或分卷", reason or "")
+        accepted, reason = main.candidate_identity(item, media, "The.Godfathers.1972.1080p")
+        self.assertFalse(accepted)
+        self.assertIn("片名不匹配", reason or "")
+        # 正式片名本身含 Part II 时不应被自己的种子标题拦截。
+        item_sequel = {**item, "tmdb_original_title": "The Godfather Part II", "original_title": "The Godfather Part II", "tmdb_title": "教父2", "chinese_title": "教父2", "year": 1974, "tmdb_year": 1974}
+        accepted, _ = main.candidate_identity(item_sequel, {"year": "1974"}, "The.Godfather.Part.II.1974.1080p")
+        self.assertTrue(accepted)
+        # 年份匹配的正片仍然通过。
+        accepted, _ = main.candidate_identity(item, media, "The.Godfather.1972.1080p.BluRay")
+        self.assertTrue(accepted)
+
+    async def test_avc_bdrip_not_rejected_as_raw_disc(self) -> None:
+        """AVC 编码的 BDrip 不再被误判为完整原盘。"""
+        config = config_values()
+        analyzed = main.analyze_candidate("Movie.2024.1080p.BluRay.AVC.LPCM-BDRIP", 0, config, {"seeders": 5, "volume_factor": 1})
+        self.assertNotIn("原盘", analyzed.get("exclusion_reason") or "")
+        still_rejected = main.analyze_candidate("Movie.2024.1080p.BluRay.AVC.DTS-HD.MA", 0, config, {"seeders": 5, "volume_factor": 1})
+        self.assertIn("原盘", still_rejected.get("exclusion_reason") or "")
+
+    async def test_nested_quantifier_release_group_rule_rejected(self) -> None:
+        with self.assertRaises(main.HTTPException) as raised:
+            await main.put_config(main.ConfigPayload(candidate_policy={
+                **DEFAULT_POLICY, "custom_release_groups": ["(?:A+)+B"],
+            }))
+        self.assertEqual(raised.exception.status_code, 422)
+        # 普通组后量词（无嵌套）仍然合法。
+        catalog = release_group_catalog({**DEFAULT_POLICY, "custom_release_groups": ["(?:AB|CD)+"]})
+        self.assertEqual(catalog["custom_count"], 1)
+
+    async def test_xlsx_too_many_entries_rejected(self) -> None:
+        archive = BytesIO()
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+            for index in range(MAX_XLSX_ENTRIES + 1):
+                zf.writestr(f"entry-{index}.xml", "<x/>")
+        encoded = base64.b64encode(archive.getvalue()).decode()
+        with self.assertRaises(HTTPException) as raised:
+            await main.resolve_import(main.ImportPayload(xlsx_base64=encoded))
+        self.assertEqual(raised.exception.status_code, 413)
+
+    async def test_searchable_queue_keeps_history_without_candidate(self) -> None:
+        """候选被删除的历史提交仍能排除下载中的影片。"""
+        with connect() as conn:
+            item = conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=2", (self.playlist_id,),
+            ).fetchone()
+            conn.execute(
+                """INSERT INTO download_history(playlist_item_id,title,torrent_name,success,created_at)
+                   VALUES(?,?,?,1,?)""",
+                (item["id"], "Movie 2", "Movie 2 2002 1080p", main.utc_now()),
+            )
+        with patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[
+            {"name": "Movie 2 2002 1080p", "status": 4, "percentDone": 0.1},
+        ])):
+            queue = await main.searchable_playlist_items(self.playlist_id, limit=10)
+        self.assertNotIn(2, [item["rank_no"] for item in queue["items"]])
+
+    async def test_background_task_capacity_blocks_third_recognition(self) -> None:
+        tasks: list[asyncio.Task[None]] = []
+        try:
+            for _index in range(MAX_RUNNING_RECOGNITION_TASKS):
+                task = asyncio.create_task(asyncio.sleep(30))
+                tasks.append(task)
+                running_recognition_tasks[9000 + _index] = task
+            with connect() as conn:
+                other_id = conn.execute(
+                    "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
+                    ("第二片单", 2, main.utc_now()),
+                ).lastrowid
+            with self.assertRaises(HTTPException) as raised:
+                await playlist_routes.recognize_playlist(int(other_id))
+            self.assertEqual(raised.exception.status_code, 429)
+        finally:
+            for task in tasks:
+                task.cancel()
+            for key in list(running_recognition_tasks):
+                if key >= 9000:
+                    running_recognition_tasks.pop(key, None)
+
+    async def test_runtime_settings_clear_and_keep_secret_semantics(self) -> None:
+        """null 保留原值，空字符串显式清除已配置密钥。"""
+        previous = {
+            key: getattr(settings, key) for key in ("mp_api_key", "tmdb_api_key", "emby_base_url")
+        }
+        try:
+            await system_routes.put_runtime_settings(RuntimeSettingsPayload(
+                mp_api_key="key-1", tmdb_api_key="key-2", emby_base_url="http://emby.local:8096",
+            ))
+            self.assertEqual(settings.mp_api_key, "key-1")
+            self.assertEqual(settings.tmdb_api_key, "key-2")
+            # null = 不修改，保留原值
+            await system_routes.put_runtime_settings(RuntimeSettingsPayload(
+                mp_api_key=None, tmdb_api_key=None, emby_base_url="",
+            ))
+            self.assertEqual(settings.mp_api_key, "key-1")
+            self.assertEqual(settings.tmdb_api_key, "key-2")
+            # 空字符串 = 显式清除
+            await system_routes.put_runtime_settings(RuntimeSettingsPayload(
+                mp_api_key="", tmdb_api_key="",
+            ))
+            self.assertEqual(settings.mp_api_key, "")
+            self.assertEqual(settings.tmdb_api_key, "")
+        finally:
+            for key, value in previous.items():
+                setattr(settings, key, value)
+
+    async def test_automation_queues_when_capacity_full_and_consumes_later(self) -> None:
+        from app.services.automation import consume_queued_automation_runs, start_playlist_automation
+        tasks: list[asyncio.Task[None]] = []
+        try:
+            for index in range(MAX_RUNNING_AUTOMATION_TASKS):
+                task = asyncio.create_task(asyncio.sleep(30))
+                tasks.append(task)
+                running_automation_tasks[8000 + index] = task
+            result = await start_playlist_automation(self.playlist_id)
+            self.assertEqual(result["status"], "queued")
+            self.assertNotIn(result["id"], running_automation_tasks)
+            # 容量释放后由调度器消费并启动
+            for task in tasks:
+                task.cancel()
+            tasks.clear()
+            for key in list(running_automation_tasks):
+                if key >= 8000:
+                    running_automation_tasks.pop(key, None)
+            with patch("app.services.automation.run_playlist_automation", new=AsyncMock()) as runner:
+                started = await consume_queued_automation_runs()
+            self.assertEqual(started, 1)
+            await asyncio.sleep(0)  # 让被创建的后台任务实际执行
+            runner.assert_awaited_once()
+        finally:
+            for task in tasks:
+                task.cancel()
+            for key in list(running_automation_tasks):
+                if key >= 8000:
+                    running_automation_tasks.pop(key, None)
+
+    async def test_validated_base_url_rejects_private_only_domain_with_token(self) -> None:
+        """启用访问令牌时，出站地址域名必须全部解析到公网；白名单与 IP 字面量规则生效。"""
+        previous_token = os.environ.get("AUTOLIST_ACCESS_TOKEN")
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = "test-token"
+        try:
+            with patch("app.api.system.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("192.168.1.5", 0))]):
+                with self.assertRaises(HTTPException) as raised:
+                    system_routes.validated_base_url("https://private.example", "站点地址", True)
+                self.assertEqual(raised.exception.status_code, 422)
+            with patch("app.api.system.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]):
+                result = system_routes.validated_base_url("https://public.example", "站点地址", True)
+            self.assertEqual(result, "https://public.example")
+            with patch("app.api.system.socket.getaddrinfo", side_effect=socket.gaierror("nxdomain")):
+                with self.assertRaises(HTTPException):
+                    system_routes.validated_base_url("https://nx.example", "站点地址", True)
+            with patch.object(system_routes, "ALLOWED_PRIVATE_HOSTS", {"prowlarr.lan"}):
+                result = system_routes.validated_base_url("https://prowlarr.lan", "站点地址", True)
+            self.assertEqual(result, "https://prowlarr.lan")
+        finally:
+            if previous_token is None:
+                os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
+            else:
+                os.environ["AUTOLIST_ACCESS_TOKEN"] = previous_token
 
 
 if __name__ == "__main__":

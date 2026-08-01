@@ -3,45 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import math
-import re
-import sqlite3
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-import httpx
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, HTTPException
 
-from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from ..config import load_runtime_settings, save_runtime_settings, settings
-from ..cookiecloud import cookie_for_host, cookie_groups
-from ..database import config_values, connect, json_value, save_config
-from ..list_sources import PlaylistSourceFetcher
-from ..schemas import (
-    ConfigPayload,
-    CookieCloudUploadPayload,
-    ImportPayload,
-    PlaylistAutomationPayload,
-    PlaylistOrderPayload,
-    PlaylistSyncPayload,
-    PlaylistUpdatePayload,
-    RuntimeSettingsPayload,
-    ScorePreviewPayload,
-    SitePayload,
-    TaskPayload,
-)
-from ..security import safe_error, sanitize_sensitive_text
-from ..services.automation import start_playlist_automation, sync_playlist_incremental, update_recognition_task
-from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
-from ..services.history import projected_download_history
-from ..services.imports import normalize_import_items, resolve_import
-from ..services.library import run_library_scan
-from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
+from ..database import connect, json_value
+from ..schemas import TaskPayload
 from ..services.search import (
     begin_search_task_slot,
     create_followup_search_task,
@@ -49,31 +17,8 @@ from ..services.search import (
     searchable_playlist_items,
     update_task,
 )
-from ..services.sites import resolve_site_adapter, test_site_config
-from ..state import (
-    enforce_cookiecloud_rate_limit,
-    enforce_search_task_capacity,
-    poster_cache,
-    prune_raw_candidates,
-    raw_candidates,
-    require_configured_cookiecloud_uuid,
-    running_automation_tasks,
-    running_library_tasks,
-    running_recognition_tasks,
-    running_tasks,
-    site_icon_cache,
-)
-from ..util import (
-    decode_cookiecloud_body,
-    first_value,
-    raster_image_media_type,
-    resource_fingerprint,
-    rows_to_dicts,
-    secret_free,
-    utc_now,
-    validate_remote_icon_url,
-    volume_factor_value,
-)
+from ..state import prune_raw_candidates, raw_candidates, running_tasks
+from ..util import resource_fingerprint, rows_to_dicts, utc_now, volume_factor_value
 
 router = APIRouter()
 

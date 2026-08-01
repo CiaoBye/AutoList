@@ -217,6 +217,24 @@ def initialize() -> None:
     with connect() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        # 幂等二级索引：随 search_attempts / search_task_logs / candidates 增长，
+        # 避免每分钟清理与聚合查询退化为全表扫描。
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_search_attempts_task ON search_attempts(task_id);
+            CREATE INDEX IF NOT EXISTS idx_search_attempts_site ON search_attempts(site_id);
+            CREATE INDEX IF NOT EXISTS idx_search_task_logs_task ON search_task_logs(task_id);
+            CREATE INDEX IF NOT EXISTS idx_candidates_task ON candidates(task_id);
+            CREATE INDEX IF NOT EXISTS idx_candidates_item ON candidates(playlist_item_id);
+            CREATE INDEX IF NOT EXISTS idx_search_tasks_status_updated ON search_tasks(status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_search_tasks_playlist ON search_tasks(playlist_id);
+            CREATE INDEX IF NOT EXISTS idx_library_scan_tasks_playlist ON library_scan_tasks(playlist_id);
+            CREATE INDEX IF NOT EXISTS idx_recognition_tasks_playlist ON recognition_tasks(playlist_id);
+            CREATE INDEX IF NOT EXISTS idx_automation_runs_playlist ON automation_runs(playlist_id);
+            CREATE INDEX IF NOT EXISTS idx_notifications_read_created ON notifications(read, created_at);
+            CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_rank ON playlist_items(playlist_id, rank_no);
+            """
+        )
         candidate_columns = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)")}
         for column, definition in {
             "codec": "TEXT",
@@ -395,8 +413,8 @@ def save_config(values: dict[str, str]) -> None:
 def cleanup_old_data() -> int:
     """Remove old short-lived search diagnostics and notifications.
     Retention is generous to preserve enough data for inspection; adjust as needed.
-    Use SQLite datetime arithmetic instead of Python clock to remain consistent with
-    the UTC strings stored in the database.
+    Use SQLite datetime() parsing on both sides so the comparison works for every
+    stored timestamp format (ISO-8601 with 'T'/timezone suffix or legacy space form).
     """
     with connect() as conn:
         total = 0
@@ -404,16 +422,24 @@ def cleanup_old_data() -> int:
         total += conn.execute(
             """UPDATE search_tasks SET status='archived'
                WHERE status IN ('failed','partial','interrupted','cancelled')
-                 AND updated_at < datetime('now', '-24 hours')"""
+                 AND datetime(updated_at) < datetime('now', '-24 hours')"""
+        ).rowcount
+        # archived 任务的候选在归档后保留 30 天，供历史页面与排查使用；之后随旧任务清理。
+        total += conn.execute(
+            """DELETE FROM candidates
+               WHERE task_id IN (
+                 SELECT id FROM search_tasks WHERE status='archived'
+                   AND datetime(updated_at) < datetime('now', '-30 days')
+               )"""
         ).rowcount
         total += conn.execute(
-            "DELETE FROM search_attempts WHERE finished_at < datetime('now', '-30 days')"
+            "DELETE FROM search_attempts WHERE datetime(finished_at) < datetime('now', '-30 days')"
         ).rowcount
         total += conn.execute(
-            "DELETE FROM search_task_logs WHERE created_at < datetime('now', '-14 days')"
+            "DELETE FROM search_task_logs WHERE datetime(created_at) < datetime('now', '-14 days')"
         ).rowcount
         total += conn.execute(
-            "DELETE FROM notifications WHERE created_at < datetime('now', '-30 days')"
+            "DELETE FROM notifications WHERE datetime(created_at) < datetime('now', '-30 days')"
         ).rowcount
         return total
 

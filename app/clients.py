@@ -36,7 +36,7 @@ class NexusTableParser(HTMLParser):
                 row["links"].append(link)
                 row["anchors"].append(link)
             marker = " ".join((attributes.get("class", ""), attributes.get("src", "")))
-            if re.search(r"(?:^|[\s_/.-])(pro_free|free2up)(?:[\s_/.-]|$)", marker, re.I):
+            if re.search(r"(?:^|[\s_/.-])(pro_free|free2up|freeleech|free|2up)(?:[\s_/.-]|$)", marker, re.I):
                 row["free"] = True
 
     def handle_endtag(self, tag: str) -> None:
@@ -174,6 +174,13 @@ class TMDBClient:
                 last_error = exc
                 if attempt < 2:
                     await asyncio.sleep(0.5 * (attempt + 1))
+            except httpx.HTTPStatusError as exc:
+                # 429/5xx 属于临时性失败，退避重试；其他状态码直接上抛。
+                if exc.response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
+                    last_error = exc
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                    continue
+                raise
         raise RuntimeError(f"TMDB 网络连接失败：{type(last_error).__name__}") from last_error
 
     async def check(self) -> dict[str, Any]:
@@ -373,12 +380,20 @@ class TorznabClient:
         for item in root.findall(".//item"):
             attrs = {node.attrib.get("name"): node.attrib.get("value") for node in item if node.tag.endswith("attr")}
             enclosure = item.find("enclosure")
+            try:
+                size = int(attrs.get("size") or item.findtext("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            try:
+                seeders = int(attrs.get("seeders") or 0)
+            except (TypeError, ValueError):
+                seeders = 0
             results.append({
                 "title": item.findtext("title") or "未知资源",
                 "site_name": site["name"],
                 "enclosure": enclosure.attrib.get("url") if enclosure is not None else item.findtext("link"),
-                "size": int(attrs.get("size") or item.findtext("size") or 0),
-                "seeders": int(attrs.get("seeders") or 0),
+                "size": size,
+                "seeders": seeders,
                 "publish_time": item.findtext("pubDate"),
                 "labels": [],
             })
@@ -456,40 +471,58 @@ class MTeamClient:
             "User-Agent": str(site.get("user_agent") or "AutoList/0.65"),
         }
 
+    @staticmethod
+    def _discount_factor(discount: str) -> float:
+        """Map M-Team promotion discounts to a volume factor (0=free, 1=full price)."""
+        if str(discount).strip().upper() == "FREE":
+            return 0.0
+        match = re.fullmatch(r"PERCENT_(\d+)", str(discount or "").strip().upper())
+        if match:
+            return min(0.95, max(0.05, int(match.group(1)) / 100))
+        return 1.0
+
+    def _parse_row(self, row: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
+        status = row.get("status") or {}
+        discount = (status.get("promotionRule") or {}).get("discount") or ("FREE" if status.get("mallSingleFree") else status.get("discount")) or "NORMAL"
+        factor = self._discount_factor(discount)
+        labels = list(row.get("labelsNew") or [])
+        if factor == 0:
+            labels.insert(0, "FREE")
+        elif factor < 1:
+            labels.insert(0, f"{int(factor * 100)}%")
+        request_options = {
+            "method": "post", "cookie": False, "params": {"id": str(row.get("id"))},
+            "header": {**self.headers(site), "Content-Type": "multipart/form-data"}, "result": "data",
+        }
+        encoded = base64.b64encode(json.dumps(request_options).encode()).decode()
+        return {
+            "title": row.get("name") or "未知资源", "description": row.get("smallDescr"),
+            "site_name": site["name"], "size": int(row.get("size") or 0),
+            "seeders": int(status.get("seeders") or 0), "leechers": int(status.get("leechers") or 0),
+            "enclosure": f"[{encoded}]{self.api_base(site)}/api/torrent/genDlToken",
+            "labels": labels, "volume_factor": factor, "site_ua": site.get("user_agent") or "AutoList/0.65",
+        }
+
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
         keyword = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else title
-        payload = {"pageNumber": 1, "pageSize": 100, "mode": "normal", "keyword": keyword}
         timeout = int(site.get("timeout_seconds") or 30)
+        rows: list[dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site)) as client:
-            response = await client.post(f"{self.api_base(site)}/api/torrent/search", headers=self.headers(site), json=payload)
-            response.raise_for_status()
-            body = response.json()
-        if str(body.get("code")) not in ("0", "None") and body.get("message") != "SUCCESS":
-            raise RuntimeError(body.get("message") or "M-Team API 搜索失败")
-        rows = ((body.get("data") or {}).get("data") or [])
-        results: list[dict[str, Any]] = []
-        for row in rows:
-            status = row.get("status") or {}
-            discount = (status.get("promotionRule") or {}).get("discount") or ("FREE" if status.get("mallSingleFree") else status.get("discount")) or "NORMAL"
-            factor = {"FREE": 0, "PERCENT_50": 0.5, "PERCENT_70": 0.7}.get(discount, 1)
-            labels = list(row.get("labelsNew") or [])
-            if factor == 0:
-                labels.insert(0, "FREE")
-            elif factor < 1:
-                labels.insert(0, f"{int(factor * 100)}%")
-            request_options = {
-                "method": "post", "cookie": False, "params": {"id": str(row.get("id"))},
-                "header": {**self.headers(site), "Content-Type": "multipart/form-data"}, "result": "data",
-            }
-            encoded = base64.b64encode(json.dumps(request_options).encode()).decode()
-            results.append({
-                "title": row.get("name") or "未知资源", "description": row.get("smallDescr"),
-                "site_name": site["name"], "size": int(row.get("size") or 0),
-                "seeders": int(status.get("seeders") or 0), "leechers": int(status.get("leechers") or 0),
-                "enclosure": f"[{encoded}]{self.api_base(site)}/api/torrent/genDlToken",
-                "labels": labels, "volume_factor": factor, "site_ua": site.get("user_agent") or "AutoList/0.65",
-            })
-        return results
+            # 分页拉取（最多 5 页 = 500 条），避免热门影片被硬截断到 100 条。
+            for page in range(1, 6):
+                payload = {"pageNumber": page, "pageSize": 100, "mode": "normal", "keyword": keyword}
+                response = await client.post(f"{self.api_base(site)}/api/torrent/search", headers=self.headers(site), json=payload)
+                response.raise_for_status()
+                body = response.json()
+                if str(body.get("code")) not in ("0", "None") and body.get("message") != "SUCCESS":
+                    raise RuntimeError(body.get("message") or "M-Team API 搜索失败")
+                data = body.get("data") or {}
+                page_rows = data.get("data") or []
+                rows.extend(page_rows)
+                total_pages = int(data.get("totalPages") or 1)
+                if len(page_rows) < 100 or page >= total_pages:
+                    break
+        return [self._parse_row(row, site) for row in rows]
 
     async def check(self, site: dict[str, Any]) -> dict[str, Any]:
         results = await self.search(site, "AutoListConnectionProbe")

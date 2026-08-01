@@ -32,6 +32,8 @@ def validate_source_url(raw_url: str) -> tuple[str, str]:
 
 def parse_csv_items(content: str) -> tuple[str | None, list[dict[str, Any]]]:
     rows = list(csv.DictReader(io.StringIO(content.lstrip("\ufeff"))))
+    if len(rows) > 200_000:
+        raise ValueError("CSV 行数超过上限（200000 行）")
     items: list[dict[str, Any]] = []
     for index, row in enumerate(rows, start=1):
         lowered = {str(key or "").strip().lower(): value for key, value in row.items()}

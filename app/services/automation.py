@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -15,8 +14,14 @@ from ..database import cleanup_old_data, connect, json_value
 from ..domain.titles import canonical_item_title, canonical_item_year
 from ..list_sources import PlaylistSourceFetcher
 from ..security import safe_error, sanitize_sensitive_text
-from ..state import running_automation_tasks, running_recognition_tasks, running_tasks, scheduler_task
-from ..util import rows_to_dicts, utc_now
+from ..state import (
+    MAX_RUNNING_AUTOMATION_TASKS,
+    enforce_background_task_capacity,
+    running_automation_tasks,
+    running_recognition_tasks,
+    running_tasks,
+)
+from ..util import utc_now
 from .library import library_details
 from .recognition import persist_tmdb_item, recognize_movie
 from .imports import normalize_import_items
@@ -151,7 +156,11 @@ async def run_playlist_automation(run_id: int) -> None:
             update_automation_run(run_id, stage="search")
             running_tasks[task_id] = asyncio.current_task()  # visible in health while the nested search runs
             await run_search(task_id)
-            searched = len(searchable_ids)
+            # searched 以搜索任务实际完成数为准，而非计划数（任务可能 failed/partial）。
+            with connect() as conn:
+                final_task = conn.execute("SELECT status,completed FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+            if final_task and final_task["status"] in ("completed", "partial"):
+                searched = int(final_task["completed"] or 0)
             with connect() as conn:
                 preferred_rows = conn.execute(
                     """SELECT c.id,c.playlist_item_id FROM candidates c
@@ -241,6 +250,12 @@ async def sync_playlist_incremental(playlist_id: int, trigger: str = "manual") -
         raise
 
 
+def _automation_capacity_full() -> bool:
+    """Process-wide automation concurrency check (see MAX_RUNNING_AUTOMATION_TASKS)."""
+    active = sum(1 for task in running_automation_tasks.values() if task and not task.done())
+    return active >= MAX_RUNNING_AUTOMATION_TASKS
+
+
 async def start_playlist_automation(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
     with connect() as conn:
         playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
@@ -256,8 +271,37 @@ async def start_playlist_automation(playlist_id: int, trigger: str = "manual") -
             "INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at) VALUES(?,?,?,?,?,?)",
             (playlist_id, trigger, "queued", "queued", now, now),
         ).lastrowid)
+    if _automation_capacity_full():
+        # 容量满时不报错：任务保持 queued，由调度器在容量释放后自动启动。
+        return {"id": run_id, "status": "queued", "message": "自动化任务已排队，容量释放后自动执行"}
     running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
     return {"id": run_id, "status": "queued", "message": "已开始识别并搜索未入库影片；不会自动下载"}
+
+
+async def consume_queued_automation_runs() -> int:
+    """Start queued automation runs once capacity frees up; called by the scheduler.
+    Runs already tracked in running_automation_tasks are skipped so a freshly
+    inserted-but-not-yet-running run is never started twice.
+    """
+    started = 0
+    with connect() as conn:
+        queued = conn.execute(
+            "SELECT id,playlist_id FROM automation_runs WHERE status='queued' ORDER BY id LIMIT 8",
+        ).fetchall()
+    for row in queued:
+        run_id = int(row["id"])
+        if run_id in running_automation_tasks or _automation_capacity_full():
+            continue
+        with connect() as conn:
+            competing = conn.execute(
+                "SELECT 1 FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running') AND id!=? LIMIT 1",
+                (row["playlist_id"], run_id),
+            ).fetchone()
+        if competing:
+            continue
+        running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
+        started += 1
+    return started
 
 
 async def sync_scheduler() -> None:
@@ -265,6 +309,7 @@ async def sync_scheduler() -> None:
         await asyncio.sleep(60)
         cleanup_old_data()
         await refresh_stale_site_account_stats()
+        await consume_queued_automation_runs()
         now = utc_now()
         with connect() as conn:
             due = [int(row["id"]) for row in conn.execute(

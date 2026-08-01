@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -86,11 +87,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     cleanup_old_data()
     with connect() as conn:
         now = utc_now()
-        for table in ("search_tasks", "recognition_tasks", "library_scan_tasks", "automation_runs"):
+        for table in ("search_tasks", "recognition_tasks", "library_scan_tasks"):
             conn.execute(
                 f"UPDATE {table} SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",  # nosec B608
                 (now,),
             )
+        # 自动化排队任务（queued）重启后保留，由调度器在容量释放后继续消费。
+        conn.execute(
+            "UPDATE automation_runs SET status='interrupted', updated_at=? WHERE status='running'",
+            (now,),
+        )
     state.scheduler_task = asyncio.create_task(sync_scheduler())
     try:
         yield
@@ -100,7 +106,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await asyncio.gather(state.scheduler_task, return_exceptions=True)
 
 
-app = FastAPI(title="AutoList", version="0.85", lifespan=lifespan)
+_ENABLE_DOCS = os.getenv("AUTOLIST_ENABLE_DOCS", "").strip().lower() == "true"
+
+app = FastAPI(
+    title="AutoList",
+    version="0.86",
+    lifespan=lifespan,
+    docs_url="/docs" if _ENABLE_DOCS else None,
+    redoc_url="/redoc" if _ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if _ENABLE_DOCS else None,
+)
 app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
 system_routes.APP_VERSION = app.version
 
@@ -122,6 +137,23 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
     if not token_matches(provided, access_token()):
         return JSONResponse({"detail": "需要有效的访问令牌"}, status_code=401)
     return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Defense-in-depth headers; the frontend inlines style attributes so
+    style-src needs 'unsafe-inline', but scripts stay 'self'-only.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'",
+    )
+    return response
 
 
 # Route handler re-exports used by tests.

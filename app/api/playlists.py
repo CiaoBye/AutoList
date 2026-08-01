@@ -3,75 +3,44 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import math
 import re
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
-from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
 from ..clients import EmbyClient
-from ..config import load_runtime_settings, save_runtime_settings, settings
-from ..cookiecloud import cookie_for_host, cookie_groups
-from ..database import config_values, connect, json_value, save_config
+from ..config import settings
+from ..database import connect, json_value
 from ..list_sources import PlaylistSourceFetcher
 from ..schemas import (
-    ConfigPayload,
-    CookieCloudUploadPayload,
     ImportPayload,
     PlaylistAutomationPayload,
     PlaylistOrderPayload,
     PlaylistSyncPayload,
     PlaylistUpdatePayload,
-    RuntimeSettingsPayload,
-    ScorePreviewPayload,
-    SitePayload,
-    TaskPayload,
 )
-from ..security import safe_error, sanitize_sensitive_text
-from ..services.automation import run_recognition, start_playlist_automation, sync_playlist_incremental, update_recognition_task
-from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
-from ..services.history import playlist_item_snapshot, projected_download_history
+from ..security import safe_error
+from ..services.automation import run_recognition, start_playlist_automation, sync_playlist_incremental
+from ..services.history import playlist_item_snapshot
 from ..services.imports import normalize_import_items, resolve_import
 from ..services.library import library_details, run_library_scan
-from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
-from ..services.search import (
-    create_followup_search_task,
-    run_search,
-    searchable_playlist_items,
-)
-from ..services.sites import resolve_site_adapter, test_site_config
+from ..services.search import searchable_playlist_items
 from ..state import (
-    enforce_cookiecloud_rate_limit,
-    enforce_search_task_capacity,
+    MAX_RUNNING_LIBRARY_TASKS,
+    MAX_RUNNING_RECOGNITION_TASKS,
+    enforce_background_task_capacity,
     poster_cache,
-    raw_candidates,
-    require_configured_cookiecloud_uuid,
+    remember_poster,
     running_automation_tasks,
     running_library_tasks,
     running_recognition_tasks,
     running_tasks,
-    site_icon_cache,
 )
-from ..util import (
-    decode_cookiecloud_body,
-    first_value,
-    raster_image_media_type,
-    resource_fingerprint,
-    rows_to_dicts,
-    secret_free,
-    utc_now,
-    validate_remote_icon_url,
-    volume_factor_value,
-)
+from ..util import raster_image_media_type, resource_fingerprint, rows_to_dicts, utc_now
 
 router = APIRouter()
 
@@ -193,9 +162,7 @@ async def playlist_item_poster(playlist_item_id: int, tag: str = "") -> Response
         media_type = raster_image_media_type(content) or ""
         if not media_type or len(content) > 8 * 1024 * 1024:
             raise HTTPException(422, "Emby 返回的海报格式无效")
-        if len(poster_cache) >= 64:
-            poster_cache.pop(next(iter(poster_cache)))
-        poster_cache[cache_key] = (content, media_type)
+        remember_poster(cache_key, (content, media_type))
     return Response(
         content=content, media_type=media_type,
         headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
@@ -444,8 +411,9 @@ async def playlist_items(
         params: list[Any] = [playlist_id]
         normalized_query = query.strip()
         if normalized_query:
-            conditions.append("(original_title LIKE ? OR chinese_title LIKE ? OR tmdb_title LIKE ? OR tmdb_original_title LIKE ? OR imdb_id LIKE ? OR tmdb_imdb_id LIKE ?)")
-            pattern = f"%{normalized_query}%"
+            conditions.append("(original_title LIKE ? ESCAPE '\\' OR chinese_title LIKE ? ESCAPE '\\' OR tmdb_title LIKE ? ESCAPE '\\' OR tmdb_original_title LIKE ? ESCAPE '\\' OR imdb_id LIKE ? ESCAPE '\\' OR tmdb_imdb_id LIKE ? ESCAPE '\\')")
+            escaped = normalized_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
             params.extend((pattern, pattern, pattern, pattern, pattern, pattern))
         if library_state == "not_downloaded":
             conditions.append("library_state!='in_library'")
@@ -470,6 +438,7 @@ async def playlist_items(
 
 @router.post("/api/playlists/{playlist_id}/library-scan")
 async def scan_playlist_library(playlist_id: int) -> dict[str, Any]:
+    enforce_background_task_capacity(running_library_tasks, MAX_RUNNING_LIBRARY_TASKS, "Emby 状态刷新")
     with connect() as conn:
         if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
             raise HTTPException(404, "片单不存在")
@@ -513,6 +482,7 @@ async def reorder_playlists(payload: PlaylistOrderPayload) -> dict[str, Any]:
 
 @router.post("/api/playlists/{playlist_id}/recognize")
 async def recognize_playlist(playlist_id: int) -> dict[str, Any]:
+    enforce_background_task_capacity(running_recognition_tasks, MAX_RUNNING_RECOGNITION_TASKS, "识别")
     with connect() as conn:
         if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
             raise HTTPException(404, "片单不存在")

@@ -222,13 +222,32 @@ async def clear_download_history(status: str) -> int:
     with connect() as conn:
         if status == "all":
             return conn.execute("DELETE FROM download_history").rowcount
-    items = await projected_download_history(limit=5000)
-    ids = [int(item["id"]) for item in items if item.get("lifecycle_status") == status]
-    if not ids:
-        return 0
-    placeholders = ",".join("?" for _ in ids)
-    with connect() as conn:
-        return conn.execute(
-            f"DELETE FROM download_history WHERE id IN ({placeholders})",  # nosec B608
-            ids,
-        ).rowcount
+        # 可纯 SQL 映射的状态不再受投影 5000 行截断限制。
+        if status == "failed":
+            return conn.execute("DELETE FROM download_history WHERE success=0").rowcount
+        if status in {"organized", "pending_library"}:
+            library_value = "in_library" if status == "organized" else "strm"
+            return conn.execute(
+                """DELETE FROM download_history WHERE EXISTS (
+                     SELECT 1 FROM playlist_items p WHERE p.id=COALESCE(
+                       download_history.playlist_item_id,
+                       (SELECT playlist_item_id FROM candidates WHERE candidates.id=download_history.candidate_id)
+                     ) AND p.library_state=?)""",
+                (library_value,),
+            ).rowcount
+    # 其余进行中状态依赖 Transmission/Emby 投影，分批删除避免 5000 行截断；
+    # 这些活跃状态极少堆积，循环以“本轮无匹配”作为终止条件。
+    deleted = 0
+    while True:
+        items = await projected_download_history(limit=5000)
+        ids = [int(item["id"]) for item in items if item.get("lifecycle_status") == status]
+        if not ids:
+            return deleted
+        placeholders = ",".join("?" for _ in ids)
+        with connect() as conn:
+            deleted += conn.execute(
+                f"DELETE FROM download_history WHERE id IN ({placeholders})",  # nosec B608
+                ids,
+            ).rowcount
+        if len(items) < 5000:
+            return deleted

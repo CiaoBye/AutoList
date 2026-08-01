@@ -8,6 +8,7 @@ import socket
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
@@ -1312,6 +1313,43 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         zero = client._tnode_stats({"upload": 100, "download": 0})
         self.assertIsNone(zero["ratio"])
         self.assertIsNone(client._tnode_stats({}))
+
+
+    async def test_log_events_api_reads_json_lines_newest_first(self) -> None:
+        """日志接口从 data/logs/autolist.log 读取结构化事件，倒序返回并支持过滤。"""
+        logs_dir = Path(self.temp.name) / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        log_file = logs_dir / "autolist.log"
+        log_file.write_text(
+            "{\"ts\": \"2026-08-01T10:00:00+00:00\", \"level\": \"INFO\", \"event\": \"movie_search_summary\", \"rank\": 1, \"movie\": \"Dreams\", \"results\": 140, \"kept\": 1}\n"
+            "{\"ts\": \"2026-08-01T10:01:00+00:00\", \"level\": \"WARNING\", \"event\": \"site_search_failed\", \"site\": \"春天\", \"error\": \"ReadTimeout\"}\n"
+            "{\"ts\": \"2026-08-01T10:02:00+00:00\", \"level\": \"ERROR\", \"event\": \"search_task_finished\", \"task_id\": 32, \"status\": \"failed\"}\n",
+            encoding="utf-8",
+        )
+        from app.api import logs as log_routes
+        events = await log_routes.log_events()
+        self.assertEqual([event["event"] for event in events], ["search_task_finished", "site_search_failed", "movie_search_summary"])
+        warnings = await log_routes.log_events(level="WARNING")
+        self.assertEqual([event["event"] for event in warnings], ["site_search_failed"])
+        filtered = await log_routes.log_events(query="Dreams")
+        self.assertEqual([event["event"] for event in filtered], ["movie_search_summary"])
+        self.assertEqual(await log_routes.log_events(limit=1), [events[0]])
+
+    async def test_configure_logging_writes_rotating_json_file(self) -> None:
+        """configure_logging 在数据目录创建 JSON 行日志，事件字段进入文件。"""
+        from app.logs import configure_logging, event_logger
+        configure_logging()
+        logger = event_logger()
+        logger.info("movie_search_summary", extra={"task_id": 1, "rank": 3, "movie": "Macario", "results": 0, "kept": 0})
+        log_file = Path(self.temp.name) / "logs" / "autolist.log"
+        self.assertTrue(log_file.exists())
+        content = log_file.read_text(encoding="utf-8")
+        self.assertIn("movie_search_summary", content)
+        self.assertIn("Macario", content)
+        self.assertIn("results", content)
+        event = json.loads(content.strip().splitlines()[-1])
+        self.assertEqual(event["movie"], "Macario")
+        self.assertEqual(event["results"], 0)
 
 
 

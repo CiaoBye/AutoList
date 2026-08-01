@@ -57,6 +57,7 @@ const pageMeta = {
   rules: {eyebrow: "QUEUE / CANDIDATE POLICY", title: "候选规则", lead: "调整自动优选的评分方式。"},
   sites: {eyebrow: "MANAGEMENT / SITES & SERVICES", title: "站点与服务", lead: "管理 AutoList 搜索、Cookie 与站点健康状态。"},
   history: {eyebrow: "QUEUE / ACTIVITY", title: "下载历史", lead: "追踪提交、下载与入库状态。"},
+  logs: {eyebrow: "OPERATIONS / EVENT LOG", title: "日志", lead: "结构化事件日志与搜索摘要。"},
 };
 
 const taskLabels = {
@@ -85,6 +86,8 @@ async function refreshPageData(page) {
     await loadSites();
   } else if (page === "history") {
     await refreshHistory();
+  } else if (page === "logs") {
+    await loadLogEvents();
   }
 }
 
@@ -342,6 +345,61 @@ function renderCart() {
 async function refreshCart() {
   cartCache = await api("/api/cart");
   renderCart();
+}
+
+const LOG_EVENT_LABELS = {
+  movie_search_summary: "电影搜索摘要",
+  search_task_finished: "搜索任务结束",
+  site_search_failed: "站点搜索失败",
+  download_submit: "下载提交",
+};
+
+function formatLogTime(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return escapeHtml(value);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${parsed.getFullYear()}/${pad(parsed.getMonth() + 1)}/${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
+}
+
+function logEventLine(event) {
+  const level = String(event.level || "INFO").toUpperCase();
+  const parts = [];
+  if (event.movie) parts.push(`<strong>${escapeHtml(event.movie)}</strong>${event.rank ? ` <span class="candidate-meta">#${escapeHtml(event.rank)}</span>` : ""}`);
+  if (event.site) parts.push(`站点 ${escapeHtml(event.site)}`);
+  if (event.status) parts.push(`状态 ${escapeHtml(event.status)}`);
+  if (event.results != null) parts.push(`返回 ${Number(event.results)} 条`);
+  if (event.kept != null) parts.push(`保留 ${Number(event.kept)} 个`);
+  if (event.submitted != null) parts.push(`提交 ${Number(event.submitted)}`);
+  if (event.skipped != null) parts.push(`跳过 ${Number(event.skipped)}`);
+  if (event.needs_research != null) parts.push(`需重搜 ${Number(event.needs_research)}`);
+  if (event.failed != null && Number(event.failed) > 0) parts.push(`失败 ${Number(event.failed)}`);
+  if (event.error) parts.push(`<span class="log-error-text">${escapeHtml(String(event.error).slice(0, 160))}</span>`);
+  if (event.task_id != null) parts.push(`任务 #${escapeHtml(event.task_id)}`);
+  return `<article class="log-row log-${level.toLowerCase()}">
+    <time>${formatLogTime(event.ts)}</time>
+    <span class="log-level log-level-${level.toLowerCase()}">${escapeHtml(level)}</span>
+    <div class="log-body"><span class="log-event">${escapeHtml(LOG_EVENT_LABELS[event.event] || event.event)}</span>${parts.length ? `<span class="log-meta">${parts.join(" · ")}</span>` : ""}</div>
+  </article>`;
+}
+
+function renderLogEvents(events) {
+  const list = $("#logs-list");
+  if (!list) return;
+  if (!events.length) {
+    list.innerHTML = "<div class='empty-state'><span>⌁</span><strong>暂无日志</strong><p>服务启动后会在数据目录 logs/autolist.log 记录结构化事件。</p></div>";
+    return;
+  }
+  list.innerHTML = events.map(logEventLine).join("");
+}
+
+async function loadLogEvents() {
+  const level = $("#logs-level")?.value || "";
+  const query = $("#logs-query")?.value?.trim() || "";
+  const params = new URLSearchParams({limit: "300"});
+  if (level) params.set("level", level);
+  if (query) params.set("query", query);
+  const events = await api(`/api/logs/events?${params}`);
+  renderLogEvents(events);
 }
 
 function candidateState(item) {
@@ -1527,6 +1585,12 @@ $("#clear-history")?.addEventListener("click", async () => {
 $("#history-status-filter")?.addEventListener("change", (event) => {
   historyStatusFilter = event.target.value || "all";
   renderHistoryTable();
+});
+
+$("#refresh-logs")?.addEventListener("click", () => loadLogEvents().catch((error) => showToast(error.message)));
+$("#logs-level")?.addEventListener("change", () => loadLogEvents().catch((error) => showToast(error.message)));
+$("#logs-query")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") loadLogEvents().catch((error) => showToast(error.message));
 });
 
 

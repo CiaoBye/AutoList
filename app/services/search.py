@@ -8,6 +8,7 @@ import re
 import sqlite3
 import time
 import uuid
+from collections import Counter
 from typing import Any
 
 import httpx
@@ -16,6 +17,7 @@ from fastapi import HTTPException
 from ..candidate_policy import normalized_policy
 from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, TorznabClient, TransmissionClient
 from ..database import config_values, connect, json_value
+from ..logs import event_logger
 from ..domain.titles import (
     candidate_identity,
     canonical_item_year,
@@ -379,10 +381,16 @@ async def run_search(task_id: int) -> None:
                 site_results = await asyncio.gather(*(
                     search_one_site(task_id, item, site, clients, site_semaphore, queries) for site in item_sites
                 ))
+                site_failures = 0
                 for site, torrents, reason, query_count in site_results:
                     if reason:
+                        site_failures += 1
                         warnings.append(f"{label} · {site['name']}：{reason}")
                         task_log(task_id, "warning", "search", f"{site['name']} 搜索失败：{reason}")
+                        event_logger().warning("site_search_failed", extra={
+                            "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
+                            "site": site["name"], "error": reason[:300],
+                        })
                         continue
                     pairs.extend((media, torrent) for torrent in torrents)
                     task_log(task_id, "info", "search", f"{site['name']} 返回 {len(torrents)} 个资源（{query_count} 个检索词）")
@@ -396,6 +404,7 @@ async def run_search(task_id: int) -> None:
                 excluded_keys: list[str] = []
                 selected_pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
                 selected_keys: set[tuple[str, str, str]] = set()
+                exclusion_counts: Counter[str] = Counter()
                 for pair in pairs:
                     torrent = pair[1]
                     analysis = analyze_candidate(
@@ -410,6 +419,8 @@ async def run_search(task_id: int) -> None:
                             "eligible": False, "manual": True, "recommendation": "excluded",
                             "reason": identity_reason, "exclusion_reason": identity_reason,
                         })
+                    if not analysis["eligible"]:
+                        exclusion_counts[str(analysis.get("exclusion_reason") or "不符合允许组合")] += 1
                     key = resource_fingerprint(
                         str(first_value(torrent, ("title", "torrent_name", "name"), "")),
                         first_value(torrent, ("size", "size_bytes")),
@@ -425,6 +436,19 @@ async def run_search(task_id: int) -> None:
                         continue
                     selected_keys.add(selection_key)
                     selected_pairs.append(pair)
+                kept = len(eligible_keys)
+                summary = {
+                    "rank": item["rank_no"], "movie": item["original_title"],
+                    "results": len(pairs), "kept": kept,
+                    "excluded": [{"reason": reason, "count": count} for reason, count in exclusion_counts.most_common(3)],
+                }
+                if site_failures:
+                    summary["site_failures"] = site_failures
+                task_log(task_id, "info", "summary", json.dumps(summary, ensure_ascii=False))
+                event_logger().info("movie_search_summary", extra={
+                    "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
+                    "results": len(pairs), "kept": kept, "excluded": len(excluded_keys),
+                })
                 for index, (source_media, torrent) in enumerate(selected_pairs):
                     candidate_id = uuid.uuid4().hex
                     title = str(first_value(torrent, ("title", "torrent_name", "name"), "未知资源"))
@@ -467,6 +491,10 @@ async def run_search(task_id: int) -> None:
         status = "partial" if warnings else "completed"
         message = "；".join(warnings[:5])[:500] if warnings else None
         update_task(task_id, status=status, completed=len(items), matched=matched, error_message=message)
+        event_logger().info("search_task_finished", extra={
+            "task_id": task_id, "status": status, "total": len(items),
+            "completed": len(items), "matched": matched,
+        })
         task_log(task_id, "warning" if warnings else "info", "task", f"任务结束：{len(items)} 部已处理，{matched} 个候选，{len(warnings)} 个警告")
     except asyncio.CancelledError:
         update_task(task_id, status="cancelled")

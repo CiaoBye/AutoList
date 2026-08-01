@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import state
 from .api import cart as cart_routes
+from .api import logs as log_routes
 from .api import playlists as playlist_routes
 from .api import search as search_routes
 from .api import sites as site_routes
@@ -84,6 +85,7 @@ from .util import (  # noqa: F401
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize()
     load_runtime_settings()
+    configure_logging()
     cleanup_old_data()
     with connect() as conn:
         now = utc_now()
@@ -110,7 +112,7 @@ _ENABLE_DOCS = os.getenv("AUTOLIST_ENABLE_DOCS", "").strip().lower() == "true"
 
 app = FastAPI(
     title="AutoList",
-    version="0.88",
+    version="0.89",
     lifespan=lifespan,
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
@@ -124,6 +126,7 @@ app.include_router(site_routes.router)
 app.include_router(playlist_routes.router)
 app.include_router(search_routes.router)
 app.include_router(cart_routes.router)
+app.include_router(log_routes.router)
 
 
 @app.middleware("http")
@@ -158,6 +161,7 @@ async def security_headers_middleware(request: Request, call_next):  # type: ign
 
 # Route handler re-exports used by tests.
 from .api.cart import cart, download_cart, history, toggle_cart  # noqa: E402,F401
+from .logs import configure_logging  # noqa: E402,F401
 from .api.playlists import (  # noqa: E402,F401
     configure_playlist_automation,
     configure_playlist_sync,

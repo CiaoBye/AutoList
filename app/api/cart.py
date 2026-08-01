@@ -13,6 +13,7 @@ from ..domain.titles import is_transmission_downloading, normalized_download_nam
 from ..security import safe_error, sanitize_sensitive_text
 from ..services.history import clear_download_history, playlist_item_snapshot, projected_download_history
 from ..services.library import library_details
+from ..logs import event_logger
 from ..state import (
     download_cart_lock,
     forget_raw_candidate,
@@ -224,6 +225,11 @@ async def download_cart() -> dict[str, Any]:
                     forget_raw_candidate(candidate["id"])
         if needs_research and completed == 0 and not skipped:
             raise HTTPException(409, f"下载列表中 {needs_research} 个资源的搜索上下文已失效，请重新搜索后加入下载列表")
+        failed = len(rows) - completed - len(skipped) - needs_research
+        event_logger().info("download_submit", extra={
+            "submitted": completed, "skipped": len(skipped), "needs_research": needs_research, "failed": failed,
+            "skipped_reasons": sorted({str(item.get("reason")) for item in skipped}),
+        })
         return {
             "submitted": completed, "needs_research": needs_research, "expired_items": expired_items,
             "skipped": skipped, "mode": "moviepilot", "tasks": submitted_tasks,

@@ -660,7 +660,8 @@ class NexusPHPClient:
     def _banner_stats(text: str) -> dict[str, Any] | None:
         """解析传统 NexusPHP 首页欢迎横幅（上传量/下载量/分享率/魔力值/当前活动）。
         横幅是 NexusPHP 标准模板的已登录统计块，比用户详情页表格更通用。"""
-        home_text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text)))
+        home_text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", text)
+        home_text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", home_text)))
         # 任意统计标签或横幅常见词都作为值边界，避免值吞掉后续内容。
         stop_labels = (
             "上传量", "上傳量", "uploaded", "下载量", "下載量", "downloaded",

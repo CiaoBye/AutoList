@@ -120,7 +120,7 @@ def validated_base_url(value: str, label: str, required: bool, allow_private: bo
 
 
 # Populated by app.main after router registration.
-APP_VERSION = "0.92"
+APP_VERSION = "0.93"
 
 @router.get("/api/health")
 async def health() -> dict[str, Any]:

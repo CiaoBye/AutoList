@@ -51,13 +51,13 @@ function applyTheme() {
 
 const pageMeta = {
   dashboard: {eyebrow: "ARCHIVE / OVERVIEW", title: "电影库", lead: ""},
-  playlists: {eyebrow: "LISTS / COLLECTIONS", title: "片单", lead: "查看影片与收藏进度。"},
-  search: {eyebrow: "QUEUE / RESOURCE SEARCH", title: "资源搜索", lead: "搜索并挑选合适的版本。"},
-  cart: {eyebrow: "QUEUE / DOWNLOAD LIST", title: "下载列表", lead: "确认即将下载的资源。"},
-  rules: {eyebrow: "QUEUE / CANDIDATE POLICY", title: "候选规则", lead: "调整自动优选的评分方式。"},
-  sites: {eyebrow: "MANAGEMENT / SITES & SERVICES", title: "站点与服务", lead: "管理 AutoList 搜索、Cookie 与站点健康状态。"},
-  history: {eyebrow: "QUEUE / ACTIVITY", title: "下载历史", lead: "追踪提交、下载与入库状态。"},
-  logs: {eyebrow: "OPERATIONS / EVENT LOG", title: "日志", lead: "结构化事件日志与搜索摘要。"},
+  playlists: {eyebrow: "LISTS / COLLECTIONS", title: "片单", lead: ""},
+  search: {eyebrow: "QUEUE / RESOURCE SEARCH", title: "资源搜索", lead: ""},
+  cart: {eyebrow: "QUEUE / DOWNLOAD LIST", title: "下载列表", lead: ""},
+  rules: {eyebrow: "QUEUE / CANDIDATE POLICY", title: "候选规则", lead: ""},
+  sites: {eyebrow: "MANAGEMENT / SITES & SERVICES", title: "站点与服务", lead: ""},
+  history: {eyebrow: "QUEUE / ACTIVITY", title: "下载历史", lead: ""},
+  logs: {eyebrow: "OPERATIONS / EVENT LOG", title: "日志", lead: ""},
 };
 
 const taskLabels = {
@@ -386,7 +386,7 @@ function renderLogEvents(events) {
   const list = $("#logs-list");
   if (!list) return;
   if (!events.length) {
-    list.innerHTML = "<div class='empty-state'><span>⌁</span><strong>暂无日志</strong><p>服务启动后会在数据目录 logs/autolist.log 记录结构化事件。</p></div>";
+    list.innerHTML = "<div class='empty-state'><span>⌁</span><strong>暂无日志</strong><p>服务运行后会自动记录事件日志。</p></div>";
     return;
   }
   list.innerHTML = events.map(logEventLine).join("");
@@ -819,7 +819,7 @@ function renderSiteInspector(site) {
     <div class="site-detail-stats"><div><span>上传量</span><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong></div><div><span>下载量</span><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong></div><div><span>分享率</span><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong></div><div><span>做种数</span><strong>${account.seeding == null ? "—" : Number(account.seeding).toLocaleString()}</strong></div></div>
     <dl class="site-detail-list"><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>本地 Cookie</dt><dd>${site.cookie_configured ? "已配置" : "未配置"}</dd><dt>User-Agent</dt><dd class="site-ua-value">${escapeHtml(site.user_agent || "AutoList 默认 UA")}</dd><dt>最近连接检测</dt><dd>${site.last_tested_at ? `${formatTime(site.last_tested_at)}${site.last_duration_ms == null ? "" : ` · ${Number(site.last_duration_ms)}ms`}` : "尚未检测"}</dd><dt>账户统计更新</dt><dd>${escapeHtml(account.checked_at ? formatTime(account.checked_at) : "等待后台刷新")}${account.error ? ` · ${escapeHtml(account.error)}` : ""}</dd><dt>最近搜索</dt><dd>${escapeHtml(stats.last_attempt_at || "暂无记录")}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">${stats.total ? `${Number(stats.success_rate || 0).toFixed(1)}% 成功 · ${Number(stats.average_ms || 0)}ms · ${Number(stats.total)} 次` : "等待搜索样本"}</dd></dl>
     <div class="site-detail-actions"><button class="button button-secondary" data-test-site="${site.id}">检测站点</button><button class="button button-secondary" data-refresh-site-cookie="${site.id}">刷新 Cookie</button><button class="button button-secondary" data-edit-site="${site.id}">编辑站点 / UA</button><button class="button button-danger" data-delete-site="${site.id}">删除站点</button></div>
-    <p class="site-login-hint">CookieCloud 每次收到浏览器上传后会自动匹配域名并更新本站 Cookie；单站“刷新 Cookie”仅用于手动重试。AutoList 不保存站点密码。</p>`;
+`;
   bindSiteLogoFallback($("#site-inspector-content"));
 }
 

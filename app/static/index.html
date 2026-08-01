@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.90.0">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.91.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=0.90.0">
+  <link rel="stylesheet" href="/assets/style.css?v=0.91.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -28,7 +28,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=0.90.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=0.91.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -45,7 +45,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg>日志</a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.90</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.91</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -314,7 +314,6 @@
   <dialog id="import-dialog" class="dialog" aria-labelledby="import-dialog-title">
     <form method="dialog" class="dialog-card">
       <div class="dialog-heading"><div><p class="section-kicker">NEW PLAYLIST</p><h2 id="import-dialog-title">导入片单</h2></div><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
-      <p class="dialog-copy">支持电影网站网址、XLSX、JSON 与 CSV。</p>
       <div class="import-tabs"><button class="active" type="button" data-import-mode="url">粘贴网址</button><button type="button" data-import-mode="file">上传文件</button><button type="button" data-import-mode="paste">粘贴内容</button></div>
       <section class="import-mode" data-import-panel="url"><label class="field"><span>片单网址</span><input id="import-url" placeholder="TMDB、Letterboxd、IMDb 或 MDBList"></label><label class="field"><span>最多导入</span><input id="import-limit" type="number" min="1" max="10000" value="5000"></label></section>
       <section class="import-mode" data-import-panel="file" hidden><label class="drop-zone" for="file"><span class="drop-icon">⇧</span><strong id="file-label">选择片单文件</strong><small>点击选择 .xlsx、.json 或 .csv</small><input id="file" type="file" accept=".xlsx,.json,.csv"></label></section>
@@ -328,7 +327,7 @@
 
   <dialog id="confirm-dialog" class="dialog confirm-dialog" aria-labelledby="confirm-dialog-title">
     <form method="dialog" class="dialog-card">
-    <span class="confirm-icon" aria-hidden="true">↗</span><h2 id="confirm-dialog-title">提交下载列表？</h2><p id="confirm-copy" class="dialog-copy">确认后将开始下载。</p>
+    
       <div class="dialog-actions"><button class="button button-secondary" value="cancel">返回检查</button><button id="confirm-download" class="button button-primary" value="confirm">确认提交</button></div>
     </form>
   </dialog>
@@ -336,7 +335,6 @@
   <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-dialog-title">
     <form method="dialog" class="dialog-card settings-card">
       <div class="dialog-heading"><div><p class="section-kicker">PREFERENCES</p><h2 id="settings-dialog-title">AutoList 设置</h2></div><button class="icon-button" value="cancel" aria-label="关闭设置">×</button></div>
-      <p class="dialog-copy">管理识别、下载、媒体库与网络连接。</p>
       <div class="settings-layout">
         <nav class="settings-tabs" role="tablist" aria-label="设置分类">
           <button id="settings-tab-recognition" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-recognition" data-settings-tab="recognition"><strong>识别与片单</strong><small>TMDB、MDBList、AI</small></button>
@@ -385,18 +383,16 @@
               <div class="settings-section-title"><span class="settings-icon proxy"><img src="/assets/service-proxy.svg" alt=""></span><div><strong>网络与代理</strong><small>按服务独立分流</small></div><em id="settings-proxy-status">未配置</em></div>
               <label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" autocomplete="off" placeholder="http://127.0.0.1:7890"></label>
               <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-tmdb-proxy" type="checkbox"><span>TMDB 走代理</span></label><label class="toggle-field"><input id="settings-pt-proxy" type="checkbox"><span>PT 站点允许代理</span></label></div>
-              <p class="settings-help">代理只应用到勾选的服务；站点 Cookie、User-Agent 和图标均由 AutoList 自主管理。</p>
             </section>
           </div>
           <div id="settings-panel-system" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-system" data-settings-panel="system" hidden>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.90.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.91.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
-              <p class="settings-help" id="settings-access-token-hint">未启用服务端访问令牌时，此栏仅用于多机调试。</p>
             </section>
             <section class="settings-section shelf-preference-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.90.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.91.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
               <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片。</p></div>
             </section>
           </div>
@@ -411,7 +407,6 @@
   <dialog id="site-dialog" class="dialog" aria-labelledby="site-dialog-title">
     <form method="dialog" class="dialog-card">
       <div class="dialog-heading"><div><p class="section-kicker">PT SITE</p><h2 id="site-dialog-title">添加站点</h2></div><button class="icon-button" value="cancel" aria-label="关闭站点设置">×</button></div>
-      <p class="dialog-copy">填写站点地址和登录信息。</p>
       <input id="site-id" type="hidden">
       <label class="field"><span>站点名称</span><input id="site-name" placeholder="例如：馒头"></label>
       <div class="settings-inline"><label class="field"><span>优先级</span><input id="site-priority" type="number" min="1" max="999" value="100"></label><label class="field"><span>超时（秒）</span><input id="site-timeout" type="number" min="3" max="300" value="30"></label></div>
@@ -429,6 +424,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>电影库</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=0.90.0"></script>
+  <script type="module" src="/assets/app.js?v=0.91.0"></script>
 </body>
 </html>

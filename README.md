@@ -2,9 +2,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`0.90`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
-
-NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时设置保存在 `/mnt/user/appdata/Autolist/data`，更新镜像不会丢失。
+当前版本：`0.91`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
 
 外部片单先在导入弹窗预览再写入。TMDB 使用官方 API；Letterboxd 公开片单使用其官方嵌入页面，避免普通网页的 Cloudflare 校验；IMDb 公开 List 使用当前 GraphQL 列表接口；MDBList 公开片单使用其 JSON 接口。私有片单仍需使用站点导出文件，AutoList 不绕过验证码或登录限制。
 
@@ -26,22 +24,20 @@ NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时�
 
 > **安全警告**：AutoList 默认面向可信内网。未设置 `AUTOLIST_ACCESS_TOKEN` 且未加反向代理鉴权时，任何能访问 `8585` 的客户端都能改设置、同步 Cookie 并提交下载。**禁止将端口直接映射到公网**；访客 Wi‑Fi、远程映射或不可信网段必须启用访问令牌或反向代理 Basic Auth / SSO。
 
-1. `cp .env.example .env`，至少填写 TMDB 与 MoviePilot；Emby、AI 按需配置。Transmission 由 MoviePilot 自身配置并负责实际下载。
-2. 不可信网络环境请设置 `AUTOLIST_ACCESS_TOKEN`（强随机串）。浏览器首次调用受保护接口时会提示输入，令牌仅保存在本机 `localStorage`。
+1. `cp .env.example .env`，至少填写 TMDB 与 MoviePilot。
+2. 不可信网络环境请设置 `AUTOLIST_ACCESS_TOKEN`。
 3. `docker compose up -d --build`
-4. 打开 `http://<Docker 主机>:8585`，在右上角“设置”中填写连接信息，再导入原始 xlsx 或 JSON 片单。
+4. 打开 `http://<Docker 主机>:8585` 完成设置并导入片单。
+
 ### Chrome CookieCloud
 
 1. 在 AutoList 设置中填写 CookieCloud 用户 KEY 与端对端加密密码。
 2. Chrome CookieCloud 扩展的服务器地址填写 `http://<Docker 主机>:8585/cookiecloud`，KEY 和密码保持一致，并执行一次上传同步。
-3. 每次扩展上传后，AutoList 会先解密校验，再按站点域名自动更新自己的 Cookie；User-Agent 保留站点当前配置，整个过程不依赖 MoviePilot。
-4. 站点详情中的“刷新 Cookie”只用于从最近一次 CookieCloud 数据手动重试。AutoList 不保存站点用户名或密码；User-Agent 在站点编辑中独立维护。
+3. 站点详情中的“刷新 Cookie”用于从最近一次 CookieCloud 数据手动重试。
 
 ### Unraid 7.3.2
 
-仓库提供标准 DockerMan 用户模板 `unraid/my-Autolist.xml` 与本地图标 `unraid/autolist-icon.png`。将 XML 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，图标复制到 `/mnt/user/appdata/Autolist/autolist-icon.png`，再从 Unraid 的“添加容器”选择 **Autolist**。模板通过 `<Icon>` 指向本地 `file://` 图标，DockerMan 会生成对应的 Unraid 图标标签；容器名和 Compose 部署也统一为 `Autolist`。
-
-Compose 仅启动 `Autolist` 一个容器。前端静态文件、FastAPI 和 SQLite 都在这个容器中；数据库持久化到 `./data/playlist-autodown.db`。
+将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，图标复制到 `/mnt/user/appdata/Autolist/autolist-icon.png`，再从 Unraid 的“添加容器”选择 **Autolist**。
 
 ## 代码结构
 

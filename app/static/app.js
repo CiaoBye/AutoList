@@ -322,8 +322,12 @@ function renderCart() {
   $("#metric-cart").textContent = cartCache.length;
   $("#metric-cart-size").textContent = formatSize(total);
   $("#cart-total-size").textContent = formatSize(total);
-  $("#download").disabled = available.length === 0;
-  $("#download").textContent = expired ? `下载有效资源（${available.length}）` : "开始下载";
+  const downloadButton = $("#download");
+  downloadButton.disabled = available.length === 0;
+  downloadButton.textContent = available.length
+    ? (expired ? `下载有效资源（${available.length}）` : "开始下载")
+    : (expired ? "请先重新搜索" : "暂无可下载资源");
+  downloadButton.title = expired && !available.length ? "下载列表中的搜索上下文已失效，请先重新搜索" : "提交当前有效资源";
   $("#cart-list").innerHTML = cartCache.length
     ? cartCache.map((item) => {
         const movieTitle = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title;
@@ -333,8 +337,11 @@ function renderCart() {
         <button class="cart-remove" data-cart-remove="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(movieTitle)}">移除</button>
       </article>`; }).join("")
     : "<div class='empty-state'><span>＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class='button button-secondary' data-route-target='search'>前往资源搜索</button></div>";
-  if (expired) {
-    $("#cart-result").textContent = `${expired} 个资源因服务重启已失效，请重新搜索；仍可提交其余 ${available.length} 个有效资源。`;
+  if (expired && available.length) {
+    $("#cart-result").textContent = `${expired} 个资源因服务重启已失效，请点击对应条目的“重新搜索”；仍可提交其余 ${available.length} 个有效资源。`;
+    $("#cart-result").className = "inline-message cart-message warning";
+  } else if (expired) {
+    $("#cart-result").textContent = `${expired} 个资源的搜索上下文已失效，无法直接下载；请点击对应条目的“重新搜索”后再加入下载列表。`;
     $("#cart-result").className = "inline-message cart-message warning";
   } else if ($("#cart-result").classList.contains("warning")) {
     $("#cart-result").textContent = "";

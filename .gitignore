@@ -3,6 +3,8 @@
 data/
 runtime-settings.json
 playlist-autodown.db
+playlist-autodown.db-shm
+playlist-autodown.db-wal
 
 # Python
 __pycache__/

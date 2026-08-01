@@ -246,6 +246,7 @@ def initialize() -> None:
             "eligibility": "TEXT NOT NULL DEFAULT 'eligible'",
             "exclusion_reason": "TEXT",
             "profile_id": "TEXT",
+            "detail_url": "TEXT",
         }.items():
             if column not in candidate_columns:
                 conn.execute(f"ALTER TABLE candidates ADD COLUMN {column} {definition}")

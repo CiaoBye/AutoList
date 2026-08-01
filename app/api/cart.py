@@ -83,7 +83,8 @@ async def cart() -> list[dict[str, Any]]:
     prune_raw_candidates()
     with connect() as conn:
         rows = conn.execute(
-            """SELECT c.id, c.title, c.site_name, c.size, c.resolution, c.library_state, p.original_title
+            """SELECT c.id, c.title, c.site_name, c.size, c.resolution, c.library_state, c.detail_url,
+                      p.original_title, p.rank_no, p.chinese_title, p.tmdb_title, p.tmdb_original_title, p.tmdb_year, p.year
                FROM cart_items cart JOIN candidates c ON c.id=cart.candidate_id
                JOIN playlist_items p ON p.id=c.playlist_item_id ORDER BY cart.selected_at"""
         ).fetchall()

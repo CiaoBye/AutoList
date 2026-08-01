@@ -268,11 +268,16 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .filter-chip.active { color: #fff; border-color: var(--ink); background: var(--ink); }
 .candidate-labels, .candidate-row { display: grid; grid-template-columns: minmax(260px,1.2fr) minmax(170px,.75fr) minmax(270px,1fr) 88px 116px; gap: 18px; align-items: center; }
 .candidate-labels { padding: 13px 26px; color: var(--subtle); font: 600 10px var(--font-data); letter-spacing: .08em; text-transform: uppercase; }
-.candidate-row { position: relative; padding: 18px 26px; border-top: 1px solid var(--line); transition: background .18s ease; }
+.candidate-row { position: relative; padding: 18px 26px; border-top: 1px solid var(--line-strong); transition: background .18s ease; }
+.candidate-row:first-child { border-top: 0; }
 .candidate-row:hover { background: #f7f8f4; }
 .candidate-row.is-best { border-left: 4px solid var(--rust); background: #f9faf6; }
 .candidate-row.is-excluded { color: #687174; background: #f5f5f2; }
 .candidate-row.is-excluded .candidate-title small { text-decoration-color: #c6cbc8; }
+.torrent-link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+.torrent-link:hover { color: var(--rust); text-decoration-color: var(--rust); }
+.publish-date { color: var(--muted); font-size: 11px; font-weight: 500; margin-left: 6px; }
+.site-options .torrent-link { font-size: 11px; }
 .candidate-title { min-width: 0; }
 .candidate-title strong, .candidate-title small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .candidate-title strong { margin-bottom: 7px; font-family: var(--font-editorial); font-size: 16px; }

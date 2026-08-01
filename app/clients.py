@@ -141,6 +141,7 @@ class MoviePilotClient:
         publish_time = torrent_payload.pop("publish_time", None)
         if publish_time and not torrent_payload.get("pubdate"):
             torrent_payload["pubdate"] = str(publish_time)
+        torrent_payload.pop("detail_url", None)
         async with self._client() as client:
             response = await client.post(
                 "/api/v1/download/",
@@ -395,6 +396,7 @@ class TorznabClient:
                 "size": size,
                 "seeders": seeders,
                 "publish_time": item.findtext("pubDate"),
+                "detail_url": item.findtext("link"),
                 "labels": [],
             })
         return results
@@ -495,12 +497,17 @@ class MTeamClient:
             "header": {**self.headers(site), "Content-Type": "multipart/form-data"}, "result": "data",
         }
         encoded = base64.b64encode(json.dumps(request_options).encode()).decode()
+        publish_time = next((row.get(key) for key in ("createTime", "addedAt", "publishTime", "createdTime", "pubDate") if row.get(key) not in (None, "")), None)
+        detail_url = next((row.get(key) for key in ("detailUrl", "torrentUrl", "url", "link") if row.get(key) not in (None, "")), None)
+        if not detail_url and row.get("id") is not None:
+            detail_url = f"{self.api_base(site)}/details.php?id={row.get('id')}"
         return {
             "title": row.get("name") or "未知资源", "description": row.get("smallDescr"),
             "site_name": site["name"], "size": int(row.get("size") or 0),
             "seeders": int(status.get("seeders") or 0), "leechers": int(status.get("leechers") or 0),
             "enclosure": f"[{encoded}]{self.api_base(site)}/api/torrent/genDlToken",
             "labels": labels, "volume_factor": factor, "site_ua": site.get("user_agent") or "AutoList/0.65",
+            "publish_time": publish_time, "detail_url": detail_url,
         }
 
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
@@ -629,11 +636,13 @@ class NexusPHPClient:
             title_text = self._text(detail["title"] or " ".join(detail["text"]))
             cells = [self._text(" ".join(cell)) for cell in row["cells"]]
             numeric = [int(value.replace(",", "")) for value in cells[-5:] if re.fullmatch(r"[\d,]+", value)]
+            publish_time = next((match.group(0) for cell in cells if (match := re.search(r"\d{4}-\d{2}-\d{2}", cell))), None)
             results.append({
                 "title": title_text, "site_name": site["name"], "size": self._size(cells),
                 "seeders": numeric[-3] if len(numeric) >= 3 else 0,
                 "enclosure": urljoin(base, download["href"]), "labels": ["FREE"] if row["free"] else [],
                 "volume_factor": 0 if row["free"] else 1, "site_cookie": site.get("cookie") or "", "site_ua": headers["User-Agent"],
+                "publish_time": publish_time, "detail_url": urljoin(base, detail["href"]),
             })
         unique: dict[str, dict[str, Any]] = {}
         for item in results:

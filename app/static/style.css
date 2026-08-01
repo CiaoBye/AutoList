@@ -472,8 +472,12 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .settings-tab:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .settings-panels { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
 .settings-tab-panel { padding: 12px 16px; }
-.settings-dialog input, .settings-dialog select, .settings-dialog textarea { border-color: transparent; background: transparent; }
-.settings-dialog input:focus, .settings-dialog select:focus, .settings-dialog textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(83,99,165,.12); }
+.settings-dialog input:not([type="checkbox"]):not([type="hidden"]), .settings-dialog select, .settings-dialog textarea { border-color: var(--line-strong); background-color: var(--surface-strong); }
+.settings-dialog input:not([type="checkbox"]):not([type="hidden"]):focus, .settings-dialog select:focus, .settings-dialog textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(83,99,165,.12); }
+.settings-dialog input[type="checkbox"] { width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin: 0; padding: 0; border: 0; border-radius: 4px; background: transparent; accent-color: var(--blue); }
+.settings-dialog input[type="checkbox"]:focus-visible { outline: 3px solid rgba(53,107,134,.3); outline-offset: 2px; box-shadow: none; }
+.settings-dialog .secret-clear { width: max-content; white-space: nowrap; }
+.settings-dialog .secret-clear input[type="checkbox"] { flex: 0 0 18px; }
 .settings-tab-panel[hidden] { display: none; }
 .settings-content-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 14px; }
 .settings-section { padding: 14px 0; border: 0; }

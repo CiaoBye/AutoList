@@ -322,11 +322,13 @@ function renderCart() {
   $("#download").disabled = available.length === 0;
   $("#download").textContent = expired ? `下载有效资源（${available.length}）` : "开始下载";
   $("#cart-list").innerHTML = cartCache.length
-    ? cartCache.map((item) => `<article class="cart-item cart-item-page ${item.context_available ? "" : "cart-item-expired"}">
-        <div class="cart-item-main"><span class="cart-item-icon">◇</span><div><strong>${escapeHtml(item.original_title)}</strong><small title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</small></div></div>
+    ? cartCache.map((item) => {
+        const movieTitle = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title;
+        return `<article class="cart-item cart-item-page ${item.context_available ? "" : "cart-item-expired"}">
+        <div class="cart-item-main"><span class="cart-item-icon">◇</span><div><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${torrentLinkHtml(item.detail_url, item.title)}</small></div></div>
         <div class="cart-item-spec"><span class="tag ${item.context_available ? "tag-accent" : "tag-error"}">${item.context_available ? escapeHtml(item.resolution || "其他") : "搜索上下文已过期"}</span><span class="tag">${escapeHtml(item.site_name || "未知站点")}</span><span class="tag">${formatSize(item.size)}</span>${item.context_available ? "" : '<button class="text-link" data-route-target="search">重新搜索 →</button>'}</div>
-        <button class="cart-remove" data-cart-remove="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(item.original_title)}">移除</button>
-      </article>`).join("")
+        <button class="cart-remove" data-cart-remove="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(movieTitle)}">移除</button>
+      </article>`; }).join("")
     : "<div class='empty-state'><span>＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class='button button-secondary' data-route-target='search'>前往资源搜索</button></div>";
   if (expired) {
     $("#cart-result").textContent = `${expired} 个资源因服务重启已失效，请重新搜索；仍可提交其余 ${available.length} 个有效资源。`;
@@ -346,6 +348,26 @@ function candidateState(item) {
   if (item.library_state === "in_library") return ["已入库", "tag-library"];
   if (["strm", "not_found"].includes(item.library_state)) return ["待入库", "tag-strm"];
   return ["状态未知", ""];
+}
+
+function formatPublishDate(value) {
+  if (!value) return "";
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (match) return `${match[1]}/${match[2].padStart(2, "0")}/${match[3].padStart(2, "0")}`;
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime()) && parsed.getFullYear() > 1990) {
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${parsed.getFullYear()}/${month}/${day}`;
+  }
+  return "";
+}
+
+function torrentLinkHtml(url, title) {
+  const href = safeExternalUrl(url);
+  const label = escapeHtml(title);
+  return href === "#" ? label : `<a class="torrent-link" href="${href}" target="_blank" rel="noopener noreferrer" title="${label}">${label} ↗</a>`;
 }
 
 function renderCandidates() {
@@ -373,9 +395,9 @@ function renderCandidates() {
     const breakdown = Array.isArray(item.score_breakdown) ? item.score_breakdown.slice(0, 3) : [];
     const movieTitle = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title;
     return `<article class="candidate-row ${item.recommendation === "preferred" ? "is-best" : ""} ${excluded ? "is-excluded" : ""}">
-      <div class="candidate-title"><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</small></div>
+      <div class="candidate-title"><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${torrentLinkHtml(item.detail_url, item.title)}</small></div>
       <div class="recommendation-cell"><span class="recommendation-badge ${escapeHtml(item.recommendation)}">${recommendation}</span><small>${escapeHtml(item.recommendation_reason || "等待规则分析")}</small></div>
-      <div class="candidate-source"><strong>${escapeHtml(item.site_name || "未知站点")} ${item.is_free ? '<em class="free-mark">FREE</em>' : ""}</strong><small class="site-selection-reason">${escapeHtml(item.site_selection_reason || "")}</small><div class="spec-stack"><span class="tag tag-accent">${escapeHtml(item.resolution || "其他")}</span><span class="tag">${escapeHtml(item.codec || "其他")}</span><span class="tag">${escapeHtml(item.group_name || "未知组")}</span><span class="tag">${Number(item.seeders || 0)} 做种</span><span class="tag">${formatSize(item.size)}</span><span class="tag ${stateClass}">${stateLabel}</span>${labels.map((label) => `<span class="tag tag-promo">${escapeHtml(label)}</span>`).join("")}</div>${item.site_count > 1 ? `<details class="site-options"><summary>另 ${item.site_count - 1} 个站点</summary>${item.site_options.slice(1).map((option) => `<div><strong>${escapeHtml(option.site_name || "未知")}</strong><span>优先级 ${Number(option.site_priority)} · ${option.volume_factor === 0 ? "FREE · " : option.volume_factor < 1 ? `下载 ${Math.round(option.volume_factor * 100)}% · ` : ""}${Number(option.seeders || 0)} 做种</span></div>`).join("")}</details>` : ""}</div>
+      <div class="candidate-source"><strong>${escapeHtml(item.site_name || "未知站点")} ${formatPublishDate(item.metadata?.publish_time) ? `<span class="publish-date">${formatPublishDate(item.metadata?.publish_time)}</span>` : ""} ${item.is_free ? '<em class="free-mark">FREE</em>' : ""}</strong><small class="site-selection-reason">${escapeHtml(item.site_selection_reason || "")}</small><div class="spec-stack"><span class="tag tag-accent">${escapeHtml(item.resolution || "其他")}</span><span class="tag">${escapeHtml(item.codec || "其他")}</span><span class="tag">${escapeHtml(item.group_name || "未知组")}</span><span class="tag">${Number(item.seeders || 0)} 做种</span><span class="tag">${formatSize(item.size)}</span><span class="tag ${stateClass}">${stateLabel}</span>${labels.map((label) => `<span class="tag tag-promo">${escapeHtml(label)}</span>`).join("")}</div>${item.site_count > 1 ? `<details class="site-options"><summary>另 ${item.site_count - 1} 个站点</summary>${item.site_options.slice(1).map((option) => `<div><strong>${torrentLinkHtml(option.detail_url, option.site_name || "未知")}</strong><span>${formatPublishDate(option.publish_time)}${formatPublishDate(option.publish_time) ? " · " : ""}优先级 ${Number(option.site_priority)} · ${option.volume_factor === 0 ? "FREE · " : option.volume_factor < 1 ? `下载 ${Math.round(option.volume_factor * 100)}% · ` : ""}${Number(option.seeders || 0)} 做种</span></div>`).join("")}</details>` : ""}</div>
       <div class="candidate-score"><strong>${excluded ? "—" : Number(item.score || 0)}</strong><small>${excluded ? escapeHtml(item.exclusion_reason || "不符合允许组合") : (breakdown.map((part) => `${escapeHtml(part.label)}${Number(part.score || 0) ? ` +${Number(part.score)}` : ""}`).join(" · ") || "策略匹配")}</small></div>
       ${excluded ? '<span class="candidate-blocked">不可加入</span>' : `<button class="candidate-action ${item.in_cart ? "selected" : ""}" data-candidate="${escapeHtml(item.id)}" ${!item.context_available && !item.in_cart ? "disabled" : ""}>${item.in_cart ? "移出下载列表" : item.context_available ? "加入下载列表" : "需重新搜索"}</button>`}
     </article>`;

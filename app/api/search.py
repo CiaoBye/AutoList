@@ -227,10 +227,11 @@ async def candidates(task_id: int) -> list[dict[str, Any]]:
         groups.setdefault((int(item["playlist_item_id"]), item["resource_key"]), []).append(item)
     grouped: list[dict[str, Any]] = []
     for options in groups.values():
+        # 同资源跨站点折叠：优先展示做种人数最多的发布（用户可实际下载），
+        # 再做种相同或缺失时按站点优先级/免费/优惠排序作为次级规则。
         options.sort(key=lambda item: (
-            item["site_priority"], 0 if item["is_free"] else 1,
-            item["volume_factor"],
-            -int(item.get("seeders") or 0), int(item.get("ranking") or 0),
+            -int(item.get("seeders") or 0), item["site_priority"], 0 if item["is_free"] else 1,
+            item["volume_factor"], int(item.get("ranking") or 0),
         ))
         primary = dict(options[0])
         primary["site_count"] = len(options)
@@ -239,6 +240,7 @@ async def candidates(task_id: int) -> list[dict[str, Any]]:
             "size": option.get("size"), "is_free": option["is_free"], "site_priority": option["site_priority"],
             "volume_factor": option["volume_factor"], "labels": option["metadata"].get("labels", []),
             "in_cart": option.get("in_cart", 0), "context_available": option["context_available"],
+            "detail_url": option.get("detail_url"), "publish_time": option["metadata"].get("publish_time"),
         } for option in options]
         factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
         primary["site_selection_reason"] = (

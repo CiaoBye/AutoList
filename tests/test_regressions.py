@@ -1202,6 +1202,80 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             else:
                 os.environ["AUTOLIST_ACCESS_TOKEN"] = previous_token
 
+    async def test_zero_seeder_candidate_excluded(self) -> None:
+        """0 人做种的资源无法下载，直接排除；有做种者的同标题资源不受影响。"""
+        config = config_values()
+        excluded = main.analyze_candidate(
+            "Movie.2024.1080p.x265-FRDS", 0, config, {"seeders": 0, "volume_factor": 1},
+        )
+        self.assertFalse(excluded["eligible"])
+        self.assertIn("0 人做种", excluded.get("exclusion_reason") or "")
+        eligible = main.analyze_candidate(
+            "Movie.2024.1080p.x265-FRDS", 0, config, {"seeders": 3, "volume_factor": 1},
+        )
+        self.assertTrue(eligible["eligible"])
+
+    async def test_spoofed_release_group_codec_rejected(self) -> None:
+        """Fury（x265 组）与 SPM（x264 组）编码不符时判定为冒用组名；@站点名 不再误识别为 HDS 组。"""
+        config = config_values()
+        spoofed = main.analyze_candidate(
+            "Movie.2024.1080p.BluRay.x264-Fury@HDSky", 0, config, {"seeders": 5, "volume_factor": 1},
+        )
+        self.assertFalse(spoofed["eligible"])
+        self.assertIn("FURY 组为 x265", spoofed.get("exclusion_reason") or "")
+        spoofed = main.analyze_candidate(
+            "Movie.2024.2160p.x265-SPM@HDSky", 0, config, {"seeders": 5, "volume_factor": 1},
+        )
+        self.assertFalse(spoofed["eligible"])
+        self.assertIn("SPM 组为 x264", spoofed.get("exclusion_reason") or "")
+        # 编码与知名组惯例一致时不再误报冒用；组名识别为 FURY（而非 HDSky 的 HDS）。
+        genuine = main.analyze_candidate(
+            "Movie.2024.1080p.x265-Fury@HDSky", 0, config, {"seeders": 5, "volume_factor": 1},
+        )
+        self.assertEqual(genuine["group"], "FURY")
+        self.assertNotIn("疑似冒用", genuine.get("exclusion_reason") or "")
+
+    async def test_aggregated_candidate_prefers_most_seeders(self) -> None:
+        """同资源跨站点折叠时，主推荐必须是做种人数最多的发布，而不是站点优先级最高的。"""
+        with connect() as conn:
+            task_id = conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid
+            item_id = conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1", (self.playlist_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,priority,created_at) VALUES(?,?,?,?,?)",
+                ("聚合测试站A", "nexusphp", "https://site-a.example", 1, main.utc_now()),
+            )
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,priority,created_at) VALUES(?,?,?,?,?)",
+                ("聚合测试站B", "nexusphp", "https://site-b.example", 5, main.utc_now()),
+            )
+            for index, (site, seeders) in enumerate([("聚合测试站A", 2), ("聚合测试站B", 80)]):
+                conn.execute(
+                    """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,
+                               resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,
+                               recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,
+                               profile_id,metadata_json,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (f"same-{index}", task_id, item_id, index, "Movie.2024.1080p.x265-FRDS", site, 1000, seeders,
+                     "1080p", "x265", "FRDS", 1, 90, "[]", index, "preferred", "", "movie20241080px265frds:0",
+                     "unknown", 0, "eligible", None, "primary_x265", "{}", main.utc_now()),
+                )
+        result = await main.candidates(int(task_id))
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["site_name"], "聚合测试站B")
+        self.assertEqual(result[0]["seeders"], 80)
+        self.assertEqual(result[0]["site_count"], 2)
+        self.assertEqual(len(result[0]["site_options"]), 2)
+        options_by_site = {option["site_name"]: option for option in result[0]["site_options"]}
+        self.assertEqual(options_by_site["聚合测试站A"]["seeders"], 2)
+        self.assertEqual(options_by_site["聚合测试站B"]["seeders"], 80)
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,8 @@ BUILTIN_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
     ("PANDAMOON", r"PandaMoon"),
     ("SMURF", r"SMURF"),
     ("TEPES", r"TEPES"),
+    ("FURY", r"Fury"),
+    ("SPM", r"SPM"),
     ("TAENGOO", r"Taengoo"),
     ("TROLLHD", r"TrollHD"),
     ("ANI", r"ANi"),
@@ -95,6 +97,14 @@ BUILTIN_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
     ("沸羊羊", r"沸羊羊(?:制作|字幕组)"),
     ("樱都字幕组", r"(?:桜|樱)都字幕组"),
 )
+
+# 知名压制组的惯例编码：组名出现但标题编码与惯例不符时，判定为冒用组名的发布。
+# Fury 是 x265 压制组、SPM 是 x264 压制组；HDSky 等站点上常见组名被其他发布借用。
+KNOWN_GROUP_CODECS: dict[str, str] = {
+    "FURY": "x265",
+    "SPM": "x264",
+}
+
 
 DEFAULT_HARD_EXCLUSIONS: tuple[dict[str, Any], ...] = (
     {"id": "diy", "label": "DIY", "enabled": True},
@@ -203,7 +213,9 @@ def release_group_catalog(policy: dict[str, Any]) -> dict[str, Any]:
 
 
 def match_release_group(title: str, policy: dict[str, Any]) -> str | None:
-    wrapped = f" {title} "
+    # 先剥掉 @站点名 后缀（如 Fury@HDSky / SPM@HDSky），站点名不能参与组名识别，
+    # 否则 HDSky 会先命中 HDS 规则，把其他组的发布误判为 HDS 正规组。
+    wrapped = re.sub(r"@[A-Za-z0-9._-]+", " ", f" {title} ")
     left = r"(?<=[\-@\[￡【&._\s])"
     right = r"(?=$|[@.\s\]\[】&/_-])"
     for name, pattern in BUILTIN_RELEASE_GROUP_RULES:
@@ -285,6 +297,13 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
     source = parse_source(upper)
     group = match_release_group(title, policy)
     exclusion = hard_exclusion_reason(title, policy)
+    seeders = int(torrent.get("seeders") or torrent.get("seeder") or 0)
+    # 0 人做种的资源无法实际下载，直接排除（仅在实际搜索/试算携带种子数据时生效）。
+    if torrent and not exclusion and seeders == 0:
+        exclusion = "0 人做种，无法下载"
+    # 组名与知名压制组的惯例编码不符时判定为冒用组名（Fury=x265、SPM=x264）。
+    if not exclusion and group and KNOWN_GROUP_CODECS.get(group) and codec != KNOWN_GROUP_CODECS[group]:
+        exclusion = f"{group} 组为 {KNOWN_GROUP_CODECS[group]} 编码，疑似冒用组名"
     profile = next((item for item in policy["profiles"] if item["enabled"] and codec in item["codecs"] and group in item["groups"]), None)
     eligible = exclusion is None and profile is not None
     if not exclusion and not group:
@@ -292,7 +311,6 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
     elif not exclusion and not profile:
         exclusion = f"{codec} 与 {group or '未知制作组'} 不在允许组合中"
 
-    seeders = int(torrent.get("seeders") or torrent.get("seeder") or 0)
     volume = torrent.get("volume_factor", 1)
     try:
         volume = float(volume)

@@ -444,14 +444,14 @@ async def run_search(task_id: int) -> None:
                     fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))
                     with connect() as conn:
                         conn.execute(
-                            """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,profile_id,metadata_json,created_at)
-                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,profile_id,detail_url,metadata_json,created_at)
+                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
                              first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],
                              analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
                              analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
                              int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
-                             analyzed.get("exclusion_reason"), analyzed.get("profile_id"), json_value(metadata), utc_now()),
+                             analyzed.get("exclusion_reason"), analyzed.get("profile_id"), first_value(torrent, ("detail_url",)), json_value(metadata), utc_now()),
                         )
                     remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
                 matched += len(eligible_keys)

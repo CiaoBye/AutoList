@@ -666,8 +666,9 @@ class NexusPHPClient:
         stop_labels = (
             "上传量", "上傳量", "uploaded", "下载量", "下載量", "downloaded",
             "分享率", "比率", "ratio", "魔力值", "魔力豆", "魔力", "积分", "bonus",
-            "当前活动", "做种数", "做種數", "seeding", "邀请", "捐赠", "用户组",
-            "可连接", "连接数", "上传排行",
+            "当前活动", "當前活動", "做种数", "做種數", "seeding", "邀请", "邀請",
+            "捐赠", "捐贈", "用户组", "用戶組", "可连接", "可連接", "连接数", "連接數",
+            "上传排行", "上傳排行",
         )
         stop_pattern = "|".join(re.escape(label) for label in stop_labels)
 
@@ -689,7 +690,7 @@ class NexusPHPClient:
             "downloaded": downloaded,
             "ratio": numeric_value(banner_value(("分享率", "比率", "ratio"))),
             "bonus": numeric_value(banner_value(("魔力值", "魔力豆", "魔力", "积分", "bonus"))),
-            "seeding": int(numeric_value(banner_value(("当前活动", "做种数", "做種數", "seeding"))) or 0),
+            "seeding": int(numeric_value(banner_value(("当前活动", "當前活動", "做种数", "做種數", "seeding"))) or 0),
         }
 
     @staticmethod

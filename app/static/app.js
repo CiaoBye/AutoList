@@ -587,57 +587,14 @@ const setServiceStatus = (selector, result, optional = false) => {
   element.classList.add("error");
 };
 
-const SECRET_FIELDS = [
-  ["settings-mp-key", "mp_api_key_configured"],
-  ["settings-emby-key", "emby_api_key_configured"],
-  ["settings-tmdb-key", "tmdb_api_key_configured"],
-  ["settings-mdblist-key", "mdblist_api_key_configured"],
-  ["settings-cookiecloud-key", "cookiecloud_key_configured"],
-  ["settings-cookiecloud-password", "cookiecloud_password_configured"],
-  ["settings-ai-key", "ai_api_key_configured"],
-  ["settings-tr-password", "tr_password_configured"],
-];
-
-function setupSecretClearControls() {
-  // 每个密钥输入框旁动态添加“清除已配置值”复选框：留空且未勾选 = 保留原值，
-  // 避免用户只修改其他设置时意外清除已配置的密钥。
-  SECRET_FIELDS.forEach(([inputId]) => {
-    const input = $(`#${inputId}`);
-    const wrap = input?.closest("label.field");
-    if (!input || !wrap || $(`#${inputId}-clear`)) return;
-    const clear = document.createElement("label");
-    clear.className = "secret-clear";
-    clear.id = `${inputId}-clear`;
-    clear.hidden = true;
-    clear.innerHTML = `<input type="checkbox"> 清除已配置值`;
-    clear.querySelector("input").addEventListener("change", () => {
-      input.disabled = clear.querySelector("input").checked;
-    });
-    wrap.appendChild(clear);
-  });
-}
-
-function updateSecretClearState(inputId, configured) {
-  const clear = $(`#${inputId}-clear`);
-  if (!clear) return;
-  clear.hidden = !configured;
-  clear.querySelector("input").checked = false;
-  $(`#${inputId}`).disabled = false;
-}
-
-function secretValue(inputId, configured) {
+function secretValue(inputId) {
   const input = $(`#${inputId}`);
-  const clear = $(`#${inputId}-clear`);
   const value = String(input?.value || "").trim();
-  if (value) return value;
-  if (configured && clear && clear.querySelector("input").checked) return "";
-  return null; // 未修改，保留原值
+  return value || null; // 密钥输入框留空时保留服务端已有值
 }
 
 async function loadSettings() {
   const [runtime, cookiecloud] = await Promise.all([api("/api/settings"), api("/api/cookiecloud/status")]);
-  setupSecretClearControls();
-  SECRET_FIELDS.forEach(([inputId, flag]) => updateSecretClearState(inputId, Boolean(runtime[flag])));
   $("#settings-mp-url").value = runtime.mp_base_url || "";
   $("#settings-mp-key").value = runtime.mp_api_key || "";
   $("#settings-timeout").value = runtime.mp_timeout_seconds || 30;
@@ -691,27 +648,26 @@ async function testSettings() {
 }
 
 async function saveSettings() {
-  const runtime = await api("/api/settings");
   const runtimePayload = {
     mp_base_url: $("#settings-mp-url").value.trim(),
-    mp_api_key: secretValue("settings-mp-key", runtime.mp_api_key_configured),
+    mp_api_key: secretValue("settings-mp-key"),
     mp_timeout_seconds: Number($("#settings-timeout").value),
     emby_base_url: $("#settings-emby-url").value.trim(),
-    emby_api_key: secretValue("settings-emby-key", runtime.emby_api_key_configured),
-    tmdb_api_key: secretValue("settings-tmdb-key", runtime.tmdb_api_key_configured),
+    emby_api_key: secretValue("settings-emby-key"),
+    tmdb_api_key: secretValue("settings-tmdb-key"),
     tmdb_language: $("#settings-tmdb-language").value.trim() || "zh-CN",
-    mdblist_api_key: secretValue("settings-mdblist-key", runtime.mdblist_api_key_configured),
-    cookiecloud_key: secretValue("settings-cookiecloud-key", runtime.cookiecloud_key_configured),
-    cookiecloud_password: secretValue("settings-cookiecloud-password", runtime.cookiecloud_password_configured),
+    mdblist_api_key: secretValue("settings-mdblist-key"),
+    cookiecloud_key: secretValue("settings-cookiecloud-key"),
+    cookiecloud_password: secretValue("settings-cookiecloud-password"),
     outbound_proxy_url: $("#settings-proxy-url").value.trim() || null,
     tmdb_proxy_enabled: $("#settings-tmdb-proxy").checked,
     pt_proxy_enabled: $("#settings-pt-proxy").checked,
     ai_base_url: $("#settings-ai-url").value.trim(),
-    ai_api_key: secretValue("settings-ai-key", runtime.ai_api_key_configured),
+    ai_api_key: secretValue("settings-ai-key"),
     ai_model: $("#settings-ai-model").value.trim(),
     tr_base_url: $("#settings-tr-url").value.trim(),
     tr_username: $("#settings-tr-username").value.trim(),
-    tr_password: secretValue("settings-tr-password", runtime.tr_password_configured),
+    tr_password: secretValue("settings-tr-password"),
     dashboard_random_posters: $("#settings-random-posters").checked,
   };
   await api("/api/settings", {method: "PUT", body: JSON.stringify(runtimePayload)});

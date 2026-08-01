@@ -120,7 +120,7 @@ def validated_base_url(value: str, label: str, required: bool, allow_private: bo
 
 
 # Populated by app.main after router registration.
-APP_VERSION = "0.96"
+APP_VERSION = "0.97"
 
 @router.get("/api/health")
 async def health() -> dict[str, Any]:
@@ -246,7 +246,7 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload) -> dict[str, Any
     for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_password"):
         if values.get(key) is None:
             values.pop(key, None)
-        # 空字符串表示显式清除已配置的密钥（前端“留空清除”语义）。
+        # API 客户端显式发送空字符串时清除；设置页留空字段则发送 null 并保留原值。
         elif str(values[key]).strip() == "":
             values[key] = ""
     save_runtime_settings(values)

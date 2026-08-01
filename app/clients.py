@@ -661,11 +661,20 @@ class NexusPHPClient:
         """解析传统 NexusPHP 首页欢迎横幅（上传量/下载量/分享率/魔力值/当前活动）。
         横幅是 NexusPHP 标准模板的已登录统计块，比用户详情页表格更通用。"""
         home_text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text)))
+        # 任意统计标签或横幅常见词都作为值边界，避免值吞掉后续内容。
+        stop_labels = (
+            "上传量", "上傳量", "uploaded", "下载量", "下載量", "downloaded",
+            "分享率", "比率", "ratio", "魔力值", "魔力豆", "魔力", "积分", "bonus",
+            "当前活动", "做种数", "做種數", "seeding", "邀请", "捐赠", "用户组",
+            "可连接", "连接数", "上传排行",
+        )
+        stop_pattern = "|".join(re.escape(label) for label in stop_labels)
 
         def banner_value(labels: tuple[str, ...]) -> str | None:
             pattern = "|".join(re.escape(label) for label in labels)
             match = re.search(
-                rf"(?:{pattern})\s*[:：]?\s*([^\s][^<]{{0,60}}?)(?=\s*(?:{pattern})\s*[:：]|\s*$)",
+                rf"(?:{pattern})(?=[\s:：\[])\s*[:：]?\s*"
+                rf"([^\s][^<]{{0,60}}?)(?=\s*(?:{stop_pattern})\s*[:：\[]?|\s*$)",
                 home_text, re.I,
             )
             return match.group(1).strip() if match else None
@@ -678,7 +687,7 @@ class NexusPHPClient:
             "uploaded": uploaded,
             "downloaded": downloaded,
             "ratio": numeric_value(banner_value(("分享率", "比率", "ratio"))),
-            "bonus": numeric_value(banner_value(("魔力值", "魔力", "积分", "bonus"))),
+            "bonus": numeric_value(banner_value(("魔力值", "魔力豆", "魔力", "积分", "bonus"))),
             "seeding": int(numeric_value(banner_value(("当前活动", "做种数", "做種數", "seeding"))) or 0),
         }
 

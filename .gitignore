@@ -2,6 +2,7 @@
 .env
 data/
 runtime-settings.json
+playlist-autodown.db
 
 # Python
 __pycache__/

@@ -112,7 +112,7 @@ _ENABLE_DOCS = os.getenv("AUTOLIST_ENABLE_DOCS", "").strip().lower() == "true"
 
 app = FastAPI(
     title="AutoList",
-    version="0.98",
+    version="0.99",
     lifespan=lifespan,
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,

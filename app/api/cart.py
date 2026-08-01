@@ -3,78 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
-import math
-import re
-import sqlite3
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-import httpx
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, HTTPException
 
-from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from ..clients import MoviePilotClient
-from ..config import load_runtime_settings, save_runtime_settings, settings
-from ..cookiecloud import cookie_for_host, cookie_groups
-from ..database import config_values, connect, json_value, save_config
-from ..list_sources import PlaylistSourceFetcher
-from ..schemas import (
-    ConfigPayload,
-    CookieCloudUploadPayload,
-    ImportPayload,
-    PlaylistAutomationPayload,
-    PlaylistOrderPayload,
-    PlaylistSyncPayload,
-    PlaylistUpdatePayload,
-    RuntimeSettingsPayload,
-    ScorePreviewPayload,
-    SitePayload,
-    TaskPayload,
-)
+from ..clients import EmbyClient, MoviePilotClient, TransmissionClient
+from ..database import connect, json_value
+from ..domain.titles import is_transmission_downloading, normalized_download_name, torrent_matches_item
 from ..security import safe_error, sanitize_sensitive_text
-from ..services.automation import start_playlist_automation, sync_playlist_incremental, update_recognition_task
-from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
 from ..services.history import clear_download_history, playlist_item_snapshot, projected_download_history
-from ..services.imports import normalize_import_items, resolve_import
-from ..services.library import run_library_scan
-from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
-from ..services.search import (
-    create_followup_search_task,
-    run_search,
-    searchable_playlist_items,
-)
-from ..services.sites import resolve_site_adapter, test_site_config
+from ..services.library import library_details
 from ..state import (
-    enforce_cookiecloud_rate_limit,
-    enforce_search_task_capacity,
-    poster_cache,
-    raw_candidates,
     download_cart_lock,
     forget_raw_candidate,
     prune_raw_candidates,
-    require_configured_cookiecloud_uuid,
-    running_automation_tasks,
-    running_library_tasks,
-    running_recognition_tasks,
-    running_tasks,
-    site_icon_cache,
+    raw_candidates,
 )
-from ..util import (
-    decode_cookiecloud_body,
-    first_value,
-    raster_image_media_type,
-    resource_fingerprint,
-    rows_to_dicts,
-    secret_free,
-    utc_now,
-    validate_remote_icon_url,
-    volume_factor_value,
-)
+from ..util import first_value, resource_fingerprint, rows_to_dicts, utc_now
 
 router = APIRouter()
 
@@ -90,11 +35,26 @@ def _moviepilot_success(response: Any) -> bool:
         return value == 1
     return str(value or "").strip().casefold() in {"true", "1", "yes", "ok", "success"}
 
+
+def _matches_active_torrent(candidate: Any, item: dict[str, Any], active_torrents: list[dict[str, Any]]) -> bool:
+    """Return True when the candidate's release already has an active Transmission task."""
+    candidate_name = normalized_download_name(candidate["title"])
+    for torrent in active_torrents:
+        torrent_name = normalized_download_name(first_value(torrent, ("name", "torrent_name"), ""))
+        if candidate_name and torrent_name and candidate_name == torrent_name:
+            return True
+        if torrent_matches_item(item, str(first_value(torrent, ("name", "torrent_name"), ""))):
+            return True
+    return False
+
 @router.post("/api/cart/items/{candidate_id}")
 async def toggle_cart(candidate_id: str) -> dict[str, Any]:
     prune_raw_candidates()
     with connect() as conn:
-        candidate = conn.execute("SELECT eligibility,exclusion_reason FROM candidates WHERE id=?", (candidate_id,)).fetchone()
+        candidate = conn.execute(
+            "SELECT eligibility,exclusion_reason,playlist_item_id,site_name,resource_key FROM candidates WHERE id=?",
+            (candidate_id,),
+        ).fetchone()
         if not candidate:
             raise HTTPException(404, "候选不存在")
         exists = conn.execute("SELECT 1 FROM cart_items WHERE candidate_id=?", (candidate_id,)).fetchone()
@@ -105,6 +65,16 @@ async def toggle_cart(candidate_id: str) -> dict[str, Any]:
             raise HTTPException(422, f"该资源已被电影策略排除：{candidate['exclusion_reason'] or '不符合允许组合'}")
         if candidate_id not in raw_candidates:
             raise HTTPException(409, "该候选的搜索上下文已失效，请重新搜索后再加入下载列表")
+        # 同一影片、同一站点、同一发布已入车时不重复加入，避免跨任务重复提交。
+        duplicate = conn.execute(
+            """SELECT cart.candidate_id FROM cart_items cart
+               JOIN candidates c ON c.id=cart.candidate_id
+               WHERE c.playlist_item_id=? AND c.site_name=? AND COALESCE(c.resource_key,'')=?
+               LIMIT 1""",
+            (candidate["playlist_item_id"], candidate["site_name"], candidate["resource_key"] or ""),
+        ).fetchone()
+        if duplicate:
+            raise HTTPException(422, "该发布已在下载列表中（相同影片与站点），请先移除现有条目")
         conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", (candidate_id, utc_now()))
         return {"candidate_id": candidate_id, "in_cart": True}
 
@@ -141,7 +111,14 @@ async def download_cart() -> dict[str, Any]:
             ).fetchall()
         if not rows:
             raise HTTPException(422, "下载列表为空")
+        try:
+            current_torrents = await asyncio.wait_for(TransmissionClient().current_downloads(), timeout=6)
+        except Exception:
+            current_torrents = []
+        active_torrents = [torrent for torrent in current_torrents if is_transmission_downloading(torrent)]
+        emby = EmbyClient()
         moviepilot, completed, needs_research, submitted_tasks, expired_items = MoviePilotClient(), 0, 0, [], []
+        skipped: list[dict[str, Any]] = []
         for candidate in rows:
             item_snapshot = playlist_item_snapshot({
                 "id": candidate["playlist_snapshot_id"],
@@ -175,6 +152,44 @@ async def download_cart() -> dict[str, Any]:
                             (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), candidate["playlist_original_title"], candidate["title"], candidate["site_name"], 0, message, utc_now()),
                         )
                 continue
+            # 幂等复查 1：相同发布已成功提交过（同候选或同影片+站点+资源指纹），跳过避免重复下载。
+            resource_key = candidate["resource_key"] or resource_fingerprint(candidate["title"], candidate["size"])
+            with connect() as conn:
+                already_submitted = conn.execute(
+                    """SELECT 1 FROM download_history h
+                       WHERE h.success=1 AND (
+                         h.candidate_id=? OR EXISTS (
+                           SELECT 1 FROM candidates c WHERE c.id=h.candidate_id
+                             AND c.playlist_item_id=? AND c.site_name=? AND c.resource_key=?
+                         )
+                       ) LIMIT 1""",
+                    (candidate["id"], candidate["playlist_item_id"], candidate["site_name"], resource_key),
+                ).fetchone()
+            if already_submitted:
+                skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "该发布已提交过"})
+                continue
+            # 幂等复查 2：相同发布已在 Transmission 下载中（含查询失败时的静默降级保护），跳过。
+            playlist_item = {
+                "id": candidate["playlist_snapshot_id"], "imdb_id": candidate["playlist_imdb_id"],
+                "original_title": candidate["playlist_original_title"], "chinese_title": candidate["playlist_chinese_title"],
+                "year": candidate["playlist_year"], "tmdb_id": candidate["playlist_tmdb_id"],
+                "tmdb_title": candidate["playlist_tmdb_title"], "tmdb_original_title": candidate["playlist_tmdb_original_title"],
+                "tmdb_year": candidate["playlist_tmdb_year"], "tmdb_imdb_id": candidate["playlist_tmdb_imdb_id"],
+            }
+            if _matches_active_torrent(candidate, playlist_item, active_torrents):
+                skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "Transmission 正在下载"})
+                continue
+            # 幂等复查 3：搜索期间 Emby 状态未知（故障窗口）时，提交前复查实体库。
+            if candidate["playlist_library_state"] == "unknown":
+                state, _, _ = await library_details(
+                    emby,
+                    str(candidate["playlist_tmdb_title"] or candidate["playlist_chinese_title"] or candidate["playlist_original_title"]),
+                    candidate["playlist_tmdb_year"] or candidate["playlist_year"],
+                    candidate["playlist_tmdb_id"], candidate["playlist_tmdb_imdb_id"] or candidate["playlist_imdb_id"],
+                )
+                if state == "in_library":
+                    skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "影片已入库"})
+                    continue
             try:
                 if not raw.get("media"):
                     raise RuntimeError("缺少媒体信息，无法应用 MoviePilot 分类规则")
@@ -206,11 +221,11 @@ async def download_cart() -> dict[str, Any]:
                     conn.execute("DELETE FROM cart_items WHERE candidate_id=?", (candidate["id"],))
                     completed += 1
                     forget_raw_candidate(candidate["id"])
-        if needs_research and completed == 0:
+        if needs_research and completed == 0 and not skipped:
             raise HTTPException(409, f"下载列表中 {needs_research} 个资源的搜索上下文已失效，请重新搜索后加入下载列表")
         return {
             "submitted": completed, "needs_research": needs_research, "expired_items": expired_items,
-            "mode": "moviepilot", "tasks": submitted_tasks,
+            "skipped": skipped, "mode": "moviepilot", "tasks": submitted_tasks,
         }
 
 @router.get("/api/history")

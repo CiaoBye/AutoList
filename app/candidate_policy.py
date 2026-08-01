@@ -8,6 +8,7 @@ from typing import Any
 
 # AutoList's built-in canonical names and aliases. The order matters: preferred
 # groups are evaluated before broader site-family expressions.
+NESTED_QUANTIFIER = re.compile(r"\([^()]*[+*][^()]*\)\s*[+*{]")
 BUILTIN_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
     ("ADE", r"ADE"),
     ("FRDS", r"FRDS"),
@@ -182,6 +183,8 @@ def merge_custom_rules(values: Any) -> list[str]:
             re.compile(rule, re.I)
         except re.error as exc:
             raise ValueError(f"无效的制作组规则：{rule}") from exc
+        if NESTED_QUANTIFIER.search(rule):
+            raise ValueError("规则包含嵌套量词（如 (?:A+)+），可能造成匹配性能问题")
         seen.add(key)
         result.append(rule)
     return result[:300]
@@ -266,7 +269,9 @@ def hard_exclusion_reason(title: str, policy: dict[str, Any]) -> str | None:
         is_bluray = "BLURAY" in upper or "BLU-RAY" in upper or "UHD BD" in upper
         has_raw_codec = bool(re.search(r"(?:^|[ ._-])(?:AVC|MPEG[ ._-]?2)(?:$|[ ._-])", upper))
         has_encode_marker = any(marker in upper for marker in ("X264", "X265", "H264", "H265", "H.264", "H.265", "HEVC"))
-        if is_bluray and has_raw_codec and not has_encode_marker:
+        # BDrip/重编码标记放行：只有无编码标记的完整原盘结构才判为原盘。
+        is_bdrip = "BDRIP" in upper or bool(re.search(r"(?:^|[ ._-])RE(?:-|_)?ENCODE(?:$|[ ._-])", upper))
+        if is_bluray and has_raw_codec and not has_encode_marker and not is_bdrip:
             return "检测到 AVC / MPEG-2 完整蓝光原盘结构"
     return None
 
@@ -297,13 +302,14 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
     resolution_rank = policy["resolution_order"].index(resolution) if resolution in policy["resolution_order"] else 9
     profile_tier = int(profile["tier"]) if profile else 9
     # Deterministic priority: profile -> site -> resolution -> seeders -> promotion -> source order.
+    # Free/discount is a continuous weight: 0.0 (free) ranks first, 1.0 (full price) last.
     ranking = (
         (0 if eligible else 1) * 10**12
         + profile_tier * 10**10
         + site_priority * 10**6
         + resolution_rank * 10**4
         + max(0, 9999 - min(seeders, 9999))
-        + (0 if volume == 0 else 100)
+        + max(0, min(100, int(volume * 100)))
         + index
     )
     score = 0 if not eligible else max(1, 100 - (profile_tier - 1) * 25 - resolution_rank * 5)

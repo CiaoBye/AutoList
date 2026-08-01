@@ -54,7 +54,7 @@ class RuntimeSettingsPayload(BaseModel):
     tmdb_api_key: str | None = None
     tmdb_language: str = "zh-CN"
     mdblist_api_key: str | None = None
-    cookiecloud_key: str = Field(default="", max_length=128, pattern=r"^(?:[A-Za-z0-9_-]{5,128})?$")
+    cookiecloud_key: str | None = Field(default=None, max_length=128, pattern=r"^(?:[A-Za-z0-9_-]{5,128})?$")
     cookiecloud_password: str | None = None
     outbound_proxy_url: str | None = None
     tmdb_proxy_enabled: bool = False

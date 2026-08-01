@@ -58,7 +58,9 @@ def strict_torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_titl
         tokens = informative_title_tokens(variant)
         if tokens and tokens.issubset(candidate_tokens):
             return True
-        if normalized and normalized in candidate and (not tokens or not any(token.isdigit() for token in tokens)):
+        # 子串回退要求词边界：复数/长尾变体（如 The Godfathers）不再命中 The Godfather。
+        if normalized and re.search(rf"(?<![a-z0-9]){re.escape(normalized)}(?![a-z])", candidate) \
+                and (not tokens or not any(token.isdigit() for token in tokens)):
             return True
     return False
 
@@ -78,7 +80,8 @@ def torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str)
         tokens = title_tokens(variant)
         if tokens and tokens.issubset(candidate_tokens):
             return True
-        if normalized and normalized in candidate and (not tokens or not any(token.isdigit() for token in tokens)):
+        if normalized and re.search(rf"(?<![a-z0-9]){re.escape(normalized)}(?![a-z])", candidate) \
+                and (not tokens or not any(token.isdigit() for token in tokens)):
             return True
     return False
 
@@ -90,6 +93,12 @@ def candidate_identity(item: sqlite3.Row | dict[str, Any], media: dict[str, Any]
         return False, f"年份不匹配：目标 {target_year}，资源包含 {', '.join(sorted(years))}"
     if re.search(r"(?i)(?:trilogy|collection|box[ ._-]*set|complete|pack|合集|系列|全集)", torrent_title):
         return False, "疑似合集或系列资源"
+    # 续集/分卷拦截：仅当目标片名本身不含序号词时生效，
+    # 避免“The Godfather Part II”这类正式片名被自己的种子标题拦截。
+    target_text = " ".join(str(item[key] or "") for key in ("tmdb_original_title", "tmdb_title", "original_title", "chinese_title"))
+    if not re.search(r"(?i)\b(?:part|vol\.?|volume|chapter|episode)\b", target_text):
+        if re.search(r"(?i)\b(?:part|vol\.?|volume|chapter|episode)[.\s_-]*(?:[0-9]+|[ivx]+)\b", torrent_title):
+            return False, "疑似续集或分卷资源"
     if not strict_torrent_matches_item(item, torrent_title):
         return False, "片名不匹配：资源片名与目标影片不一致"
     return True, None

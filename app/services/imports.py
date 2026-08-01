@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
+import zipfile
 from io import BytesIO
 from typing import Any
 
@@ -15,12 +17,36 @@ from ..security import safe_error
 from ..util import first_value
 from ..schemas import ImportPayload
 
+MAX_XLSX_UNCOMPRESSED = 200 * 1024 * 1024
+MAX_XLSX_ENTRIES = 5000
+MAX_IMPORT_ROWS = 200_000
+MAX_JSON_PAYLOAD_BYTES = 10 * 1024 * 1024
+
+
+def _check_xlsx_bomb(content: bytes) -> None:
+    """Reject zip-bomb style xlsx before openpyxl decompresses it into memory."""
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            entries = archive.infolist()
+            if len(entries) > MAX_XLSX_ENTRIES:
+                raise HTTPException(413, "xlsx 内部条目过多")
+            total = sum(info.file_size for info in entries)
+            if total > MAX_XLSX_UNCOMPRESSED:
+                raise HTTPException(413, "xlsx 解压后数据过大")
+    except HTTPException:
+        raise
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(422, "无法读取 xlsx：不是有效的压缩包") from exc
+
 
 def parse_xlsx(encoded: str) -> tuple[str | None, list[dict[str, Any]]]:
     workbook = None
     try:
         content = base64.b64decode(encoded, validate=True)
+        _check_xlsx_bomb(content)
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(422, f"无法读取 xlsx：{safe_error(exc)}") from exc
     try:
@@ -34,7 +60,9 @@ def parse_xlsx(encoded: str) -> tuple[str | None, list[dict[str, Any]]]:
             raise HTTPException(422, "xlsx 缺少必需列：总排名、IMDb ID、英文/原片名、年份、中文译名")
         positions = {header: index for index, header in enumerate(headers)}
         items: list[dict[str, Any]] = []
-        for row in sheet.iter_rows(min_row=2, values_only=True):
+        for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if row_index > MAX_IMPORT_ROWS:
+                raise HTTPException(413, f"xlsx 行数超过上限（{MAX_IMPORT_ROWS} 行）")
             title = row[positions["英文/原片名"]]
             if not title:
                 continue
@@ -52,10 +80,15 @@ def parse_xlsx(encoded: str) -> tuple[str | None, list[dict[str, Any]]]:
 
 
 def parse_json(data: dict[str, Any] | list[dict[str, Any]]) -> tuple[str | None, list[dict[str, Any]]]:
+    payload_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    if payload_size > MAX_JSON_PAYLOAD_BYTES:
+        raise HTTPException(413, "JSON 片单数据过大")
     source = data if isinstance(data, dict) else {"films": data}
     films = source.get("films") or source.get("items") or []
     if not isinstance(films, list):
         raise HTTPException(422, "JSON 必须包含 films 或 items 数组")
+    if len(films) > MAX_IMPORT_ROWS:
+        raise HTTPException(413, f"JSON 条目数超过上限（{MAX_IMPORT_ROWS} 条）")
     items: list[dict[str, Any]] = []
     for index, film in enumerate(films, start=1):
         if not isinstance(film, dict):

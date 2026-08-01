@@ -4,73 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
-import math
-import re
 import sqlite3
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
-from ..candidate_policy import merge_custom_rules, normalized_policy, release_group_catalog
-from ..config import load_runtime_settings, save_runtime_settings, settings
 from ..cookiecloud import cookie_groups
-from ..database import config_values, connect, json_value, save_config
-from ..list_sources import PlaylistSourceFetcher
-from ..schemas import (
-    ConfigPayload,
-    CookieCloudUploadPayload,
-    ImportPayload,
-    PlaylistAutomationPayload,
-    PlaylistOrderPayload,
-    PlaylistSyncPayload,
-    PlaylistUpdatePayload,
-    RuntimeSettingsPayload,
-    ScorePreviewPayload,
-    SitePayload,
-    TaskPayload,
-)
-from ..security import safe_error, sanitize_sensitive_text
-from ..services.automation import start_playlist_automation, sync_playlist_incremental, update_recognition_task
-from ..services.cookiecloud_store import cookiecloud_file, stored_cookiecloud_payload
-from ..services.history import projected_download_history
-from ..services.imports import normalize_import_items, resolve_import
-from ..services.library import run_library_scan
-from ..services.recognition import analyze_candidate, persist_tmdb_item, recognize_movie
-from ..services.search import (
-    create_followup_search_task,
-    run_search,
-    searchable_playlist_items,
-)
+from ..database import connect
+from ..schemas import SitePayload
+from ..services.cookiecloud_store import stored_cookiecloud_payload
 from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_site_config
-from ..state import (
-    enforce_cookiecloud_rate_limit,
-    enforce_search_task_capacity,
-    poster_cache,
-    raw_candidates,
-    require_configured_cookiecloud_uuid,
-    running_automation_tasks,
-    running_library_tasks,
-    running_recognition_tasks,
-    running_tasks,
-    site_icon_cache,
-)
-from ..util import (
-    decode_cookiecloud_body,
-    first_value,
-    raster_image_media_type,
-    resource_fingerprint,
-    rows_to_dicts,
-    secret_free,
-    utc_now,
-    validate_remote_icon_url,
-    volume_factor_value,
-)
+from ..state import remember_site_icon, site_icon_cache
+from ..util import raster_image_media_type, rows_to_dicts, utc_now, validate_remote_icon_url
 from .system import validated_base_url
 
 router = APIRouter()
@@ -138,20 +86,37 @@ async def site_icon(site_id: int) -> Response:
             content = base64.b64decode(encoded)
         else:
             source = icon_value if icon_value.startswith(("http://", "https://")) else f"{str(row['base_url']).rstrip('/')}/favicon.ico"
-            await validate_remote_icon_url(source, str(row["base_url"]))
-            async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
-                upstream = await client.get(source)
-                upstream.raise_for_status()
-            await validate_remote_icon_url(str(upstream.url), str(row["base_url"]))
-            if int(upstream.headers.get("content-length") or 0) > 2 * 1024 * 1024:
-                raise RuntimeError("图标文件过大")
-            content = upstream.content
-            media_type = upstream.headers.get("content-type", "image/x-icon").split(";", 1)[0]
+            # 逐跳校验重定向目标：禁止自动跟随（否则内网地址已在请求后才被拦截）。
+            async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
+                current = source
+                for _hop in range(4):
+                    await validate_remote_icon_url(current, str(row["base_url"]))
+                    upstream = await client.get(current)
+                    if upstream.status_code in {301, 302, 303, 307, 308}:
+                        location = upstream.headers.get("location")
+                        if not location:
+                            raise RuntimeError("图标重定向缺少 Location")
+                        current = urljoin(current, location)
+                        continue
+                    upstream.raise_for_status()
+                    break
+                else:
+                    raise RuntimeError("图标重定向次数过多")
+                # DNS 重绑定复验：请求已完成，但仅在域名仍解析到公网时才回传响应，
+                # 避免攻击者轮换解析把内网响应回传给客户端。
+                try:
+                    await validate_remote_icon_url(current, str(row["base_url"]))
+                except RuntimeError:
+                    raise RuntimeError("图标域名解析结果变化，已拒绝回传") from None
+                if int(upstream.headers.get("content-length") or 0) > 2 * 1024 * 1024:
+                    raise RuntimeError("图标文件过大")
+                content = upstream.content
+                media_type = upstream.headers.get("content-type", "image/x-icon").split(";", 1)[0]
         detected_media_type = raster_image_media_type(content)
         if not content or len(content) > 2 * 1024 * 1024 or not detected_media_type:
             raise RuntimeError("图标内容无效")
         media_type = detected_media_type
-        site_icon_cache[site_id] = (content, media_type)
+        remember_site_icon(site_id, (content, media_type))
         return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
     except Exception:
         # A deterministic SVG fallback still gives every site a consistent visual anchor.

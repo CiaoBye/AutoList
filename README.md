@@ -2,7 +2,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`0.85`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
+当前版本：`0.86`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
 
 NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时设置保存在 `/mnt/user/appdata/Autolist/data`，更新镜像不会丢失。
 
@@ -13,7 +13,7 @@ NAS 部署目录统一为 `/mnt/user/appdata/Autolist`，数据库和运行时�
 - **工作台**：片单、最近搜索、候选数量、下载列表、服务状态和最近下载的总览。
 - **片单**：查看片单和影片明细、TMDB 识别结果及 Emby 实体/.strm 状态；只有真实媒体文件算已入库，`.strm` 归入未完成。明细使用服务端分页，超大片单不会一次性传到浏览器。
 - **资源搜索**：查看片单总数、入库数、Transmission 下载中数和待搜索数；按“未下载”队列或序号范围创建搜索任务，筛选候选并加入或移出下载列表。片单补全和新片自动搜索也在此页面配置。
-- **下载列表**：检查已选资源、单项移除，并固定经 MoviePilot 分类后提交到 Transmission；容器重启后失效的搜索上下文会明确标记并引导重新搜索。
+- **下载列表**：检查已选资源、单项移除，并固定经 MoviePilot 分类后提交到 Transmission；容器重启后失效的搜索上下文会明确标记并引导重新搜索。提交前自动跳过已成功提交过、正在 Transmission 下载或已入库的相同发布，避免重复下载。
 - **候选规则**：按“硬性排除 → 允许组合 → 站点 → 分辨率 → 做种与优惠”的顺序决策；可查看内置词表、编辑自定义制作组正则并实时试算标题。
 - **站点配置**：站点协议在后端按地址自动识别，支持搜索选择、代理、优先级、连接测试、AutoList 搜索表现，以及按 6 小时缓存周期自主读取站点上传量、下载量与分享率。
 - **同种聚合**：相同发布在多个站点只显示一行，并根据站点优先级、免费状态和做种数选择主推荐。
@@ -56,7 +56,8 @@ Compose 仅启动 `Autolist` 一个容器。前端静态文件、FastAPI 和 SQL
 
 ## 安全边界
 
-- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源、`/api/health` 与 `/cookiecloud/*` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不进 `runtime-settings.json`。
+- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源、`/api/health` 与 `/cookiecloud/*` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不进 `runtime-settings.json`。启用令牌后，站点、RSS、图标等出站地址拒绝内网 IP 字面量与仅解析到内网的域名（Prowlarr 等内网部署可用 `AUTOLIST_ALLOW_PRIVATE_HOSTS` 按域名后缀放行）。
+- Swagger / OpenAPI 文档默认关闭（`AUTOLIST_ENABLE_DOCS=1` 开启）；所有响应附带 CSP、X-Frame-Options、nosniff 与 Referrer-Policy 安全头。
 - 内网模式可直接编辑连接信息；API Key、密码、Cookie 与 Token 只在前端显示“已配置”状态，既有值不会返回浏览器。
 - 页面保存的运行设置写入 `/data/runtime-settings.json`，文件权限为 `0600`；`.env` 仍作为首次启动和未保存设置时的默认值。
 - 站点下载 URL 和授权字段只保留在当前进程的短暂下载上下文中；不会写入数据库或日志。容器重启后需重新搜索再下载。

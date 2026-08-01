@@ -468,6 +468,7 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .settings-tab-panel[hidden] { display: none; }
 .settings-content-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
 .settings-section { padding: 20px; border: 1px solid var(--line); border-radius: 6px; background: #f7f8f4; }
+.secret-clear { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .settings-section-wide { grid-column: 1 / -1; }
 .settings-section-title { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .settings-section-title > div { min-width: 0; }

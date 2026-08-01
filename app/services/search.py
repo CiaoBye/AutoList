@@ -18,7 +18,6 @@ from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, Torzna
 from ..database import config_values, connect, json_value
 from ..domain.titles import (
     candidate_identity,
-    canonical_item_title,
     canonical_item_year,
     is_transmission_downloading,
     normalized_download_name,
@@ -31,7 +30,7 @@ from ..state import (
     remember_raw_candidate,
     running_tasks,
 )
-from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, utc_now, volume_factor_value
+from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, utc_now
 from .library import library_details
 from .recognition import analyze_candidate, persist_tmdb_item, recognize_movie
 
@@ -51,11 +50,13 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
             (playlist_id,),
         ).fetchall())
         history_rows = conn.execute(
-            """SELECT h.torrent_name,h.title,c.title AS candidate_title,c.playlist_item_id
+            """SELECT h.torrent_name,h.title,c.title AS candidate_title,
+                      COALESCE(h.playlist_item_id,c.playlist_item_id) AS playlist_item_id
                FROM download_history h
                LEFT JOIN candidates c ON c.id=h.candidate_id
-               JOIN playlist_items p ON p.id=c.playlist_item_id
-               WHERE p.playlist_id=?""", (playlist_id,),
+               WHERE h.playlist_item_id IN (SELECT id FROM playlist_items WHERE playlist_id=?)
+                  OR c.playlist_item_id IN (SELECT id FROM playlist_items WHERE playlist_id=?)""",
+            (playlist_id, playlist_id),
         ).fetchall()
         candidate_rows = conn.execute(
             """SELECT NULL AS torrent_name,c.title,c.title AS candidate_title,c.playlist_item_id FROM candidates c

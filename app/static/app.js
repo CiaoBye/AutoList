@@ -12,6 +12,10 @@ let currentFilter = "all";
 let candidatePolicyCache = null;
 let currentPage = "dashboard";
 let taskTimer = null;
+let libraryScanTimer = null;
+let libraryScanFailures = 0;
+let recognitionTimer = null;
+let recognitionPollFailures = 0;
 let activeTaskState = null;
 let booting = true;
 let selectedPlaylistId = null;
@@ -36,8 +40,6 @@ let searchQueueCache = null;
 let siteCache = [];
 let selectedSiteId = null;
 let siteFilter = "all";
-let recognitionTimer = null;
-let libraryScanTimer = null;
 let importMode = "url";
 let dashboardShelfSignature = "";
 
@@ -86,7 +88,7 @@ async function refreshPageData(page) {
   }
 }
 
-function navigate(page, updateHash = true) {
+function navigate(page, updateHash = true, preserveScroll = false) {
   const target = pageMeta[page] ? page : "dashboard";
   const hashWillChange = updateHash && window.location.hash !== `#${target}`;
   const commit = () => {
@@ -115,7 +117,7 @@ function navigate(page, updateHash = true) {
     return;
   }
   commit();
-  window.scrollTo({top: 0, behavior: "auto"});
+  if (!preserveScroll) window.scrollTo({top: 0, behavior: "auto"});
   if (!booting) requestAnimationFrame(() => $("#main-content")?.focus({preventScroll: true}));
   if (!booting && !hashWillChange) refreshPageData(target).catch((error) => showToast(error.message));
 }
@@ -419,11 +421,32 @@ async function refreshTaskLogs() {
   $("#task-logs").innerHTML = logs.length ? logs.map((item) => `<article class="task-log ${escapeHtml(item.level)}"><time>${formatTime(item.created_at)}</time><span>${escapeHtml(item.stage)}</span><p>${escapeHtml(item.message)}</p></article>`).join("") : "<p>暂无日志。</p>";
 }
 
+let candidatePollFailures = 0;
 async function refreshCandidates(schedule = true) {
   if (!activeTask) return;
-  const task = await api(`/api/search-tasks/${activeTask}`);
+  let task;
+  try {
+    task = await api(`/api/search-tasks/${activeTask}`);
+    candidatePollFailures = 0;
+  } catch (error) {
+    // 瞬时失败不终止轮询：退避重试，连续 10 次失败后停止避免刷屏。
+    candidatePollFailures += 1;
+    if (candidatePollFailures >= 10) return;
+    clearTimeout(taskTimer);
+    if (schedule) taskTimer = setTimeout(() => refreshCandidates(true), 3000);
+    return;
+  }
   setTaskState(task);
-  [candidateCache] = await Promise.all([api(`/api/candidates?task_id=${activeTask}`), refreshTaskLogs()]);
+  try {
+    candidateCache = await api(`/api/candidates?task_id=${activeTask}`);
+  } catch (error) {
+    showToast(`候选读取失败：${error.message}`);
+  }
+  try {
+    await refreshTaskLogs();
+  } catch (error) {
+    showToast(`任务日志读取失败：${error.message}`);
+  }
   renderCandidates();
   clearTimeout(taskTimer);
   if (schedule && ["queued", "running"].includes(task.status)) {
@@ -447,6 +470,12 @@ function renderHistoryTable() {
   $("#history").innerHTML = filtered.length
     ? filtered.map(historyRowHtml).join("")
     : `<tr><td colspan='4'><div class='empty-state compact'><strong>${emptyLabel}</strong></div></td></tr>`;
+  const note = $("#history-truncate-note");
+  if (note) {
+    const truncated = historyCache.length > 50;
+    note.textContent = truncated ? `仅显示最近 50 条，共 ${historyCache.length} 条记录。` : "";
+    note.hidden = !truncated;
+  }
   const filter = $("#history-status-filter");
   if (filter && filter.value !== historyStatusFilter) filter.value = historyStatusFilter;
 }
@@ -475,8 +504,57 @@ const setServiceStatus = (selector, result, optional = false) => {
   element.classList.add("error");
 };
 
+const SECRET_FIELDS = [
+  ["settings-mp-key", "mp_api_key_configured"],
+  ["settings-emby-key", "emby_api_key_configured"],
+  ["settings-tmdb-key", "tmdb_api_key_configured"],
+  ["settings-mdblist-key", "mdblist_api_key_configured"],
+  ["settings-cookiecloud-key", "cookiecloud_key_configured"],
+  ["settings-cookiecloud-password", "cookiecloud_password_configured"],
+  ["settings-ai-key", "ai_api_key_configured"],
+  ["settings-tr-password", "tr_password_configured"],
+];
+
+function setupSecretClearControls() {
+  // 每个密钥输入框旁动态添加“清除已配置值”复选框：留空且未勾选 = 保留原值，
+  // 避免用户只修改其他设置时意外清除已配置的密钥。
+  SECRET_FIELDS.forEach(([inputId]) => {
+    const input = $(`#${inputId}`);
+    const wrap = input?.closest("label.field");
+    if (!input || !wrap || $(`#${inputId}-clear`)) return;
+    const clear = document.createElement("label");
+    clear.className = "secret-clear";
+    clear.id = `${inputId}-clear`;
+    clear.hidden = true;
+    clear.innerHTML = `<input type="checkbox"> 清除已配置值`;
+    clear.querySelector("input").addEventListener("change", () => {
+      input.disabled = clear.querySelector("input").checked;
+    });
+    wrap.appendChild(clear);
+  });
+}
+
+function updateSecretClearState(inputId, configured) {
+  const clear = $(`#${inputId}-clear`);
+  if (!clear) return;
+  clear.hidden = !configured;
+  clear.querySelector("input").checked = false;
+  $(`#${inputId}`).disabled = false;
+}
+
+function secretValue(inputId, configured) {
+  const input = $(`#${inputId}`);
+  const clear = $(`#${inputId}-clear`);
+  const value = String(input?.value || "").trim();
+  if (value) return value;
+  if (configured && clear && clear.querySelector("input").checked) return "";
+  return null; // 未修改，保留原值
+}
+
 async function loadSettings() {
   const [runtime, cookiecloud] = await Promise.all([api("/api/settings"), api("/api/cookiecloud/status")]);
+  setupSecretClearControls();
+  SECRET_FIELDS.forEach(([inputId, flag]) => updateSecretClearState(inputId, Boolean(runtime[flag])));
   $("#settings-mp-url").value = runtime.mp_base_url || "";
   $("#settings-mp-key").value = runtime.mp_api_key || "";
   $("#settings-timeout").value = runtime.mp_timeout_seconds || 30;
@@ -487,7 +565,7 @@ async function loadSettings() {
   $("#settings-mdblist-key").value = runtime.mdblist_api_key || "";
   $("#settings-mdblist-status").textContent = runtime.mdblist_api_key_configured ? "已配置" : "公开片单可用";
   $("#settings-cookiecloud-key").value = runtime.cookiecloud_key || "";
-  $("#settings-cookiecloud-key").placeholder = runtime.cookiecloud_key_configured ? "已配置；留空保留原值" : "与 Chrome 扩展保持一致";
+  $("#settings-cookiecloud-key").placeholder = runtime.cookiecloud_key_configured ? "已配置；更换请直接输入新值" : "与 Chrome 扩展保持一致";
   $("#settings-cookiecloud-password").value = runtime.cookiecloud_password || "";
   $("#settings-cookiecloud-endpoint").value = `${window.location.origin}${runtime.cookiecloud_endpoint || "/cookiecloud"}`;
   $("#settings-cookiecloud-status").textContent = cookiecloud.received ? "已收到 Chrome 数据" : cookiecloud.configured ? "等待首次同步" : "未配置";
@@ -533,26 +611,27 @@ async function testSettings() {
 }
 
 async function saveSettings() {
+  const runtime = await api("/api/settings");
   const runtimePayload = {
     mp_base_url: $("#settings-mp-url").value.trim(),
-    mp_api_key: $("#settings-mp-key").value.trim() || null,
+    mp_api_key: secretValue("settings-mp-key", runtime.mp_api_key_configured),
     mp_timeout_seconds: Number($("#settings-timeout").value),
     emby_base_url: $("#settings-emby-url").value.trim(),
-    emby_api_key: $("#settings-emby-key").value.trim() || null,
-    tmdb_api_key: $("#settings-tmdb-key").value.trim() || null,
+    emby_api_key: secretValue("settings-emby-key", runtime.emby_api_key_configured),
+    tmdb_api_key: secretValue("settings-tmdb-key", runtime.tmdb_api_key_configured),
     tmdb_language: $("#settings-tmdb-language").value.trim() || "zh-CN",
-    mdblist_api_key: $("#settings-mdblist-key").value.trim() || null,
-    cookiecloud_key: $("#settings-cookiecloud-key").value.trim(),
-    cookiecloud_password: $("#settings-cookiecloud-password").value.trim() || null,
+    mdblist_api_key: secretValue("settings-mdblist-key", runtime.mdblist_api_key_configured),
+    cookiecloud_key: secretValue("settings-cookiecloud-key", runtime.cookiecloud_key_configured),
+    cookiecloud_password: secretValue("settings-cookiecloud-password", runtime.cookiecloud_password_configured),
     outbound_proxy_url: $("#settings-proxy-url").value.trim() || null,
     tmdb_proxy_enabled: $("#settings-tmdb-proxy").checked,
     pt_proxy_enabled: $("#settings-pt-proxy").checked,
     ai_base_url: $("#settings-ai-url").value.trim(),
-    ai_api_key: $("#settings-ai-key").value.trim() || null,
+    ai_api_key: secretValue("settings-ai-key", runtime.ai_api_key_configured),
     ai_model: $("#settings-ai-model").value.trim(),
     tr_base_url: $("#settings-tr-url").value.trim(),
     tr_username: $("#settings-tr-username").value.trim(),
-    tr_password: $("#settings-tr-password").value.trim() || null,
+    tr_password: secretValue("settings-tr-password", runtime.tr_password_configured),
     dashboard_random_posters: $("#settings-random-posters").checked,
   };
   await api("/api/settings", {method: "PUT", body: JSON.stringify(runtimePayload)});
@@ -844,6 +923,8 @@ document.addEventListener("click", async (event) => {
       await Promise.all([refreshCandidates(false), refreshCart()]);
     } catch (error) {
       showToast(error.message);
+    } finally {
+      candidateButton.disabled = false;
     }
     return;
   }
@@ -868,6 +949,8 @@ document.addEventListener("click", async (event) => {
       showToast("已从下载列表移除");
     } catch (error) {
       showToast(error.message);
+    } finally {
+      removeButton.disabled = false;
     }
   }
 });
@@ -913,7 +996,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-window.addEventListener("hashchange", () => navigate(window.location.hash.slice(1), false));
+window.addEventListener("hashchange", () => navigate(window.location.hash.slice(1), false, true));
 
 function activateSettingsTab(name, focus = false) {
   const tabs = $$("[data-settings-tab]");
@@ -1145,7 +1228,22 @@ $("#playlist-library-filter").addEventListener("change", async () => {
   if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId);
 });
 async function pollLibraryScan(taskId) {
-  const task = await api(`/api/library-scan-tasks/${taskId}`);
+  let task;
+  try {
+    task = await api(`/api/library-scan-tasks/${taskId}`);
+  } catch (error) {
+    // 瞬时失败不终止轮询：退避重试，连续 10 次失败后停止。
+    libraryScanFailures += 1;
+    if (libraryScanFailures >= 10) {
+      const button = $("#refresh-library");
+      if (button) button.disabled = !expandedPlaylistId;
+      return;
+    }
+    clearTimeout(libraryScanTimer);
+    libraryScanTimer = setTimeout(() => pollLibraryScan(taskId).catch(() => {}), 3000);
+    return;
+  }
+  libraryScanFailures = 0;
   const button = $("#refresh-library");
   button.textContent = ["queued", "running"].includes(task.status) ? `刷新中 ${task.completed}/${task.total}` : "刷新 Emby 状态";
   if (["queued", "running"].includes(task.status)) {
@@ -1174,7 +1272,20 @@ async function pollRecognition(taskId) {
     await loadPlaylists(true);
     return;
   }
-  const task = await api(`/api/recognition-tasks/${taskId}`);
+  let task;
+  try {
+    task = await api(`/api/recognition-tasks/${taskId}`);
+  } catch (error) {
+    recognitionPollFailures += 1;
+    if (recognitionPollFailures >= 10) {
+      $("#recognition-progress").hidden = true;
+      return;
+    }
+    clearTimeout(recognitionTimer);
+    recognitionTimer = setTimeout(() => pollRecognition(taskId).catch(() => {}), 3000);
+    return;
+  }
+  recognitionPollFailures = 0;
   const percent = task.total ? Math.round(task.completed / task.total * 100) : 100;
   $("#recognition-progress").hidden = false;
   $("#recognition-text").textContent = `TMDB 识别 ${task.completed}/${task.total} · 成功 ${task.matched}`;
@@ -1189,12 +1300,20 @@ async function pollRecognition(taskId) {
 }
 $("#recognize-playlist").addEventListener("click", async () => {
   if (!expandedPlaylistId) return;
-  const result = await api(`/api/playlists/${expandedPlaylistId}/recognize`, {method: "POST"});
-  if (!result.id) {
-    showToast(result.message || "片单已全部识别");
-    return;
+  const button = $("#recognize-playlist");
+  button.disabled = true;
+  try {
+    const result = await api(`/api/playlists/${expandedPlaylistId}/recognize`, {method: "POST"});
+    if (!result.id) {
+      showToast(result.message || "片单已全部识别");
+      return;
+    }
+    await pollRecognition(result.id);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
   }
-  await pollRecognition(result.id);
 });
 $("#playlist-page-size").addEventListener("change", async () => {
   playlistPageSize = $("#playlist-page-size").value;
@@ -1405,12 +1524,14 @@ $("#confirm-download").addEventListener("click", async (event) => {
     const result = await api("/api/cart/download", {method: "POST"});
     const submitted = Number(result.submitted || 0);
     const needs = Number(result.needs_research || 0);
+    const skipped = Number(Array.isArray(result.skipped) ? result.skipped.length : 0);
     const summary = submitted
       ? `已提交 ${submitted} 个资源给 MoviePilot；Transmission 负责下载，Emby 确认入库后会显示为已整理。`
       : "没有成功提交的资源。";
+    const skipNote = skipped ? ` ${skipped} 个资源已提交过或正在下载/入库，已自动跳过。` : "";
     const extra = needs ? `另有 ${needs} 个因搜索上下文失效需重新搜索。` : "";
     $("#confirm-dialog").close();
-    $("#cart-result").textContent = `${summary}${extra ? ` ${extra}` : ""}`;
+    $("#cart-result").textContent = `${summary}${skipNote}${extra ? ` ${extra}` : ""}`;
     $("#cart-result").className = "inline-message cart-message";
     await Promise.all([refreshCart(), refreshHistory(), loadOverview()]);
     if (activeTask) await refreshCandidates(false);
@@ -1425,6 +1546,20 @@ $("#confirm-download").addEventListener("click", async (event) => {
 
 (async () => {
   applyTheme(document.documentElement.dataset.theme);
+  // 历史状态选项由 core.js 单一来源生成，避免与 HTML 硬编码重复维护。
+  const historyFilterSelect = $("#history-status-filter");
+  if (historyFilterSelect) {
+    historyFilterSelect.innerHTML = HISTORY_STATUS_OPTIONS
+      .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+      .join("");
+  }
+  // 弹窗内 Enter 键不触发 method=dialog 的隐式提交（保存逻辑由按钮处理），
+  // 避免未保存的输入被静默丢弃。
+  $$("form[method='dialog']").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      if (event.submitter === null) event.preventDefault();
+    });
+  });
   const initialPage = window.location.hash.slice(1);
   const initialTarget = pageMeta[initialPage] ? initialPage : "dashboard";
   navigate(initialTarget, false);

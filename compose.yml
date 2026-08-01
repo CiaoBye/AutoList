@@ -1,12 +1,17 @@
 services:
   autolist:
     build: .
-    image: autolist:0.88
+    image: autolist:0.89
     container_name: Autolist
     restart: unless-stopped
     env_file: .env
     ports:
       - "${APP_PORT:-8585}:8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     labels:
       net.unraid.docker.icon: "file:///mnt/user/appdata/Autolist/autolist-icon.png"
       net.unraid.docker.managed: "dockerman"

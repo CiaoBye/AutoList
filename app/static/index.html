@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.88.0">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.89.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=0.88.0">
+  <link rel="stylesheet" href="/assets/style.css?v=0.89.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -19,6 +19,7 @@
       <symbol id="icon-rules" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></symbol>
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
       <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 .4 2l.1.1-2.8 2.8-.1-.1a1.8 1.8 0 0 0-2-.4 1.8 1.8 0 0 0-1.1 1.7v.2H10v-.2A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-2 .4l-.1.1-2.8-2.8.1-.1a1.8 1.8 0 0 0 .4-2A1.8 1.8 0 0 0 3 13.9h-.2V10H3A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.4-2l-.1-.1 2.8-2.8.1.1a1.8 1.8 0 0 0 2 .4A1.8 1.8 0 0 0 10.1 3v-.2H14V3A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 2-.4l.1-.1 2.8 2.8-.1.1a1.8 1.8 0 0 0-.4 2 1.8 1.8 0 0 0 1.7 1.1h.2V14h-.2a1.8 1.8 0 0 0-1.7 1Z"/></symbol>
+      <symbol id="icon-logs" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="17" cy="12" r="2"/><circle cx="20" cy="18" r="2"/></symbol>
       <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
     </defs>
   </svg>
@@ -26,7 +27,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=0.88.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=0.89.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -41,8 +42,9 @@
         <a class="nav-item" href="#history" data-route="history"><svg><use href="#icon-history"></use></svg>下载历史</a>
         <span class="nav-group-label">管理</span>
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
+        <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg>日志</a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.88</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.89</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -289,6 +291,22 @@
           </div>
         </section>
       </section>
+      <section id="logs-page" class="app-page" data-page="logs" aria-label="日志">
+        <div class="page-stack">
+          <section class="panel logs-panel">
+            <div class="panel-heading logs-toolbar">
+              <div><p class="section-kicker">OPERATIONS / EVENT LOG</p><h2>事件日志</h2></div>
+              <div class="logs-filters">
+                <label>级别 <select id="logs-level"><option value="">全部</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label>
+                <label>关键词 <input id="logs-query" type="search" placeholder="片名 / 站点 / 错误" aria-label="日志关键词"></label>
+                <button id="refresh-logs" class="icon-button" aria-label="刷新日志">↻</button>
+              </div>
+            </div>
+            <p class="logs-hint">结构化事件日志保存于数据目录 <code>logs/autolist.log</code>（10MB × 5 轮转）。搜索任务面板的“任务日志”仍展示每个任务的详细过程。</p>
+            <div id="logs-list" class="logs-list" aria-live="polite"></div>
+          </section>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -371,13 +389,13 @@
           </div>
           <div id="settings-panel-system" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-system" data-settings-panel="system" hidden>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.88.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.89.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
               <p class="settings-help" id="settings-access-token-hint">未启用服务端访问令牌时，此栏仅用于多机调试。</p>
             </section>
             <section class="settings-section shelf-preference-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.88.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.89.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
               <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片。</p></div>
             </section>
           </div>
@@ -410,6 +428,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>电影库</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=0.88.0"></script>
+  <script type="module" src="/assets/app.js?v=0.89.0"></script>
 </body>
 </html>

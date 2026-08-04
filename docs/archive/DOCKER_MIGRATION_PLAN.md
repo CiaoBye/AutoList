@@ -1,5 +1,7 @@
 # PlaylistAutoDown Docker 迁移方案
 
+> **已归档**：PlaylistAutoDown → 独立 Docker 服务的迁移已完成，本文档仅作历史记录。当前架构请以 `README.md` 与 `CONTEXT.md` 为准。
+
 ## 目标
 
 将 PlaylistAutoDown 从 MoviePilot V2 插件迁移为独立 Docker 服务。

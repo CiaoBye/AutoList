@@ -99,9 +99,17 @@ export const showToast = (message) => {
 };
 
 export const setButtonLoading = (button, loading, text) => {
-  if (!button.dataset.label) button.dataset.label = button.textContent;
+  if (button.dataset.labelHtml == null) button.dataset.labelHtml = button.innerHTML;
+  if (button.dataset.labelAria == null && button.hasAttribute("aria-label")) button.dataset.labelAria = button.getAttribute("aria-label");
   button.disabled = loading;
-  button.textContent = loading ? text : button.dataset.label;
+  button.setAttribute("aria-busy", String(loading));
+  if (loading) {
+    button.textContent = text || "处理中…";
+    if (button.dataset.labelAria != null) button.setAttribute("aria-label", text || "处理中…");
+  } else {
+    button.innerHTML = button.dataset.labelHtml;
+    if (button.dataset.labelAria != null) button.setAttribute("aria-label", button.dataset.labelAria);
+  }
 };
 
 export const fileToBase64 = async (file) => {

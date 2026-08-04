@@ -28,6 +28,12 @@ function safeStorageGet(key) {
 function safeStorageSet(key, value) {
   try { window.localStorage.setItem(key, value); } catch (_error) { /* 浏览器禁用存储时保留当前会话值 */ }
 }
+function safeSessionStorageGet(key) {
+  try { return window.sessionStorage.getItem(key); } catch (_error) { return null; }
+}
+function safeSessionStorageSet(key, value) {
+  try { window.sessionStorage.setItem(key, value); } catch (_error) { /* 浏览器禁用会话存储时保留内存值 */ }
+}
 const storedPlaylistPageSize = safeStorageGet("autolist-playlist-page-size");
 let playlistPageSize = ["20", "50", "100", "200"].includes(storedPlaylistPageSize) ? storedPlaylistPageSize : "50";
 let playlistItemTotal = 0;
@@ -42,6 +48,43 @@ let selectedSiteId = null;
 let siteFilter = "all";
 let importMode = "url";
 let dashboardShelfSignature = "";
+const routeScrollPositions = new Map();
+let pendingHashNavigation = false;
+if (window.history && "scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+const routeScrollStorageKey = (page) => `autolist-route-scroll:${page}`;
+function getHistoryRouteScroll(page) {
+  const value = window.history?.state?.autolistRouteScroll?.[page];
+  const scrollTop = Number(value);
+  return Number.isFinite(scrollTop) ? scrollTop : null;
+}
+function getRouteScroll(page) {
+  const memoryValue = routeScrollPositions.get(page);
+  if (Number.isFinite(memoryValue)) return memoryValue;
+  const historyValue = getHistoryRouteScroll(page);
+  if (Number.isFinite(historyValue)) {
+    routeScrollPositions.set(page, historyValue);
+    return historyValue;
+  }
+  const storedValue = Number(safeSessionStorageGet(routeScrollStorageKey(page)));
+  if (!Number.isFinite(storedValue)) return null;
+  routeScrollPositions.set(page, storedValue);
+  return storedValue;
+}
+function rememberRouteScroll(page, value = window.scrollY) {
+  const scrollTop = Number(value);
+  if (!Number.isFinite(scrollTop)) return;
+  routeScrollPositions.set(page, scrollTop);
+  try {
+    if (window.history?.replaceState) {
+      const state = window.history.state && typeof window.history.state === "object" ? {...window.history.state} : {};
+      const positions = state.autolistRouteScroll && typeof state.autolistRouteScroll === "object" ? {...state.autolistRouteScroll} : {};
+      positions[page] = scrollTop;
+      state.autolistRouteScroll = positions;
+      window.history.replaceState(state, "", window.location.href);
+    }
+  } catch (_error) { /* 浏览器不允许修改历史状态时保留内存与会话值 */ }
+  safeSessionStorageSet(routeScrollStorageKey(page), String(scrollTop));
+}
 
 function applyTheme() {
   document.documentElement.dataset.theme = "light";
@@ -111,18 +154,52 @@ function navigate(page, updateHash = true, preserveScroll = false) {
     $("#page-lead").hidden = !meta.lead;
     $("#open-import").hidden = !["dashboard", "playlists", "search"].includes(target);
     document.title = `${meta.title} · AutoList`;
+    closeSiteInspector(false);
     setSidebarOpen(false, false);
+    const mobileMore = $("#mobile-more");
+    const moreActive = ["rules", "history", "sites", "logs"].includes(target);
+    mobileMore?.classList.toggle("active", moreActive);
+    if (moreActive) {
+      mobileMore?.setAttribute("aria-current", "page");
+      mobileMore?.setAttribute("aria-label", `更多导航，当前页面：${meta.title}`);
+    } else {
+      mobileMore?.removeAttribute("aria-current");
+      mobileMore?.setAttribute("aria-label", "打开更多导航");
+    }
   };
   // Let the hashchange handler perform the commit for link clicks so one
   // navigation cannot start two overlapping transitions.
   if (hashWillChange) {
+    rememberRouteScroll(currentPage);
+    pendingHashNavigation = true;
     window.location.hash = target;
     return;
   }
   commit();
-  if (!preserveScroll) window.scrollTo({top: 0, behavior: "auto"});
-  if (!booting) requestAnimationFrame(() => $("#main-content")?.focus({preventScroll: true}));
-  if (!booting && !hashWillChange) refreshPageData(target).catch((error) => showToast(error.message));
+  const savedScroll = preserveScroll === true ? getRouteScroll(target) : null;
+  // Use the two-argument form so CSS `scroll-behavior: smooth` cannot delay
+  // or get overridden by the browser's own history restoration.
+  const targetScroll = Number.isFinite(savedScroll) ? savedScroll : 0;
+  window.scrollTo(0, targetScroll);
+  if (!booting) requestAnimationFrame(() => {
+    $("#main-content")?.focus({preventScroll: true});
+    // Some WebViews still scroll a focused element despite preventScroll.
+    window.scrollTo(0, targetScroll);
+  });
+  if (preserveScroll === true) {
+    const enforceScroll = () => {
+      if (currentPage === target) window.scrollTo(0, targetScroll);
+    };
+    requestAnimationFrame(enforceScroll);
+    window.setTimeout(enforceScroll, 120);
+  }
+  if (!booting && !hashWillChange) {
+    refreshPageData(target)
+      .then(() => {
+        if (currentPage === target) window.scrollTo(0, targetScroll);
+      })
+      .catch((error) => showToast(error.message));
+  }
 }
 
 async function loadConnection() {
@@ -140,6 +217,7 @@ async function loadConnection() {
     $("#top-service-label").textContent = `${onlineCount}/${names.length} 服务在线`;
     $("#top-service-detail").textContent = detail;
     $("#service-status")?.setAttribute("data-short-label", `${onlineCount}/${names.length}`);
+    $("#service-status")?.setAttribute("aria-label", `服务状态：${onlineCount}/${names.length} 服务在线，${detail}，查看详情`);
     $("#sidebar-status-label").textContent = status.ok ? "系统运行正常" : "部分服务异常";
     const rail = [["#rail-tmdb-status", providers.tmdb], ["#rail-tr-status", providers.transmission], ["#rail-emby-status", providers.emby], ["#rail-mp-status", providers.moviepilot]];
     rail.forEach(([selector, value]) => { const node = $(selector); if (node) node.textContent = value?.ok ? "连接正常" : value?.configured === false ? "未配置" : "连接失败"; });
@@ -148,6 +226,7 @@ async function loadConnection() {
     sidebarDot.className = "status-dot error";
     $("#top-service-label").textContent = "服务连接异常";
     $("#top-service-detail").textContent = "点击重新检测";
+    $("#service-status")?.setAttribute("aria-label", "服务状态：连接异常，点击重新检测查看详情");
     $("#sidebar-status-label").textContent = "服务连接异常";
     ["#rail-tmdb-status", "#rail-tr-status", "#rail-emby-status", "#rail-mp-status"].forEach((selector) => { const node = $(selector); if (node) node.textContent = "连接失败"; });
   }
@@ -332,11 +411,11 @@ function renderCart() {
     ? cartCache.map((item) => {
         const movieTitle = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title;
         return `<article class="cart-item cart-item-page ${item.context_available ? "" : "cart-item-expired"}">
-        <div class="cart-item-main"><span class="cart-item-icon">◇</span><div><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${torrentLinkHtml(item.detail_url, item.title)}</small></div></div>
+        <div class="cart-item-main"><span class="cart-item-icon" aria-hidden="true">◇</span><div><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${torrentLinkHtml(item.detail_url, item.title)}</small></div></div>
         <div class="cart-item-spec"><span class="tag ${item.context_available ? "tag-accent" : "tag-error"}">${item.context_available ? escapeHtml(item.resolution || "其他") : "搜索上下文已过期"}</span><span class="tag">${escapeHtml(item.site_name || "未知站点")}</span><span class="tag">${formatSize(item.size)}</span>${item.context_available ? "" : '<button class="text-link" data-route-target="search">重新搜索 →</button>'}</div>
         <button class="cart-remove" data-cart-remove="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(movieTitle)}">移除</button>
       </article>`; }).join("")
-    : "<div class='empty-state'><span>＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class='button button-secondary' data-route-target='search'>前往资源搜索</button></div>";
+    : "<div class='empty-state'><span aria-hidden='true'>＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class='button button-secondary' type='button' data-route-target='search'>前往资源搜索</button></div>";
   if (expired && available.length) {
     $("#cart-result").textContent = `${expired} 个资源因服务重启已失效，请点击对应条目的“重新搜索”；仍可提交其余 ${available.length} 个有效资源。`;
     $("#cart-result").className = "inline-message cart-message warning";
@@ -393,7 +472,7 @@ function renderLogEvents(events) {
   const list = $("#logs-list");
   if (!list) return;
   if (!events.length) {
-    list.innerHTML = "<div class='empty-state'><span>⌁</span><strong>暂无日志</strong><p>服务运行后会自动记录事件日志。</p></div>";
+    list.innerHTML = "<div class='empty-state'><span aria-hidden='true'>⌁</span><strong>暂无日志</strong><p>服务运行后会自动记录事件日志。</p></div>";
     return;
   }
   list.innerHTML = events.map(logEventLine).join("");
@@ -449,7 +528,7 @@ function renderCandidates() {
   $("#metric-candidates").textContent = eligibleCount;
   if (!filtered.length) {
     const {heading, copy, actions} = candidateEmptyState({candidateCache, activeTaskState, currentFilter});
-    $("#candidates").innerHTML = `<div class="empty-state"><span>⌕</span><strong>${heading}</strong><p>${copy}</p>${actions}</div>`;
+    $("#candidates").innerHTML = `<div class="empty-state"><span aria-hidden="true">⌕</span><strong>${heading}</strong><p>${copy}</p>${actions}</div>`;
     return;
   }
   let previousMovieId = null;
@@ -738,6 +817,7 @@ async function loadSites() {
   if (!selectedSiteId && list.length) selectedSiteId = list[0].id;
   renderSites();
   renderSiteInspector(list.find((site) => site.id === selectedSiteId));
+  syncSiteInspectorMode();
   if (selectedSiteId) loadSiteHealth(selectedSiteId).catch(() => {});
 }
 
@@ -765,8 +845,10 @@ function renderSites() {
     const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
     const stats = site.local_stats || {}, account = site.account_stats || {};
     const state = siteConnectionState(site);
-    return `<article class="mp-site-card ${selectedSiteId === site.id ? "selected" : ""}" data-open-site="${site.id}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(site.name)}，${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}">
-      <header><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><strong>${escapeHtml(site.name)}</strong><i class="mp-state ${state}" title="${escapeHtml(state)}"></i></header>
+    return `<article class="mp-site-card ${selectedSiteId === site.id ? "selected" : ""}">
+      <header><button class="site-card-open" type="button" data-open-site="${site.id}" aria-haspopup="dialog" aria-controls="site-inspector-panel" aria-label="查看 ${escapeHtml(site.name)}，${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}">
+        <span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><strong>${escapeHtml(site.name)}</strong><i class="mp-state ${state}" aria-hidden="true"></i>
+      </button></header>
       <a class="site-url-link" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(site.base_url)}">${escapeHtml(site.base_url)}</a>
       <div class="site-local-stats"><div><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong><span>上传量</span></div><div><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong><span>下载量</span></div><div><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong><span>分享率</span></div></div>
       <div class="site-local-meta"><span>${site.search_enabled ? "参与搜索" : "不参与搜索"}</span><span>${site.cookie_configured ? "Cookie 已配置" : "Cookie 未配置"}</span><span>${site.user_agent_configured ? "UA 已配置" : "默认 UA"}</span></div>
@@ -783,8 +865,62 @@ function renderSiteInspector(site) {
     <dl class="site-detail-list"><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>本地 Cookie</dt><dd>${site.cookie_configured ? "已配置" : "未配置"}</dd><dt>User-Agent</dt><dd class="site-ua-value">${escapeHtml(site.user_agent || "AutoList 默认 UA")}</dd><dt>最近连接检测</dt><dd>${site.last_tested_at ? `${formatTime(site.last_tested_at)}${site.last_duration_ms == null ? "" : ` · ${Number(site.last_duration_ms)}ms`}` : "尚未检测"}</dd><dt>账户统计更新</dt><dd>${escapeHtml(account.checked_at ? formatTime(account.checked_at) : "等待后台刷新")}${account.error ? ` · ${escapeHtml(account.error)}` : ""}</dd><dt>最近搜索</dt><dd>${escapeHtml(stats.last_attempt_at || "暂无记录")}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">${stats.total ? `${Number(stats.success_rate || 0).toFixed(1)}% 成功 · ${Number(stats.average_ms || 0)}ms · ${Number(stats.total)} 次` : "等待搜索样本"}</dd></dl>
     <div class="site-detail-actions"><button class="button button-secondary" data-test-site="${site.id}">检测站点</button><button class="button button-secondary" data-refresh-site-cookie="${site.id}">刷新 Cookie</button><button class="button button-secondary" data-edit-site="${site.id}">编辑站点 / UA</button><button class="button button-danger" data-delete-site="${site.id}">删除站点</button></div>
 `;
+  $("#site-inspector-content").querySelector(".site-detail-head strong")?.setAttribute("id", "site-inspector-title");
   bindSiteLogoFallback($("#site-inspector-content"));
 }
+const siteInspectorFocusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+let siteInspectorReturnFocus = null;
+function syncSiteInspectorMode() {
+  const panel = $("#site-inspector-panel");
+  if (!panel) return;
+  const mobile = window.matchMedia("(max-width: 900px)").matches;
+  if (mobile) {
+    panel.setAttribute("aria-hidden", String(!panel.classList.contains("open")));
+  } else {
+    siteInspectorReturnFocus?.setAttribute("aria-expanded", "false");
+    siteInspectorReturnFocus = null;
+    document.body.classList.remove("site-inspector-open");
+    panel.classList.remove("open");
+    panel.setAttribute("role", "complementary");
+    panel.setAttribute("aria-hidden", "false");
+    panel.removeAttribute("aria-modal");
+    panel.removeAttribute("aria-labelledby");
+  }
+}
+function openSiteInspector(trigger) {
+  const panel = $("#site-inspector-panel");
+  if (!panel || !window.matchMedia("(max-width: 900px)").matches) {
+    trigger?.setAttribute("aria-expanded", "false");
+    syncSiteInspectorMode();
+    return;
+  }
+  siteInspectorReturnFocus = trigger || document.activeElement;
+  document.body.classList.add("site-inspector-open");
+  panel.classList.add("open");
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-labelledby", "site-inspector-title");
+  panel.setAttribute("aria-hidden", "false");
+  trigger?.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => panel.querySelector(siteInspectorFocusableSelector)?.focus({preventScroll: true}));
+}
+function closeSiteInspector(restoreFocus = true) {
+  const panel = $("#site-inspector-panel");
+  if (!panel) return;
+  const returnFocus = siteInspectorReturnFocus;
+  returnFocus?.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("site-inspector-open");
+  panel.classList.remove("open");
+  panel.setAttribute("role", "complementary");
+  panel.removeAttribute("aria-modal");
+  panel.removeAttribute("aria-labelledby");
+  panel.setAttribute("aria-hidden", window.matchMedia("(max-width: 900px)").matches ? "true" : "false");
+  siteInspectorReturnFocus = null;
+  if (restoreFocus && returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus({preventScroll: true}));
+}
+window.addEventListener("resize", syncSiteInspectorMode);
+syncSiteInspectorMode();
+$("#site-inspector-backdrop")?.addEventListener("click", () => closeSiteInspector());
 
 async function loadSiteHealth(siteId) {
   const data = await api(`/api/sites/${siteId}/health-history?limit=30`);
@@ -821,13 +957,37 @@ function openSiteDialog(site = null) {
   $("#site-dialog").showModal();
 }
 
+function activateImportMode(button, focus = false) {
+  if (!button) return;
+  importMode = button.dataset.importMode;
+  $$("[data-import-mode]").forEach((item) => {
+    const active = item === button;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-selected", String(active));
+    item.tabIndex = active ? 0 : -1;
+  });
+  $$("[data-import-panel]").forEach((panel) => { panel.hidden = panel.dataset.importPanel !== importMode; });
+  $("#import-preview").hidden = true;
+  if (focus) button.focus();
+}
+
+$$("[data-import-mode]").forEach((button) => {
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$("[data-import-mode]");
+    const current = tabs.indexOf(event.currentTarget);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? tabs.length - 1
+      : (current + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + tabs.length) % tabs.length;
+    activateImportMode(tabs[next], true);
+  });
+});
+
 document.addEventListener("click", async (event) => {
   const importModeButton = event.target.closest("[data-import-mode]");
   if (importModeButton) {
-    importMode = importModeButton.dataset.importMode;
-    $$('[data-import-mode]').forEach((button) => button.classList.toggle("active", button === importModeButton));
-    $$('[data-import-panel]').forEach((panel) => { panel.hidden = panel.dataset.importPanel !== importMode; });
-    $("#import-preview").hidden = true;
+    activateImportMode(importModeButton);
     return;
   }
   const routeTarget = event.target.closest("[data-route-target], [data-route]");
@@ -909,21 +1069,22 @@ document.addEventListener("click", async (event) => {
   const deleteSiteButton = event.target.closest("[data-delete-site]");
   const editSiteButton = event.target.closest("[data-edit-site]");
   if (editSiteButton) {
-    $("#site-inspector-panel").classList.remove("open");
+    closeSiteInspector(false);
     openSiteDialog(siteCache.find((site) => site.id === Number(editSiteButton.dataset.editSite)) || null);
     return;
   }
   const siteCard = event.target.closest("[data-open-site]");
-  if (siteCard && !event.target.closest("button, a")) {
+  if (siteCard) {
     selectedSiteId = Number(siteCard.dataset.openSite);
     renderSites();
     renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
     loadSiteHealth(selectedSiteId).catch(() => {});
-    if (window.matchMedia("(max-width: 900px)").matches) $("#site-inspector-panel").classList.add("open");
+    const currentSiteButton = $$("[data-open-site]").find((button) => Number(button.dataset.openSite) === selectedSiteId);
+    openSiteInspector(currentSiteButton);
     return;
   }
-  if (event.target.closest("[data-close-site-inspector]")) {
-    $("#site-inspector-panel").classList.remove("open");
+  if (event.target.closest("[data-close-site-inspector], #site-inspector-backdrop")) {
+    closeSiteInspector();
     return;
   }
   const refreshSiteCookie = event.target.closest("[data-refresh-site-cookie]");
@@ -953,7 +1114,7 @@ document.addEventListener("click", async (event) => {
   if (deleteSiteButton) {
     if (!window.confirm("确认删除这个站点配置？")) return;
     await api(`/api/sites/${deleteSiteButton.dataset.deleteSite}`, {method: "DELETE"});
-    $("#site-inspector-panel").classList.remove("open");
+    closeSiteInspector(false);
     await loadSites();
     showToast("站点已删除");
     return;
@@ -1023,6 +1184,30 @@ document.addEventListener("keydown", (event) => {
       return;
     }
   }
+  if (document.body.classList.contains("site-inspector-open")) {
+    const panel = $("#site-inspector-panel");
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSiteInspector();
+      return;
+    }
+    if (event.key === "Tab" && panel) {
+      const focusable = [...panel.querySelectorAll(siteInspectorFocusableSelector)];
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (!panel.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
+  }
   if (event.key === "Escape") {
     const dialog = document.querySelector("dialog[open]");
     if (dialog) {
@@ -1031,15 +1216,17 @@ document.addEventListener("keydown", (event) => {
       return;
     }
   }
-  const siteCard = event.target.closest?.("[data-open-site]");
-  if (!siteCard || event.target.closest("a, button, input, select, textarea, summary")) return;
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    siteCard.click();
-  }
+  if (event.target.closest?.("[data-open-site]")) return;
 });
 
-window.addEventListener("hashchange", () => navigate(window.location.hash.slice(1), false, true));
+window.addEventListener("hashchange", () => {
+  const target = window.location.hash.slice(1);
+  const restoreScroll = !pendingHashNavigation && Number.isFinite(getRouteScroll(target));
+  pendingHashNavigation = false;
+  navigate(target, false, restoreScroll);
+});
+
+window.addEventListener("pagehide", () => rememberRouteScroll(currentPage), {capture: true});
 
 function activateSettingsTab(name, focus = false) {
   const tabs = $$("[data-settings-tab]");
@@ -1106,6 +1293,7 @@ const setSidebarOpen = (open, restoreFocus = true) => {
     menuButton?.setAttribute("aria-expanded", "true");
     menuButton?.setAttribute("aria-label", "关闭导航");
     moreButton?.setAttribute("aria-expanded", "true");
+    moreButton?.setAttribute("aria-label", "关闭更多导航");
     requestAnimationFrame(() => sidebar?.querySelector(sidebarFocusableSelector)?.focus({preventScroll: true}));
     return;
   }
@@ -1113,6 +1301,8 @@ const setSidebarOpen = (open, restoreFocus = true) => {
   menuButton?.setAttribute("aria-expanded", "false");
   menuButton?.setAttribute("aria-label", "打开导航");
   moreButton?.setAttribute("aria-expanded", "false");
+  const moreActive = ["rules", "history", "sites", "logs"].includes(currentPage);
+  moreButton?.setAttribute("aria-label", moreActive ? `更多导航，当前页面：${pageMeta[currentPage].title}` : "打开更多导航");
   if (restoreFocus) {
     const target = document.activeElement === menuButton || document.activeElement === moreButton
       ? document.activeElement : sidebarReturnFocus;
@@ -1523,7 +1713,11 @@ $("#restart-task").addEventListener("click", () => followupSearch("restart", "�
 
 $$(".filter-chip").forEach((button) => button.addEventListener("click", () => {
   currentFilter = button.dataset.filter;
-  $$(".filter-chip").forEach((item) => item.classList.toggle("active", item === button));
+  $$(".filter-chip").forEach((item) => {
+    const active = item === button;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-pressed", String(active));
+  });
   renderCandidates();
 }));
 
@@ -1625,7 +1819,8 @@ $("#confirm-download").addEventListener("click", async (event) => {
   });
   const initialPage = window.location.hash.slice(1);
   const initialTarget = pageMeta[initialPage] ? initialPage : "dashboard";
-  navigate(initialTarget, false);
+  const initialScroll = getRouteScroll(initialTarget);
+  navigate(initialTarget, false, Number.isFinite(initialScroll));
   try {
     const startup = [loadSettings(), refreshPageData(initialTarget)];
     if (initialTarget !== "dashboard") startup.push(loadConnection());
@@ -1636,6 +1831,7 @@ $("#confirm-download").addEventListener("click", async (event) => {
     showToast(error.message);
   } finally {
     booting = false;
+    if (Number.isFinite(initialScroll)) requestAnimationFrame(() => window.scrollTo(0, initialScroll));
     if (!pageMeta[initialPage]) history.replaceState(null, "", "#dashboard");
   }
 })();

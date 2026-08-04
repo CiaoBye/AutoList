@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=0.99.0">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.01.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=0.99.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.01.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -28,7 +28,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=0.99.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.01.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -45,7 +45,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg>日志</a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v0.99</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.01</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -57,7 +57,7 @@
           <p id="page-lead" class="lead" hidden></p>
         </div>
         <div class="topbar-actions">
-          <button id="service-status" class="service-status" type="button" title="查看服务状态" aria-label="查看服务状态"><span id="top-service-dot" class="status-dot"></span><strong id="top-service-label">服务检测中</strong><small id="top-service-detail">TMDB · TR · Emby</small></button>
+          <button id="service-status" class="service-status" type="button" title="查看服务状态" aria-label="服务状态：检测中，查看详情"><span id="top-service-dot" class="status-dot"></span><strong id="top-service-label">服务检测中</strong><small id="top-service-detail">TMDB · TR · Emby</small></button>
           <button id="open-settings" class="button button-secondary"><svg class="button-svg"><use href="#icon-settings"></use></svg>设置</button>
           <button id="open-import" class="button button-secondary">＋ 导入片单</button>
           <button id="mobile-menu" class="mobile-menu" type="button" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg></button>
@@ -163,9 +163,9 @@
               <label class="field"><span>搜索模式</span><select id="search-scope"><option value="pending">未下载</option><option value="range">序号范围</option></select></label>
               <label id="search-count-field" class="field"><span>本次搜索前 N 部</span><input id="search-count" type="number" min="1" max="10000" value="50" inputmode="numeric"></label>
               <label id="search-start-field" class="field" hidden><span>起始序号</span><input id="start" type="number" min="1" inputmode="numeric" placeholder="1"></label>
-              <span id="search-range-arrow" class="range-arrow" hidden>→</span>
+              <span id="search-range-arrow" class="range-arrow" aria-hidden="true" hidden>→</span>
               <label id="search-end-field" class="field" hidden><span>结束序号</span><input id="end" type="number" min="1" inputmode="numeric" placeholder="50"></label>
-              <button id="search" class="button button-primary"><span class="button-icon">⌕</span><span>开始搜索</span></button>
+              <button id="search" class="button button-primary" type="button"><span class="button-icon" aria-hidden="true">⌕</span><span>开始搜索</span></button>
             </div>
             <div class="search-automation-actions">
               <button id="run-playlist-completion" class="button button-secondary">搜索未下载影片</button>
@@ -195,17 +195,17 @@
             <div class="panel-heading candidate-heading">
               <div><p class="section-kicker">RESOURCE MATCHES</p><h2>候选资源</h2></div>
               <div class="filter-group" role="group" aria-label="候选筛选">
-                <button class="filter-chip active" data-filter="all">全部</button>
-                <button class="filter-chip" data-filter="preferred">优先</button>
-                <button class="filter-chip" data-filter="2160p">2160p</button>
-                <button class="filter-chip" data-filter="x265">x265</button>
-                <button class="filter-chip" data-filter="fallback">保底</button>
-                <button class="filter-chip" data-filter="excluded">已排除</button>
+                <button class="filter-chip active" type="button" aria-pressed="true" data-filter="all">全部</button>
+                <button class="filter-chip" type="button" aria-pressed="false" data-filter="preferred">优先</button>
+                <button class="filter-chip" type="button" aria-pressed="false" data-filter="2160p">2160p</button>
+                <button class="filter-chip" type="button" aria-pressed="false" data-filter="x265">x265</button>
+                <button class="filter-chip" type="button" aria-pressed="false" data-filter="fallback">保底</button>
+                <button class="filter-chip" type="button" aria-pressed="false" data-filter="excluded">已排除</button>
               </div>
             </div>
             <div class="candidate-labels" aria-hidden="true"><span>影片 / 资源</span><span>推荐依据</span><span>来源与规格</span><span>评分</span><span></span></div>
             <div id="candidates" class="candidate-list">
-              <div class="empty-state"><span>⌕</span><strong>等待搜索结果</strong><p>选择片单和序号范围，候选会在这里实时出现。</p></div>
+              <div class="empty-state"><span aria-hidden="true">⌕</span><strong>等待搜索结果</strong><p>选择片单和序号范围，候选会在这里实时出现。</p></div>
             </div>
           </section>
         </div>
@@ -218,7 +218,7 @@
             <span id="cart-count" class="count-badge">0</span>
           </div>
           <div id="cart-list" class="cart-list cart-list-page">
-            <div class="empty-state"><span>＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class="button button-secondary" data-route-target="search">前往资源搜索</button></div>
+            <div class="empty-state"><span aria-hidden="true">＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class="button button-secondary" type="button" data-route-target="search">前往资源搜索</button></div>
           </div>
           <footer class="cart-checkout">
             <div><span>已选资源</span><strong id="cart-checkout-count">0 个</strong></div>
@@ -260,7 +260,7 @@
             <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary">＋ 添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-label="站点筛选"><button class="site-filter active" type="button" role="tab" aria-selected="true" aria-controls="sites-list" data-site-filter="all">全部</button><button class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="active">已启用</button><button class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="inactive">未启用</button><button class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="normal">正常</button><button class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="slow">缓慢</button><button class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="failed">失败</button><button class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="unknown">未知</button></div>
-          <div class="site-workspace"><div id="sites-list" class="site-card-grid mp-site-grid"></div><aside id="site-inspector-panel" class="site-inspector-panel"><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一个站点</strong><p>查看 AutoList 搜索统计、Cookie 与 User-Agent 状态。</p></div></div></aside></div>
+          <div class="site-workspace"><div id="sites-list" class="site-card-grid mp-site-grid"></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭站点详情"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="站点详情"><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一个站点</strong><p>查看 AutoList 搜索统计、Cookie 与 User-Agent 状态。</p></div></div></aside></div>
         </section>
       </section>
 
@@ -281,7 +281,7 @@
                 </select>
               </label>
               <button id="clear-history" class="button button-secondary button-danger-soft" type="button">清除当前分组</button>
-              <button id="refresh-history" class="icon-button" aria-label="刷新下载历史">↻</button>
+              <button id="refresh-history" class="icon-button" type="button" aria-label="刷新下载历史"><span aria-hidden="true">↻</span></button>
             </div>
           </div>
           <div class="table-wrap">
@@ -301,7 +301,7 @@
                 <label>级别 <select id="logs-level"><option value="">全部</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label>
                 <label>关键词 <input id="logs-query" type="search" placeholder="片名 / 站点 / 错误" aria-label="日志关键词"></label>
                 <button id="clear-logs" class="icon-button" aria-label="清空日志" title="清空日志"><svg><use href="#icon-trash"></use></svg></button>
-                <button id="refresh-logs" class="icon-button" aria-label="刷新日志" title="刷新日志">↻</button>
+                <button id="refresh-logs" class="icon-button" type="button" aria-label="刷新日志" title="刷新日志"><span aria-hidden="true">↻</span></button>
               </div>
             </div>
             <div id="logs-list" class="logs-list" aria-live="polite"></div>
@@ -314,10 +314,10 @@
   <dialog id="import-dialog" class="dialog" aria-labelledby="import-dialog-title">
     <form method="dialog" class="dialog-card">
       <div class="dialog-heading"><div><p class="section-kicker">NEW PLAYLIST</p><h2 id="import-dialog-title">导入片单</h2></div><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
-      <div class="import-tabs"><button class="active" type="button" data-import-mode="url">粘贴网址</button><button type="button" data-import-mode="file">上传文件</button><button type="button" data-import-mode="paste">粘贴内容</button></div>
-      <section class="import-mode" data-import-panel="url"><label class="field"><span>片单网址</span><input id="import-url" placeholder="TMDB、Letterboxd、IMDb 或 MDBList"></label><label class="field"><span>最多导入</span><input id="import-limit" type="number" min="1" max="10000" value="5000"></label></section>
-      <section class="import-mode" data-import-panel="file" hidden><label class="drop-zone" for="file"><span class="drop-icon">⇧</span><strong id="file-label">选择片单文件</strong><small>点击选择 .xlsx、.json 或 .csv</small><input id="file" type="file" accept=".xlsx,.json,.csv"></label></section>
-      <section class="import-mode" data-import-panel="paste" hidden><label class="field"><span>JSON 或 CSV 内容</span><textarea id="import-content" rows="8" placeholder='{"name":"我的片单","items":[...]}'></textarea></label><label class="toggle-field"><input id="import-content-csv" type="checkbox"><span>内容是 CSV</span></label></section>
+      <div class="import-tabs" role="tablist" aria-label="片单导入方式"><button id="import-tab-url" class="active" type="button" role="tab" aria-selected="true" aria-controls="import-panel-url" data-import-mode="url">粘贴网址</button><button id="import-tab-file" type="button" role="tab" aria-selected="false" aria-controls="import-panel-file" tabindex="-1" data-import-mode="file">上传文件</button><button id="import-tab-paste" type="button" role="tab" aria-selected="false" aria-controls="import-panel-paste" tabindex="-1" data-import-mode="paste">粘贴内容</button></div>
+      <section id="import-panel-url" class="import-mode" role="tabpanel" aria-labelledby="import-tab-url" data-import-panel="url"><label class="field"><span>片单网址</span><input id="import-url" placeholder="TMDB、Letterboxd、IMDb 或 MDBList"></label><label class="field"><span>最多导入</span><input id="import-limit" type="number" min="1" max="10000" value="5000"></label></section>
+      <section id="import-panel-file" class="import-mode" role="tabpanel" aria-labelledby="import-tab-file" data-import-panel="file" hidden><label class="drop-zone" for="file"><span class="drop-icon" aria-hidden="true">⇧</span><strong id="file-label">选择片单文件</strong><small>点击选择 .xlsx、.json 或 .csv</small><input id="file" type="file" accept=".xlsx,.json,.csv"></label></section>
+      <section id="import-panel-paste" class="import-mode" role="tabpanel" aria-labelledby="import-tab-paste" data-import-panel="paste" hidden><label class="field"><span>JSON 或 CSV 内容</span><textarea id="import-content" rows="8" placeholder='{"name":"我的片单","items":[...]}'></textarea></label><label class="toggle-field"><input id="import-content-csv" type="checkbox"><span>内容是 CSV</span></label></section>
       <label class="field"><span>片单名称（可选）</span><input id="name" placeholder="例如：年度电影计划"></label>
       <div id="import-preview" class="import-preview" hidden></div>
       <p id="import-result" class="inline-message" aria-live="polite"></p>
@@ -387,12 +387,12 @@
           </div>
           <div id="settings-panel-system" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-system" data-settings-panel="system" hidden>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.99.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.01.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
             <section class="settings-section shelf-preference-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=0.99.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.01.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
               <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片。</p></div>
             </section>
           </div>
@@ -417,13 +417,13 @@
       <div class="settings-inline"><label class="field"><span>RSS 地址（可选）</span><input id="site-rss-url"></label><label class="field"><span>图标地址（可选）</span><input id="site-icon-url"></label></div>
       <label id="site-clear-rss-wrap" class="toggle-field" hidden><input id="site-clear-rss-url" type="checkbox"><span>清除已保存 RSS 地址</span></label>
       <div class="settings-inline"><label class="toggle-field"><input id="site-enabled" type="checkbox" checked><span>启用站点</span></label><label class="toggle-field"><input id="site-search-enabled" type="checkbox"><span>参与搜索</span></label><label class="toggle-field"><input id="site-proxy" type="checkbox"><span>使用代理</span></label><label class="toggle-field"><input id="site-render" type="checkbox"><span>浏览器渲染</span></label></div>
-      <p id="site-result" class="inline-message"></p>
+      <p id="site-result" class="inline-message" role="status" aria-live="polite" aria-atomic="true"></p>
       <div class="dialog-actions"><button class="button button-secondary" value="cancel">取消</button><button id="save-site" class="button button-primary" type="button">保存站点</button></div>
     </form>
   </dialog>
 
-  <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>电影库</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
+  <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>电影库</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=0.99.0"></script>
+  <script type="module" src="/assets/app.js?v=1.01.0"></script>
 </body>
 </html>

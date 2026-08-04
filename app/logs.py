@@ -60,7 +60,9 @@ def configure_logging() -> None:
     handler.setFormatter(JsonLineFormatter())
     logger = logging.getLogger("autolist")
     logger.setLevel(logging.INFO)
-    logger.handlers.clear()
+    for old_handler in logger.handlers[:]:
+        logger.removeHandler(old_handler)
+        old_handler.close()
     logger.addHandler(handler)
     logger.propagate = False
     _configured = True

@@ -1,7 +1,7 @@
 services:
   autolist:
     build: .
-    image: autolist:0.99
+    image: autolist:1.01
     container_name: Autolist
     restart: unless-stopped
     env_file: .env
@@ -13,7 +13,7 @@ services:
         max-size: "10m"
         max-file: "3"
     labels:
-      net.unraid.docker.icon: "file:///mnt/user/appdata/Autolist/autolist-icon.png"
+      net.unraid.docker.icon: "https://raw.githubusercontent.com/CiaoBye/AutoList/main/unraid/autolist-icon.png"
       net.unraid.docker.managed: "dockerman"
       net.unraid.docker.webui: "http://[IP]:[PORT:8585]/"
     volumes:

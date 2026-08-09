@@ -4,21 +4,21 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.05`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
+当前版本：`1.06`。AutoList 的首页是“电影藏馆”放映台：用馆藏进度、下一步任务、候选流水线和最近入库书架组织全局总览；站点页使用实时星图定位搜索入口与连接质量。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
 
 外部片单先在导入弹窗预览再写入。TMDB 使用官方 API；Letterboxd 公开片单使用其官方嵌入页面，避免普通网页的 Cloudflare 校验；IMDb 公开 List 使用当前 GraphQL 列表接口；MDBList 公开片单使用其 JSON 接口。私有片单仍需使用站点导出文件，AutoList 不绕过验证码或登录限制。
 
 ## 实际运行效果
 
-以下截图此前来自 Unraid 上实际运行的 `autolist:1.04` 容器，展示真实片单数据、候选规则和响应式布局；当前生产已更新到 `autolist:1.05`。公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
+以下截图此前来自 Unraid 上实际运行的 `autolist:1.04` 容器，展示真实片单数据、候选规则和响应式布局；当前生产已更新到 `autolist:1.06`。截图画廊保留为历史业务数据快照，C 方向的实时放映台与站点星图以当前运行界面为准。公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
 
-新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页各三套可切换方案；原型只用于选型，不会改变现有业务路由。
+新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页各三套可切换方案；当前生产页已采用 C 方向，原型页保留 A/B 作为后续比较。
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/screenshots/autolist-production-dashboard.jpg" alt="AutoList 工作台桌面版" width="100%">
-      <br><sub>工作台 · 桌面视图</sub>
+      <img src="docs/screenshots/autolist-production-dashboard.jpg" alt="AutoList 电影藏馆历史桌面版" width="100%">
+      <br><sub>电影藏馆 · 历史桌面视图</sub>
     </td>
     <td width="50%" align="center">
       <img src="docs/screenshots/autolist-production-playlists.jpg" alt="AutoList 片单页面" width="100%">
@@ -37,15 +37,15 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
   </tr>
   <tr>
     <td colspan="2" align="center">
-      <img src="docs/screenshots/autolist-production-mobile-dashboard.jpg" alt="AutoList 工作台移动端" width="390">
-      <br><sub>工作台 · 390px 移动视图与底部导航</sub>
+      <img src="docs/screenshots/autolist-production-mobile-dashboard.jpg" alt="AutoList 电影藏馆历史移动端" width="390">
+      <br><sub>电影藏馆 · 历史 390px 移动视图与底部导航</sub>
     </td>
   </tr>
 </table>
 
 ## 页面结构
 
-- **工作台**：片单、最近搜索、候选数量、下载列表、服务状态和最近下载的总览。
+- **电影藏馆**：以放映台总览片单进度、最近搜索、候选流水线、下载车、服务状态和最近入库书架；完整业务功能仍在独立页面处理。
 - **片单**：查看片单和影片明细、TMDB 识别结果及 Emby 实体/.strm 状态；只有真实媒体文件算已入库，`.strm` 归入未完成。明细使用服务端分页，超大片单不会一次性传到浏览器。
 - **资源搜索**：查看片单总数、入库数、Transmission 下载中数和待搜索数；按“未下载”队列或序号范围创建搜索任务，筛选候选并加入或移出下载列表。片单补全和新片自动搜索也在此页面配置。
 - **下载列表**：检查已选资源、单项移除，并固定经 MoviePilot 分类后提交到 Transmission；容器重启后失效的搜索上下文会明确标记并引导重新搜索。提交前自动跳过已成功提交过、正在 Transmission 下载或已入库的相同发布，避免重复下载。
@@ -75,13 +75,13 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ### Unraid 7.3.2
 
-将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.05`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
+将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.06`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
 
 ```bash
 docker build \
   --build-arg PYTHON_IMAGE=python:3.12-slim \
   --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-  -t autolist:1.05 .
+  -t autolist:1.06 .
 ```
 
 首次创建容器前，先只读检查持久化目录权限。镜像以非 root UID `10001` 运行，目录必须允许该 UID 读写：
@@ -91,7 +91,7 @@ DATA_DIR=/mnt/user/appdata/Autolist/data
 mkdir -p "$DATA_DIR"
 stat -c '%u:%g %a' "$DATA_DIR"
 docker run --rm --user 10001:10001 \
-  -v "$DATA_DIR:/data:rw" autolist:1.05 \
+  -v "$DATA_DIR:/data:rw" autolist:1.06 \
   python -c 'import os; assert os.access("/data", os.W_OK | os.X_OK)'
 ```
 

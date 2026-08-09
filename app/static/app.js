@@ -158,7 +158,7 @@ function applyTheme() {
 }
 
 const pageMeta = {
-  dashboard: {eyebrow: "ARCHIVE / OVERVIEW", title: "电影库", lead: ""},
+  dashboard: {eyebrow: "FILM ARCHIVE / SCREENING DESK", title: "电影藏馆", lead: ""},
   playlists: {eyebrow: "LISTS / COLLECTIONS", title: "片单", lead: ""},
   search: {eyebrow: "QUEUE / RESOURCE SEARCH", title: "资源搜索", lead: ""},
   cart: {eyebrow: "QUEUE / DOWNLOAD LIST", title: "下载列表", lead: ""},
@@ -321,9 +321,11 @@ function updateDashboardTask(task) {
 async function loadOverview() {
   const overview = await api("/api/overview");
   $("#metric-items").textContent = overview.item_count.toLocaleString("zh-CN");
+  $("#metric-items-progress").textContent = overview.item_count.toLocaleString("zh-CN");
   $("#metric-playlist").textContent = overview.playlist_name || "暂无片单";
   $("#dashboard-recognized").textContent = Number(overview.recognized_count || 0).toLocaleString("zh-CN");
   $("#dashboard-in-library").textContent = Number(overview.in_library_count || 0).toLocaleString("zh-CN");
+  $("#dashboard-in-library-progress").textContent = Number(overview.in_library_count || 0).toLocaleString("zh-CN");
   $("#dashboard-pending").textContent = Number(overview.pending_count || 0).toLocaleString("zh-CN");
   $("#dashboard-new-count").textContent = `${Number(overview.in_library_count || 0).toLocaleString("zh-CN")} 部电影`;
   $("#dashboard-history-count").textContent = Number(overview.history_count || 0).toLocaleString("zh-CN");
@@ -373,6 +375,7 @@ async function loadPlaylists(showDetails = false) {
     currentSearchPlaylistId = currentSearchPlaylistId && lists.some((item) => item.id === currentSearchPlaylistId) ? currentSearchPlaylistId : lists[0].id;
     $("#playlist").value = String(currentSearchPlaylistId);
     $("#metric-items").textContent = Number(lists[0].item_count).toLocaleString("zh-CN");
+    $("#metric-items-progress").textContent = Number(lists[0].item_count).toLocaleString("zh-CN");
     $("#metric-playlist").textContent = lists[0].name;
     if (!$("#start").value) $("#start").value = 1;
     if (!$("#end").value) $("#end").value = Math.min(50, Number(lists[0].item_count));
@@ -960,6 +963,9 @@ function siteMonogram(name) {
   const chars = [...String(name || "").trim()].filter((char) => !/\s/.test(char));
   return (chars.slice(0, 2).join("").toUpperCase() || "?");
 }
+function siteStateLabel(state) {
+  return state === "normal" ? "正常连接" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知";
+}
 function matchesSiteFilter(site) {
   const state = siteConnectionState(site);
   return siteFilter === "all" || (siteFilter === "active" && site.search_enabled) || (siteFilter === "inactive" && !site.search_enabled) || siteFilter === state;
@@ -973,23 +979,28 @@ function bindSiteLogoFallback(scope = document) {
 }
 function renderSites() {
   const list = siteCache.filter(matchesSiteFilter);
-  $("#sites-list").innerHTML = list.length ? list.map((site) => {
+  if (list.length && !list.some((site) => site.id === selectedSiteId)) selectedSiteId = list[0].id;
+  if (!list.length) selectedSiteId = null;
+  const positions = [[12,18],[29,13],[48,19],[68,12],[86,21],[20,39],[39,34],[59,39],[78,33],[10,60],[29,55],[48,61],[68,55],[88,63],[17,82],[38,77],[58,84],[78,78],[49,47],[68,79],[29,72]];
+  const normalCount = list.filter((site) => siteConnectionState(site) === "normal").length;
+  const slowCount = list.filter((site) => siteConnectionState(site) === "slow").length;
+  const failedCount = list.filter((site) => siteConnectionState(site) === "failed").length;
+  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SITE CONSTELLATION</p><h2>${list.length} 个来源在星域中</h2><p>点击节点打开站点档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败</span></header><div class="site-map-field" aria-label="站点星图"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map((site, index) => {
     const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
-    const stats = site.local_stats || {}, account = site.account_stats || {};
     const state = siteConnectionState(site);
-    return `<article class="mp-site-card ${selectedSiteId === site.id ? "selected" : ""}">
-      <header><button class="site-card-open" type="button" data-open-site="${site.id}" aria-haspopup="dialog" aria-controls="site-inspector-panel" aria-label="查看 ${escapeHtml(site.name)}，${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}">
-        <span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong>${escapeHtml(site.name)}</strong><i class="mp-state ${state}" aria-hidden="true"></i>
-      </button></header>
-      <a class="site-url-link" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(site.base_url)}">${escapeHtml(site.base_url)}</a>
-      <div class="site-local-stats"><div><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong><span>上传量</span></div><div><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong><span>下载量</span></div><div><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong><span>分享率</span></div></div>
-      <div class="site-local-meta"><span>${site.search_enabled ? "参与搜索" : "不参与搜索"}</span><span>${site.cookie_configured ? "Cookie 已配置" : "Cookie 未配置"}</span><span>${site.user_agent_configured ? "UA 已配置" : "默认 UA"}</span></div>
-    </article>`;
-  }).join("") : "<div class='empty-state compact'><strong>没有符合条件的站点</strong></div>";
+    const [left, top] = positions[index % positions.length];
+    const selected = selectedSiteId === site.id;
+    const stateLabel = siteStateLabel(state);
+    return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" aria-haspopup="dialog" aria-controls="site-inspector-panel" aria-expanded="${selected ? "true" : "false"}" aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${index * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
+  }).join("")}<div class="site-constellation-legend" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+  renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
   bindSiteLogoFallback($("#sites-list"));
 }
 function renderSiteInspector(site) {
-  if (!site) return;
+  if (!site) {
+    $("#site-inspector-content").innerHTML = "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+    return;
+  }
   const stats = site.local_stats || {}, account = site.account_stats || {}, state = siteConnectionState(site);
   const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
   $("#site-inspector-content").innerHTML = `<header class="site-detail-head"><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><div><strong>${escapeHtml(site.name)}</strong><a class="site-detail-url" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(site.base_url)}</a></div><em class="site-state ${state}">${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}</em><button class="icon-button site-inspector-close" data-close-site-inspector aria-label="关闭">×</button></header>

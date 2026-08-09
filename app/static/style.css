@@ -275,6 +275,7 @@ h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.025em; }
 .site-star-node.normal .site-node-state { color: #9dd1b8; }
 .site-star-node.slow .site-node-state { color: #e1b968; }
 .site-star-node.failed .site-node-state { color: #e79c95; }
+.site-star-node.unknown .site-node-state { color: #aab5c7; }
 .site-constellation-legend { position: absolute; z-index: 2; right: 15px; bottom: 13px; left: 15px; display: flex; flex-wrap: wrap; gap: 9px 15px; color: #9eabc0; font-size: 10px; }
 .site-constellation-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .site-constellation-legend i { width: 7px; height: 7px; border-radius: 50%; background: #9dd1b8; }
@@ -282,6 +283,18 @@ h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.025em; }
 .site-constellation-legend i.failed { background: #e79c95; }
 .site-constellation-legend i.unknown { background: #aab5c7; }
 .site-constellation-workspace .site-inspector-panel { border-top: 4px solid #d5ac61; }
+.site-linear-list { position: relative; z-index: 2; margin-top: 12px; border: 1px solid rgba(182,208,226,.2); border-radius: 7px; color: #c3d0df; background: rgba(6,17,35,.72); }
+.site-linear-list summary { cursor: pointer; padding: 12px 14px; color: #d9e3ee; font: 700 11px var(--font-data); }
+.site-linear-list-items { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding: 0 10px 10px; }
+.site-linear-list-items button { display: grid; min-width: 0; grid-template-columns: minmax(0,1fr) auto; gap: 3px 8px; padding: 10px; border: 1px solid rgba(182,208,226,.16); border-radius: 5px; color: #d6e6f2; background: rgba(255,255,255,.04); text-align: left; }
+.site-linear-list-items button:hover, .site-linear-list-items button:focus-visible { border-color: #e1b968; background: rgba(225,185,104,.1); }
+.site-linear-name { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.site-linear-state { font: 9px var(--font-data); white-space: nowrap; }
+.site-linear-state.normal { color: #9dd1b8; }
+.site-linear-state.slow { color: #e1b968; }
+.site-linear-state.failed { color: #e79c95; }
+.site-linear-state.unknown { color: #aab5c7; }
+.site-linear-list-items small { grid-column: 1 / -1; color: #9eabc0; font-size: 9px; }
 @keyframes site-star-in { from { opacity: 0; transform: translate(-50%,-50%) scale(.78); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
 
 /* 表单、进度、状态 */
@@ -960,6 +973,7 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
   .site-star-node.selected .site-node-core { width: 55px; height: 55px; }
   .site-node-name { max-width: 94px; font-size: 9px; }
   .site-node-state { font-size: 8px; }
+  .site-linear-list-items { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 430px) {

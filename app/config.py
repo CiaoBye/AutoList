@@ -7,7 +7,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.06"
+APP_VERSION = "1.07"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {

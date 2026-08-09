@@ -113,8 +113,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.09.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.09.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.10.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.10.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -127,6 +127,24 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('id="settings-scene-mode"', html)
         self.assertIn('id="settings-reduced-motion"', html)
         self.assertNotIn('document.documentElement.dataset.theme = "light"', (static_dir / "app.js").read_text(encoding="utf-8"))
+
+    def test_theme_variants_have_structural_layout_and_contrast_contracts(self) -> None:
+        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+        theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
+        app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+        for marker in (
+            "--cinema-primary-bg",
+            'html[data-theme="cinema"] .filter-chip.active',
+            'html[data-theme="cinema"] body[data-page="search"] .search-console',
+            'html[data-theme="cinema"] body[data-page="logs"] .logs-list',
+            'html[data-theme="ledger"] body[data-page="search"] .search-console',
+            'html[data-theme="ledger"] body[data-page="search"] .candidate-index',
+            'html[data-theme="archive"] body[data-page="playlists"] .playlist-card',
+            "@media (min-width: 901px)",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, theme_css)
+        self.assertIn('class="candidate-index"', app_js)
 
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):

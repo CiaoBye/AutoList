@@ -6,6 +6,12 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 外部片单先在导入弹窗预览再写入。TMDB 使用官方 API；Letterboxd 公开片单使用其官方嵌入页面，避免普通网页的 Cloudflare 校验；IMDb 公开 List 使用当前 GraphQL 列表接口；MDBList 公开片单使用其 JSON 接口。私有片单仍需使用站点导出文件，AutoList 不绕过验证码或登录限制。
 
+## 实际运行效果
+
+以下截图来自 Unraid `192.168.31.100:8585` 上实际运行的 `autolist:1.03` 容器，展示工作台和真实片单数据。截图不包含设置页、访问令牌或其他敏感字段。
+
+![AutoList Unraid 生产运行界面](docs/screenshots/autolist-production-dashboard.jpg)
+
 ## 页面结构
 
 - **工作台**：片单、最近搜索、候选数量、下载列表、服务状态和最近下载的总览。

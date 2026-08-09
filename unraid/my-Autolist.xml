@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>Autolist</Name>
-  <Repository>autolist:1.11</Repository>
+  <Repository>autolist:1.13</Repository>
   <Registry/>
   <Network>bridge</Network>
   <Shell>sh</Shell>
@@ -19,7 +19,7 @@
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Requires>使用本地标签 autolist:1.11，不要在模板中改成远程仓库镜像。首次启动前请先创建 /mnt/user/appdata/Autolist/data，并只读检查目录属主 UID 是否为 10001：stat -c '%u:%g %a' /mnt/user/appdata/Autolist/data；构建镜像后可用 docker run --rm --user 10001:10001 -v /mnt/user/appdata/Autolist/data:/data:rw autolist:1.11 python -c 'import os; assert os.access(&quot;/data&quot;, os.W_OK | os.X_OK)' 预检非 root 写入权限；若失败，先停止容器并备份数据，再执行 chown -R 10001:10001 /mnt/user/appdata/Autolist/data。镜像已内置 Web Logo、favicon 与 PNG 图标，当前模板使用固定 commit 图标资源；离线安装可将 unraid/autolist-icon.png 放入 /mnt/user/appdata/Autolist/，再将 Icon 改为 file:///mnt/user/appdata/Autolist/autolist-icon.png。</Requires>
+  <Requires>使用本地标签 autolist:1.13，不要在模板中改成远程仓库镜像。首次启动前请先创建 /mnt/user/appdata/Autolist/data，并只读检查目录属主 UID 是否为 10001：stat -c '%u:%g %a' /mnt/user/appdata/Autolist/data；构建镜像后可用 docker run --rm --user 10001:10001 -v /mnt/user/appdata/Autolist/data:/data:rw autolist:1.13 python -c 'import os; assert os.access(&quot;/data&quot;, os.W_OK | os.X_OK)' 预检非 root 写入权限；若失败，先停止容器并备份数据，再执行 chown -R 10001:10001 /mnt/user/appdata/Autolist/data。镜像已内置 Web Logo、favicon 与 PNG 图标，当前模板使用固定 commit 图标资源；离线安装可将 unraid/autolist-icon.png 放入 /mnt/user/appdata/Autolist/，再将 Icon 改为 file:///mnt/user/appdata/Autolist/autolist-icon.png。</Requires>
   <Config Name="Web UI" Target="8080" Default="8585" Mode="tcp" Description="AutoList Web 端口" Type="Port" Display="always" Required="true" Mask="false">8585</Config>
   <Config Name="持久化数据" Target="/data" Default="/mnt/user/appdata/Autolist/data" Mode="rw" Description="数据库、运行设置与 CookieCloud 密文" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/Autolist/data</Config>
   <Config Name="访问令牌" Target="AUTOLIST_ACCESS_TOKEN" Default="" Mode="" Description="非可信内网必须设置强随机令牌" Type="Variable" Display="always" Required="false" Mask="true"/>

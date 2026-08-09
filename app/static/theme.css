@@ -170,6 +170,49 @@ html[data-scene="off"] .site-map-orbit {
   display: none;
 }
 
+/* Theme copy is content, not decoration: each preset speaks from its own film-room role. */
+.theme-copy { display: none; }
+html[data-theme="archive"] .theme-copy-archive,
+html[data-theme="cinema"] .theme-copy-cinema,
+html[data-theme="ledger"] .theme-copy-ledger { display: inline; }
+
+/* Archive is a paper dossier; its first job is to read the collection, not to run a queue. */
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero {
+  min-height: 270px;
+  padding: 26px 28px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--rust);
+  border-radius: 3px;
+  color: var(--ink);
+  background: linear-gradient(90deg, var(--surface-strong) 0 62%, #e7efed 62%, #edf3ef 100%);
+  box-shadow: 0 14px 35px rgba(46, 68, 72, .1);
+}
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero::before {
+  background: repeating-linear-gradient(0deg, transparent 0 29px, rgba(53, 107, 134, .055) 30px), linear-gradient(90deg, rgba(255,255,255,.7), transparent 58%);
+}
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero::after { display: none; }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero-copy { align-self: center; }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero .section-kicker { color: var(--rust-dark); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero h2 { color: var(--ink); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero h2 em { color: var(--rust); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero-lead { color: var(--muted); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero-lead strong { color: var(--rust-dark); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero-actions .button-secondary { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,.45); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-hero-actions .button-secondary:hover { border-color: var(--blue); color: var(--blue-dark); background: var(--surface); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature {
+  min-height: 218px;
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  background: linear-gradient(145deg, #d7e5e1, #f5f5ed 54%, #c9914f 55%, #eee2ce 58%);
+  box-shadow: 9px 10px 0 rgba(167, 96, 56, .12);
+}
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature::before { border-color: rgba(53, 107, 134, .28); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature-orbit { border-color: rgba(53, 107, 134, .25); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature-glow { background: rgba(167, 96, 56, .55); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature-kicker { color: var(--rust-dark); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature-copy strong { color: var(--ink); }
+html[data-theme="archive"] body[data-page="dashboard"] .screening-feature-copy small { color: var(--muted); }
+
 /* Theme picker: available in the topbar and repeated inside Settings. */
 .theme-menu { position: relative; z-index: 45; }
 .theme-menu > summary { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; padding: 0 13px; border: 1px solid var(--line); border-radius: 24px; color: var(--ink); background: var(--surface); cursor: pointer; list-style: none; font-size: 12px; font-weight: 650; }
@@ -339,7 +382,16 @@ html[data-theme="ledger"] .site-inspector-panel { border-radius: 5px; background
 html[data-theme="ledger"] .site-live-map { min-height: 600px; border-radius: 5px; color: var(--theme-site-ink); background: var(--theme-site-bg); }
 html[data-theme="ledger"] .site-map-field { border-radius: 5px; background: var(--theme-site-field); }
 html[data-theme="ledger"] body[data-page="sites"] .site-live-map { min-height: 0; padding: 20px; color: var(--ink); background: var(--surface-strong); }
-html[data-theme="ledger"] body[data-page="sites"] .site-map-field { display: none; }
+html[data-theme="ledger"] body[data-page="sites"] .site-map-field { display: block; min-height: 430px; border-color: var(--line); background: linear-gradient(180deg, rgba(167, 96, 56, .06), transparent 36%), repeating-linear-gradient(90deg, transparent 0 72px, rgba(38, 52, 58, .055) 73px), var(--surface-soft); }
+html[data-theme="ledger"] body[data-page="sites"] .site-live-map.is-vertical .site-map-field { min-height: 600px; }
+html[data-theme="ledger"] body[data-page="sites"] .site-map-field::before, html[data-theme="ledger"] body[data-page="sites"] .site-map-field::after { border-color: rgba(167, 96, 56, .14); }
+html[data-theme="ledger"] body[data-page="sites"] .site-map-field.is-moving { cursor: grabbing; }
+html[data-theme="ledger"] body[data-page="sites"] .site-map-orbit { border-color: rgba(61, 104, 116, .18); }
+html[data-theme="ledger"] body[data-page="sites"] .site-map-link { background: rgba(61, 104, 116, .32); }
+html[data-theme="ledger"] body[data-page="sites"] .site-star-node { color: var(--ink); }
+html[data-theme="ledger"] body[data-page="sites"] .site-star-node.selected { color: var(--rust-dark); }
+html[data-theme="ledger"] body[data-page="sites"] .site-node-state { color: var(--muted); }
+html[data-theme="ledger"] body[data-page="sites"] .site-constellation-legend { color: var(--muted); }
 html[data-theme="ledger"] body[data-page="sites"] .site-map-heading h2 { color: var(--ink); }
 html[data-theme="ledger"] body[data-page="sites"] .site-map-heading .section-kicker { color: var(--rust-dark); }
 html[data-theme="ledger"] body[data-page="sites"] .site-map-heading p:not(.section-kicker), html[data-theme="ledger"] body[data-page="sites"] .site-map-updated { color: var(--muted); }

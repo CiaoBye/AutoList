@@ -177,6 +177,8 @@ function syncThemeControls(theme = themeController?.getTheme?.() || document.doc
   if (document.body) document.body.dataset.scene = String(theme) + "-" + currentPage;
   const siteLinearList = $("#sites-list .site-linear-list");
   if (siteLinearList) siteLinearList.open = theme === "ledger";
+  syncSiteMapCopy(theme);
+  syncSiteMapOrientationControls();
   return theme;
 }
 
@@ -215,14 +217,14 @@ window.addEventListener("autolist-scene-change", () => syncThemeControls());
 window.addEventListener("autolist-motion-change", () => syncThemeControls());
 
 const pageMeta = {
-  dashboard: {eyebrow: "FILM ARCHIVE / SCREENING DESK", title: "电影藏馆", lead: ""},
-  playlists: {eyebrow: "LISTS / COLLECTIONS", title: "片单", lead: ""},
-  search: {eyebrow: "QUEUE / RESOURCE SEARCH", title: "资源搜索", lead: ""},
-  cart: {eyebrow: "QUEUE / DOWNLOAD LIST", title: "下载列表", lead: ""},
-  rules: {eyebrow: "QUEUE / CANDIDATE POLICY", title: "候选规则", lead: ""},
-  sites: {eyebrow: "MANAGEMENT / SITES & SERVICES", title: "站点与服务", lead: ""},
-  history: {eyebrow: "QUEUE / ACTIVITY", title: "下载历史", lead: ""},
-  logs: {eyebrow: "OPERATIONS / EVENT LOG", title: "日志", lead: ""},
+  dashboard: {eyebrow: "FILM ARCHIVE / COLLECTION ROOM", title: "电影藏馆", lead: ""},
+  playlists: {eyebrow: "CATALOGUE / SHELF", title: "馆藏片单", lead: ""},
+  search: {eyebrow: "SCREENING / SOURCE DESK", title: "选片台", lead: ""},
+  cart: {eyebrow: "SCREENING QUEUE / HOLDING BAY", title: "放映队列", lead: ""},
+  rules: {eyebrow: "CURATION / SELECTION NOTES", title: "选片标准", lead: ""},
+  sites: {eyebrow: "SOURCE ROOM / PT NETWORK", title: "来源网络", lead: ""},
+  history: {eyebrow: "ARCHIVE / INTAKE RECORD", title: "入馆记录", lead: ""},
+  logs: {eyebrow: "PROJECTION LOG / EVENT REEL", title: "放映日志", lead: ""},
 };
 
 const taskLabels = {
@@ -1003,8 +1005,29 @@ function siteStateLabel(state) {
   return state === "normal" ? "正常连接" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知";
 }
 const siteNodePositionCache = new Map();
+const siteNodePositionOverrides = new Map();
+const siteNodePositionStorageKey = "autolist-site-node-positions";
+const siteMapOrientationStorageKey = "autolist-site-map-orientation";
+let siteMapOrientation = safeStorageGet(siteMapOrientationStorageKey) === "vertical" ? "vertical" : "horizontal";
+try {
+  const storedPositions = JSON.parse(safeStorageGet(siteNodePositionStorageKey) || "{}");
+  Object.entries(storedPositions).forEach(([siteId, position]) => {
+    if (!Array.isArray(position) || position.length < 2) return;
+    const left = Number(position[0]), top = Number(position[1]);
+    if (Number.isFinite(left) && Number.isFinite(top)) siteNodePositionOverrides.set(String(siteId), [Math.max(8, Math.min(92, left)), Math.max(12, Math.min(88, top))]);
+  });
+} catch (_error) { /* 浏览器存储损坏时回退到稳定的默认排布 */ }
+function persistSiteNodePositions() {
+  safeStorageSet(siteNodePositionStorageKey, JSON.stringify(Object.fromEntries(siteNodePositionOverrides)));
+}
+function resetSiteNodePositions() {
+  siteNodePositionOverrides.clear();
+  siteNodePositionCache.clear();
+  persistSiteNodePositions();
+}
 function siteNodePosition(siteId) {
   const key = String(siteId);
+  if (siteNodePositionOverrides.has(key)) return siteNodePositionOverrides.get(key);
   if (siteNodePositionCache.has(key)) return siteNodePositionCache.get(key);
   let hash = 2166136261;
   for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
@@ -1023,9 +1046,45 @@ function siteNodePosition(siteId) {
   siteNodePositionCache.set(key, position);
   return position;
 }
+function setSiteNodePosition(siteId, left, top) {
+  const position = [Math.max(8, Math.min(92, Number(left))), Math.max(12, Math.min(88, Number(top)))];
+  siteNodePositionOverrides.set(String(siteId), position);
+  siteNodePositionCache.set(String(siteId), position);
+  persistSiteNodePositions();
+}
 function matchesSiteFilter(site) {
   const state = siteConnectionState(site);
   return siteFilter === "all" || (siteFilter === "active" && site.enabled) || (siteFilter === "inactive" && !site.enabled) || siteFilter === state;
+}
+function siteMapCopy(theme = themeController?.getTheme?.() || document.documentElement.dataset.theme || "archive") {
+  const copy = {
+    archive: {kicker: "SOURCE ROOM / ARCHIVE NETWORK", heading: "座来源档案室", description: "拖动节点或地图空白处调整排布，点击节点查看来源档案；键盘可用线性目录。", ariaLabel: "可操作的来源档案地图"},
+    cinema: {kicker: "SCREENING FLOOR / SOURCE MAP", heading: "个放映来源", description: "拖动节点或地图空白处编排来源，点击节点查看场务档案；键盘可用线性目录。", ariaLabel: "可操作的放映来源地图"},
+    ledger: {kicker: "CATALOGUE / SOURCE REGISTER", heading: "条来源记录", description: "拖动节点或地图空白处调整排布，点击节点查看目录条目；线性目录用于精确登记。", ariaLabel: "可操作的来源目录地图"},
+  }[theme] || null;
+  return copy || siteMapCopy("archive");
+}
+function syncSiteMapCopy(theme = themeController?.getTheme?.() || document.documentElement.dataset.theme || "archive") {
+  const mapHeading = $("#sites-list .site-map-heading");
+  if (!mapHeading) return;
+  const copy = siteMapCopy(theme);
+  const count = siteCache.filter(matchesSiteFilter).length;
+  mapHeading.querySelector(".section-kicker")?.replaceChildren(document.createTextNode(copy.kicker));
+  mapHeading.querySelector("h2")?.replaceChildren(document.createTextNode(String(count) + copy.heading));
+  mapHeading.querySelector("p:not(.section-kicker)")?.replaceChildren(document.createTextNode(copy.description));
+  $("#sites-list .site-map-field")?.setAttribute("aria-label", copy.ariaLabel + "，拖动节点或空白处调整排布");
+}
+function syncSiteMapOrientationControls() {
+  const map = $("#sites-list");
+  map?.classList.toggle("is-vertical", siteMapOrientation === "vertical");
+  if (map) map.dataset.orientation = siteMapOrientation;
+  const button = $("#toggle-site-orientation");
+  if (!button) return;
+  const vertical = siteMapOrientation === "vertical";
+  const label = vertical ? "切换为横向排布" : "切换为纵向排布";
+  button.setAttribute("aria-pressed", String(vertical));
+  button.setAttribute("aria-label", label);
+  button.textContent = label;
 }
 function bindSiteLogoFallback(scope = document) {
   scope.querySelectorAll("[data-site-logo] img").forEach((image) => {
@@ -1053,8 +1112,11 @@ function renderSites() {
     return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes} aria-controls="site-inspector-panel" aria-expanded="${mobileInspector && selected ? "true" : "false"}" aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
   };
   $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SOURCE NETWORK</p><h2>${list.length} 个来源在片源网络中</h2><p>点击节点打开来源档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="片源网络"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}<div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list.map((site) => `<button type="button" data-open-site="${site.id}" aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`).join("")}</div></details>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+  syncSiteMapCopy();
+  $("#sites-list .site-linear-list summary")?.replaceChildren(document.createTextNode("打开线性来源目录（键盘可用）"));
   const linearList = $("#sites-list .site-linear-list");
   if (linearList) linearList.open = (themeController?.getTheme?.() || document.documentElement.dataset.theme) === "ledger";
+  syncSiteMapOrientationControls();
   renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
   bindSiteLogoFallback($("#sites-list"));
 }
@@ -1075,6 +1137,86 @@ function renderSiteInspector(site) {
 }
 const siteInspectorFocusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 let siteInspectorReturnFocus = null;
+let siteDragState = null;
+function siteMapPositionFromPointer(event, node) {
+  const field = node.closest(".site-map-field");
+  if (!field) return null;
+  const rect = field.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    left: Math.max(8, Math.min(92, ((event.clientX - rect.left) / rect.width) * 100)),
+    top: Math.max(12, Math.min(88, ((event.clientY - rect.top) / rect.height) * 100)),
+  };
+}
+function finishSiteDrag(event) {
+  if (!siteDragState) return;
+  if (event?.pointerId != null && event.pointerId !== siteDragState.pointerId) return;
+  const state = siteDragState;
+  siteDragState = null;
+  const {node, field, moved, pointerId, captureTarget, source} = state;
+  node.classList.remove("dragging");
+  field?.classList.remove("is-moving");
+  try { captureTarget?.releasePointerCapture?.(pointerId); } catch (_error) { /* 指针捕获可能已在取消事件中释放 */ }
+  $("#sites-list")?.classList.remove("is-dragging");
+  if (moved) {
+    if (source === "node") {
+      node.dataset.suppressSiteOpen = "true";
+      window.setTimeout(() => {
+        if (node.isConnected) delete node.dataset.suppressSiteOpen;
+      }, 0);
+    }
+    showToast("来源节点已重新排布，可用“恢复默认排布”撤销");
+  }
+}
+function isPrimarySitePointer(event) {
+  return event.isPrimary !== false && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen");
+}
+function beginSiteDrag(node, event, captureTarget = node, source = "node") {
+  if (!node || !isPrimarySitePointer(event)) return false;
+  siteDragState = {
+    node,
+    field: node.closest(".site-map-field"),
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    captureTarget,
+    source,
+  };
+  node.classList.add("dragging");
+  siteDragState.field?.classList.add("is-moving");
+  $("#sites-list")?.classList.add("is-dragging");
+  captureTarget.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+  return true;
+}
+$("#sites-list")?.addEventListener("pointerdown", (event) => {
+  const node = event.target.closest(".site-star-node");
+  if (node) {
+    beginSiteDrag(node, event);
+    return;
+  }
+  const field = event.target.closest(".site-map-field");
+  if (!field || event.target.closest(".site-constellation-legend") || !isPrimarySitePointer(event)) return;
+  const selectedNode = [...field.querySelectorAll(".site-star-node")].find((item) => String(item.dataset.openSite) === String(selectedSiteId));
+  if (selectedNode) beginSiteDrag(selectedNode, event, field, "field");
+});
+$("#sites-list")?.addEventListener("pointermove", (event) => {
+  if (!siteDragState || event.pointerId !== siteDragState.pointerId) return;
+  const {node} = siteDragState;
+  const distance = Math.hypot(event.clientX - siteDragState.startX, event.clientY - siteDragState.startY);
+  if (distance < 5 && !siteDragState.moved) return;
+  const position = siteMapPositionFromPointer(event, node);
+  if (!position) return;
+  siteDragState.moved = true;
+  setSiteNodePosition(node.dataset.openSite, position.left, position.top);
+  node.style.setProperty("--node-left", String(position.left) + "%");
+  node.style.setProperty("--node-top", String(position.top) + "%");
+  event.preventDefault();
+});
+$("#sites-list")?.addEventListener("pointerup", finishSiteDrag);
+$("#sites-list")?.addEventListener("pointercancel", finishSiteDrag);
+$("#sites-list")?.addEventListener("lostpointercapture", finishSiteDrag);
 function syncSiteInspectorMode() {
   const panel = $("#site-inspector-panel");
   if (!panel) return;
@@ -1301,6 +1443,22 @@ async function handleDocumentClick(event) {
   }
   const deleteSiteButton = event.target.closest("[data-delete-site]");
   const editSiteButton = event.target.closest("[data-edit-site]");
+  const toggleSiteOrientation = event.target.closest("#toggle-site-orientation");
+  const resetSiteLayout = event.target.closest("#reset-site-layout");
+  if (toggleSiteOrientation) {
+    siteMapOrientation = siteMapOrientation === "vertical" ? "horizontal" : "vertical";
+    safeStorageSet(siteMapOrientationStorageKey, siteMapOrientation);
+    renderSites();
+    syncSiteMapOrientationControls();
+    showToast(siteMapOrientation === "vertical" ? "来源地图已切换为纵向排布" : "来源地图已切换为横向排布");
+    return;
+  }
+  if (resetSiteLayout) {
+    resetSiteNodePositions();
+    renderSites();
+    showToast("来源地图已恢复默认排布");
+    return;
+  }
   if (editSiteButton) {
     closeSiteInspector(false);
     openSiteDialog(siteCache.find((site) => site.id === Number(editSiteButton.dataset.editSite)) || null);
@@ -1308,6 +1466,10 @@ async function handleDocumentClick(event) {
   }
   const siteCard = event.target.closest("[data-open-site]");
   if (siteCard) {
+    if (siteCard.dataset.suppressSiteOpen === "true") {
+      delete siteCard.dataset.suppressSiteOpen;
+      return;
+    }
     selectedSiteId = Number(siteCard.dataset.openSite);
     renderSites();
     renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));

@@ -113,8 +113,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.11.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.11.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.13.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.13.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -126,6 +126,13 @@ class SecurityTests(unittest.TestCase):
                 self.assertIn(f'body[data-page="{page}"]', theme_css)
         self.assertIn('id="settings-scene-mode"', html)
         self.assertIn('id="settings-reduced-motion"', html)
+        self.assertIn('class="theme-copy theme-copy-archive"', html)
+        self.assertIn("线性目录用于精确登记", html)
+        self.assertIn('id="reset-site-layout"', html)
+        self.assertIn('id="toggle-site-orientation"', html)
+        self.assertIn('siteMapOrientationStorageKey', (static_dir / "app.js").read_text(encoding="utf-8"))
+        self.assertIn('class="nav-item-label"', html)
+        self.assertIn('siteNodePositionStorageKey', (static_dir / "app.js").read_text(encoding="utf-8"))
         self.assertNotIn('document.documentElement.dataset.theme = "light"', (static_dir / "app.js").read_text(encoding="utf-8"))
 
     def test_theme_variants_have_structural_layout_and_contrast_contracts(self) -> None:

@@ -89,6 +89,22 @@ class SecurityTests(unittest.TestCase):
         self.assertIn("aria-label=\"&quot;&lt;\"", unsafe)
         self.assertNotIn('aria-label=""', unsafe)
 
+    def test_c_archive_ui_keeps_required_business_hooks_unique(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "app" / "static" / "index.html").read_text(encoding="utf-8")
+        for marker in ("screening-dashboard", "site-constellation-workspace", "site-live-map", "site-inspector-panel"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+        for element_id in (
+            "dashboard-new-count", "dashboard-pending", "metric-playlist", "dashboard-task-pill",
+            "dashboard-task-title", "dashboard-task-copy", "dashboard-task-bar", "metric-candidates",
+            "metric-search", "metric-search-state", "metric-items", "metric-items-progress",
+            "dashboard-recognized", "dashboard-in-library", "dashboard-in-library-progress",
+            "dashboard-history-count", "metric-cart", "metric-cart-size", "dashboard-library-bar",
+            "dashboard-shelf", "dashboard-history",
+        ):
+            with self.subTest(element_id=element_id):
+                self.assertEqual(html.count(f'id="{element_id}"'), 1)
+
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):
             validate_source_url("https://letterboxd.com/user/list/example/?token=secret")

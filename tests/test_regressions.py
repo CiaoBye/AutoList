@@ -89,15 +89,20 @@ class SecurityTests(unittest.TestCase):
                 with self.assertRaises(HTTPException):
                     main.validated_base_url(f"https://service.example/api?{query}", "服务地址", False)
 
-    def test_public_settings_only_expose_proxy_configuration_state(self) -> None:
+    def test_public_settings_show_proxy_address_without_proxy_credentials(self) -> None:
         previous = settings.outbound_proxy_url
-        settings.outbound_proxy_url = "http://proxy-user:proxy-pass@example.test:8080"
+        settings.outbound_proxy_url = "http://192.0.2.11:1080"
         try:
             public = settings.public_values()
+            self.assertEqual(public["outbound_proxy_url"], "http://192.0.2.11:1080")
+            self.assertTrue(public["outbound_proxy_url_configured"])
+
+            settings.outbound_proxy_url = "http://proxy-user:proxy-pass@example.test:8080"
+            protected = settings.public_values()
         finally:
             settings.outbound_proxy_url = previous
-        self.assertNotIn("outbound_proxy_url", public)
-        self.assertTrue(public["outbound_proxy_url_configured"])
+        self.assertEqual(protected["outbound_proxy_url"], "")
+        self.assertTrue(protected["outbound_proxy_url_configured"])
 
     def test_secret_free_redacts_download_urls_and_magnets(self) -> None:
         safe = secret_free({

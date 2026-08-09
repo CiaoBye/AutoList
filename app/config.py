@@ -3,12 +3,40 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.03"
+APP_VERSION = "1.04"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
+PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
+    "api-key", "api_key", "apikey", "access_token", "authorization", "cookie", "password", "passwd",
+    "passkey", "refresh_token", "secret", "token", "key",
+}
+
+
+def public_endpoint_url(value: str) -> str:
+    """Expose a configured endpoint while never returning URL credentials."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlparse(raw)
+        hostname = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
+            return ""
+        port = parsed.port
+    except ValueError:
+        return ""
+    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    netloc = f"{host}:{port}" if port else host
+    query = [
+        (key, item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.strip().lower() not in PUBLIC_URL_SENSITIVE_QUERY_KEYS
+    ]
+    return urlunparse(parsed._replace(netloc=netloc, query=urlencode(query, doseq=True), fragment=""))
 
 
 def _truthy_environment(name: str) -> bool:
@@ -128,6 +156,7 @@ class Settings:
             "cookiecloud_endpoint": "/cookiecloud",
             "outbound_proxy_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url_configured": bool(self.outbound_proxy_url),
+            "outbound_proxy_url": public_endpoint_url(self.outbound_proxy_url),
             "tmdb_proxy_enabled": self.tmdb_proxy_enabled,
             "pt_proxy_enabled": self.pt_proxy_enabled,
             "ai_base_url": self.ai_base_url,

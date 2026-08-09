@@ -819,9 +819,10 @@ async function loadSettings() {
   $("#settings-cookiecloud-status").textContent = cookiecloud.received ? "已收到 Chrome 数据" : cookiecloud.configured ? "等待首次同步" : "未配置";
   $("#settings-cookiecloud-status").className = cookiecloud.received ? "ok" : "";
   const proxyConfigured = Boolean(runtime.outbound_proxy_url_configured || runtime.outbound_proxy_configured);
-  $("#settings-proxy-url").value = "";
+  const proxyUrl = String(runtime.outbound_proxy_url || "");
+  $("#settings-proxy-url").value = proxyUrl;
   $("#settings-proxy-url").placeholder = proxyConfigured ? "已配置；留空保留原值" : "http://127.0.0.1:7890";
-  $("#settings-proxy-state").textContent = proxyConfigured ? "已配置" : "未配置";
+  $("#settings-proxy-state").textContent = proxyConfigured ? (proxyUrl ? "地址可见" : "已配置") : "未配置";
   $("#settings-proxy-status").textContent = proxyConfigured ? "已配置" : "未配置";
   $("#settings-tmdb-proxy").checked = Boolean(runtime.tmdb_proxy_enabled);
   $("#settings-pt-proxy").checked = Boolean(runtime.pt_proxy_enabled);

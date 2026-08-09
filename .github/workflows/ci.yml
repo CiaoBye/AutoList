@@ -38,7 +38,7 @@ jobs:
           from xml.etree import ElementTree
 
           root = ElementTree.parse("unraid/my-Autolist.xml").getroot()
-          assert root.findtext("Repository") == "autolist:1.10"
+          assert root.findtext("Repository") == "autolist:1.11"
           assert root.findtext("Icon", "").endswith("/unraid/autolist-icon.png")
           assert "10001" in root.findtext("Requires", "")
           assert root.find("./Config[@Target='/data']") is not None

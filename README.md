@@ -4,15 +4,15 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.10`。AutoList 的首页是“电影藏馆”放映台：用馆藏进度、下一步任务、最近任务候选和搜索流水线组织全局总览；首页不再堆叠海报精选与活动流水线，完整业务分别进入片单、资源搜索和下载历史页面。界面支持“馆藏档案、午夜放映、编目索引”三套全页面主题，默认保留 C 方向的馆藏档案；三套主题现在分别承担“浏览馆藏、控制放映、查询目录”的信息组织方式：Cinema 使用分栏控制台、放映条目和日志时间线，Ledger 使用密集索引、编号候选和表格优先布局，Archive 保持宽松档案卡与来源网络。Cinema 同步修复暗色页面的按钮、标签、日志详情和分隔线对比度。站点页统一使用“片源网络 × 来源档案”语义，并提供完整的线性站点列表作为辅助入口。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
+当前版本：`1.11`。AutoList 的首页是“电影藏馆”放映台：用馆藏进度、下一步任务、最近任务候选和搜索流水线组织全局总览；首页不再堆叠海报精选与活动流水线，完整业务分别进入片单、资源搜索和下载历史页面。界面支持“馆藏档案、午夜放映、编目索引”三套全页面主题，默认保留 C 方向的馆藏档案；三套主题现在分别承担“浏览馆藏、控制放映、查询目录”的信息组织方式：Archive 使用不对称档案卡与主片／附录分组，Cinema 使用分栏放映台、运行条目和日志时间线，Ledger 使用纵向目录、编号候选、六列统计带和表格优先布局。Cinema 同步修复暗色页面的按钮、标签、日志详情和分隔线对比度。站点页统一使用“片源网络 × 来源档案”语义，并提供完整的线性站点列表作为辅助入口。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
 
 外部片单先在导入弹窗预览再写入。TMDB 使用官方 API；Letterboxd 公开片单使用其官方嵌入页面，避免普通网页的 Cloudflare 校验；IMDb 公开 List 使用当前 GraphQL 列表接口；MDBList 公开片单使用其 JSON 接口。私有片单仍需使用站点导出文件，AutoList 不绕过验证码或登录限制。
 
 ## 实际运行效果
 
-以下截图此前来自 Unraid 上实际运行的 `autolist:1.04` 容器，展示真实片单数据、候选规则和响应式布局；当前生产已更新到 `autolist:1.10`。截图画廊保留为历史业务数据快照，当前运行界面支持三套主题切换。公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
+以下截图此前来自 Unraid 上实际运行的 `autolist:1.04` 容器，展示真实片单数据、候选规则和响应式布局；当前生产已更新到 `autolist:1.11`。截图画廊保留为历史业务数据快照，当前运行界面支持三套主题切换。公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
 
-新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页各三套可切换方案；1.10 已将三套方向落成真正的全页面布局主题：Archive 保留 C 方向，Cinema 吸收 A 方向并扩展为放映控制台，Ledger 吸收 B 方向并扩展为编目索引。
+新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页各三套可切换方案；1.11 已将三套方向落成真正的全页面布局主题：Archive 使用不对称档案卡，Cinema 使用放映控制台，Ledger 使用目录索引台。
 
 ### 主题切换
 
@@ -85,13 +85,13 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ### Unraid 7.3.2
 
-将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.10`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
+将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.11`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
 
 ```bash
 docker build \
   --build-arg PYTHON_IMAGE=python:3.12-slim \
   --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-  -t autolist:1.10 .
+  -t autolist:1.11 .
 ```
 
 首次创建容器前，先只读检查持久化目录权限。镜像以非 root UID `10001` 运行，目录必须允许该 UID 读写：
@@ -101,7 +101,7 @@ DATA_DIR=/mnt/user/appdata/Autolist/data
 mkdir -p "$DATA_DIR"
 stat -c '%u:%g %a' "$DATA_DIR"
 docker run --rm --user 10001:10001 \
-  -v "$DATA_DIR:/data:rw" autolist:1.10 \
+  -v "$DATA_DIR:/data:rw" autolist:1.11 \
   python -c 'import os; assert os.access("/data", os.W_OK | os.X_OK)'
 ```
 

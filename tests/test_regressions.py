@@ -113,8 +113,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.10.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.10.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.11.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.11.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -137,7 +137,10 @@ class SecurityTests(unittest.TestCase):
             'html[data-theme="cinema"] .filter-chip.active',
             'html[data-theme="cinema"] body[data-page="search"] .search-console',
             'html[data-theme="cinema"] body[data-page="logs"] .logs-list',
+            'html[data-theme="archive"] body[data-page="dashboard"] .screening-mission-grid',
+            'html[data-theme="cinema"] body[data-page="dashboard"] .screening-program',
             'html[data-theme="ledger"] body[data-page="search"] .search-console',
+            'html[data-theme="ledger"] body[data-page="dashboard"] .screening-stat-grid',
             'html[data-theme="ledger"] body[data-page="search"] .candidate-index',
             'html[data-theme="archive"] body[data-page="playlists"] .playlist-card',
             "@media (min-width: 901px)",

@@ -1,6 +1,6 @@
 # AutoList SQLite 备份、升级与恢复
 
-本文适用于当前 `1.02` 的本地 tag 部署。AutoList 的数据库、运行设置、CookieCloud 密文和日志都位于容器的 `/data`；Unraid 默认宿主机路径为 `/mnt/user/appdata/Autolist/data`。这些命令只在管理员明确执行时才会改变容器或数据，本文不会自动连接或修改任何真实环境。
+本文适用于当前 `1.03` 的本地 tag 部署。AutoList 的数据库、运行设置、CookieCloud 密文和日志都位于容器的 `/data`；Unraid 默认宿主机路径为 `/mnt/user/appdata/Autolist/data`。这些命令只在管理员明确执行时才会改变容器或数据，本文不会自动连接或修改任何真实环境。
 
 ## 重要原则
 
@@ -71,11 +71,11 @@ docker exec Autolist python -c 'import sqlite3; db=sqlite3.connect("/data/playli
 3. 保存当前镜像引用，保留本地 tag 部署方式。例如：
 
    ```bash
-   docker image inspect autolist:1.02 --format '{{.Id}} {{.Created}}'
-   docker image tag autolist:1.02 autolist:1.02-before-upgrade
+   docker image inspect autolist:1.03 --format '{{.Id}} {{.Created}}'
+   docker image tag autolist:1.03 autolist:1.03-before-upgrade
    ```
 
-4. 在不改变 `/mnt/user/appdata/Autolist/data` 挂载的情况下重新构建本地 `autolist:1.02`，或按 Unraid 模板重新创建唯一的 AutoList 容器。
+4. 在不改变 `/mnt/user/appdata/Autolist/data` 挂载的情况下重新构建本地 `autolist:1.03`，或按 Unraid 模板重新创建唯一的 AutoList 容器。
 5. 等待 Docker healthcheck 为 `healthy`，再执行 `/api/health`、SQLite `integrity_check` 和 `foreign_key_check`。
 6. 只读确认片单数量、候选数量、历史数量和运行设置仍符合升级前记录；之后再进行页面验收。不要把真实下载提交作为升级健康检查的一部分。
 

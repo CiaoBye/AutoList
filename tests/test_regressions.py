@@ -216,6 +216,21 @@ class SecurityTests(unittest.TestCase):
                 os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = previous_strict
             temp.cleanup()
 
+    def test_shell_resources_revalidate_after_deploy(self) -> None:
+        previous_data_dir = settings.data_dir
+        with tempfile.TemporaryDirectory() as temp:
+            settings.data_dir = temp
+            try:
+                with TestClient(main.app) as client:
+                    index = client.get("/")
+                    favicon = client.get("/favicon.ico")
+            finally:
+                settings.data_dir = previous_data_dir
+        self.assertEqual(index.status_code, 200)
+        self.assertEqual(favicon.status_code, 200)
+        self.assertEqual(index.headers.get("cache-control"), "no-cache, must-revalidate")
+        self.assertEqual(favicon.headers.get("cache-control"), "no-cache, must-revalidate")
+
 
 class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

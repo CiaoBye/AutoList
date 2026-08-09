@@ -12,8 +12,8 @@
 
 ### 验证
 
-- 通过 Python `compileall`、JavaScript `node --check`、完整 unittest、`git diff --check` 与版本一致性检查。
-- 待完成 Unraid 1.08 健康检查和浏览器回归；本次未执行真实下载或外部服务写入。
+- 通过 Python `compileall`、JavaScript `node --check`、完整 106 项 unittest、`git diff --check` 与版本一致性检查。
+- 通过隔离数据实例和 Unraid 1.08 实际浏览器回归：桌面/390px 移动端首页、8 个路由、站点页 21 个节点与图标、设置弹窗均无控制台 error/warn；未执行真实下载或外部服务写入。
 
 ## 1.07 - 2026-08-09
 

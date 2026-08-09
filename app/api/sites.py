@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import sqlite3
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
+from ..clients import site_proxy
 from ..cookiecloud import cookie_groups
+from ..config import APP_VERSION
 from ..database import connect
 from ..schemas import SitePayload
 from ..services.cookiecloud_store import stored_cookiecloud_payload
@@ -22,6 +26,38 @@ from .system import validated_base_url
 
 router = APIRouter()
 MAX_SITE_ICON_BYTES = 512 * 1024
+SITE_ICON_ENDPOINT_VERSION = 2
+
+
+def site_icon_fallback(name: str, base_url: str) -> bytes:
+    """Build a deterministic monogram when a site's real favicon is unavailable.
+
+    The fallback is deliberately generated locally: it never turns a failed
+    favicon request into a blank image, and it does not use the URL scheme
+    (``https://``) as the visible label.
+    """
+    candidate = "".join(str(name or "").strip().split())
+    if not candidate:
+        candidate = str(base_url or "?").strip()
+    label = html.escape(candidate[:2].upper() or "?", quote=True)
+    seed = sum((index + 1) * ord(char) for index, char in enumerate(candidate))
+    palettes = (
+        ("#e4ecff", "#3858a6"),
+        ("#f4e9d9", "#8b5d18"),
+        ("#e2f0ea", "#2f6f5d"),
+        ("#eee7fb", "#6657a8"),
+        ("#f7e3e1", "#a7443f"),
+    )
+    background, foreground = palettes[seed % len(palettes)]
+    font_size = 20 if len(candidate) > 1 else 27
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" '
+        f'viewBox="0 0 64 64" role="img" aria-label="{label}">'
+        f'<rect width="64" height="64" rx="16" fill="{background}"/>'
+        f'<text x="32" y="39" text-anchor="middle" font-family="Arial, sans-serif" '
+        f'font-size="{font_size}" font-weight="700" letter-spacing="-1" fill="{foreground}">{label}</text>'
+        "</svg>"
+    ).encode()
 
 @router.get("/api/sites")
 async def sites() -> list[dict[str, Any]]:
@@ -65,7 +101,7 @@ async def sites() -> list[dict[str, Any]]:
         item["cookie"] = ""
         item["rss_url_configured"] = bool(item.get("rss_url"))
         item["rss_url"] = ""
-        item["icon_endpoint"] = f"/api/sites/{item['id']}/icon"
+        item["icon_endpoint"] = f"/api/sites/{item['id']}/icon?v={SITE_ICON_ENDPOINT_VERSION}"
     return rows
 
 @router.get("/api/sites/{site_id}/icon")
@@ -75,7 +111,10 @@ async def site_icon(site_id: int) -> Response:
         content, media_type = site_icon_cache[site_id]
         return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
     with connect() as conn:
-        row = conn.execute("SELECT id,base_url,icon_url FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id,name,base_url,icon_url,proxy,timeout_seconds,user_agent,cookie FROM pt_sites WHERE id=?",
+            (site_id,),
+        ).fetchone()
     if not row:
         raise HTTPException(404, "站点不存在")
     icon_value = str(row["icon_url"] or "")
@@ -90,10 +129,23 @@ async def site_icon(site_id: int) -> Response:
                 raise RuntimeError("站点图标过大")
         else:
             source = icon_value if icon_value.startswith(("http://", "https://")) else f"{str(row['base_url']).rstrip('/')}/favicon.ico"
+            site = dict(row)
+            source_host = str(urlparse(source).hostname or "").lower()
+            base_host = str(urlparse(str(row["base_url"] or "")).hostname or "").lower()
+            request_headers = {"User-Agent": str(row["user_agent"] or f"AutoList/{APP_VERSION}")}
+            # Cookie is only useful for the configured site's own host. Never
+            # send it to a custom icon CDN or another host.
+            if source_host and source_host == base_host and row["cookie"]:
+                request_headers["Cookie"] = str(row["cookie"])
+            timeout_seconds = max(3.0, min(float(row["timeout_seconds"] or 12), 30.0))
             # 逐跳校验重定向目标：禁止自动跟随（否则内网地址已在请求后才被拦截）。
-            async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout_seconds,
+                follow_redirects=False,
+                proxy=site_proxy(site),
+            ) as client:
                 await validate_remote_icon_url(source, str(row["base_url"]))
-                upstream = await safe_request(client, "GET", source, label="图标地址")
+                upstream = await safe_request(client, "GET", source, headers=request_headers, label="图标地址")
                 upstream.raise_for_status()
                 if int(upstream.headers.get("content-length") or 0) > MAX_SITE_ICON_BYTES:
                     raise RuntimeError("图标文件过大")
@@ -109,8 +161,7 @@ async def site_icon(site_id: int) -> Response:
         return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
     except Exception:
         # A deterministic SVG fallback still gives every site a consistent visual anchor.
-        initial = (str(row["base_url"] or "?")[:1] or "?").upper()
-        fallback = f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="14" fill="#eeeaff"/><text x="32" y="42" text-anchor="middle" font-family="Arial" font-size="28" font-weight="700" fill="#6657e8">{initial}</text></svg>'.encode()
+        fallback = site_icon_fallback(str(row["name"] if "name" in row.keys() else ""), str(row["base_url"] or ""))
         return Response(content=fallback, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=3600"})
 
 @router.get("/api/sites/{site_id}/health-history")
@@ -182,6 +233,7 @@ async def delete_site(site_id: int) -> dict[str, Any]:
         if not site:
             raise HTTPException(404, "站点不存在")
         conn.execute("DELETE FROM pt_sites WHERE id=?", (site_id,))
+    site_icon_cache.pop(site_id, None)
     return {"deleted": site_id}
 
 @router.post("/api/sites/{site_id}/test")

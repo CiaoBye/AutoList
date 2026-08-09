@@ -79,6 +79,16 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(main.raster_image_media_type(b"\x89PNG\r\n\x1a\nrest"), "image/png")
         self.assertIsNone(main.raster_image_media_type(b"<svg onload='alert(1)'></svg>"))
 
+    def test_site_icon_fallback_uses_site_name_not_url_scheme(self) -> None:
+        fallback = site_routes.site_icon_fallback("站点T", "https://tracker-t.example").decode("utf-8")
+        self.assertIn(">站点T</text>", fallback)
+        self.assertNotIn(">HT</text>", fallback)
+        self.assertEqual(site_routes.SITE_ICON_ENDPOINT_VERSION, 2)
+
+        unsafe = site_routes.site_icon_fallback('"<&', "https://example.test").decode("utf-8")
+        self.assertIn("aria-label=\"&quot;&lt;\"", unsafe)
+        self.assertNotIn('aria-label=""', unsafe)
+
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):
             validate_source_url("https://letterboxd.com/user/list/example/?token=secret")

@@ -956,6 +956,10 @@ function siteConnectionState(site) {
   if (site.last_status === "error") return "failed";
   return "unknown";
 }
+function siteMonogram(name) {
+  const chars = [...String(name || "").trim()].filter((char) => !/\s/.test(char));
+  return (chars.slice(0, 2).join("").toUpperCase() || "?");
+}
 function matchesSiteFilter(site) {
   const state = siteConnectionState(site);
   return siteFilter === "all" || (siteFilter === "active" && site.search_enabled) || (siteFilter === "inactive" && !site.search_enabled) || siteFilter === state;
@@ -975,7 +979,7 @@ function renderSites() {
     const state = siteConnectionState(site);
     return `<article class="mp-site-card ${selectedSiteId === site.id ? "selected" : ""}">
       <header><button class="site-card-open" type="button" data-open-site="${site.id}" aria-haspopup="dialog" aria-controls="site-inspector-panel" aria-label="查看 ${escapeHtml(site.name)}，${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}">
-        <span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><strong>${escapeHtml(site.name)}</strong><i class="mp-state ${state}" aria-hidden="true"></i>
+        <span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong>${escapeHtml(site.name)}</strong><i class="mp-state ${state}" aria-hidden="true"></i>
       </button></header>
       <a class="site-url-link" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(site.base_url)}">${escapeHtml(site.base_url)}</a>
       <div class="site-local-stats"><div><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong><span>上传量</span></div><div><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong><span>下载量</span></div><div><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong><span>分享率</span></div></div>
@@ -988,7 +992,7 @@ function renderSiteInspector(site) {
   if (!site) return;
   const stats = site.local_stats || {}, account = site.account_stats || {}, state = siteConnectionState(site);
   const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
-  $("#site-inspector-content").innerHTML = `<header class="site-detail-head"><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(site.name.slice(0, 1))}</b></span><div><strong>${escapeHtml(site.name)}</strong><a class="site-detail-url" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(site.base_url)}</a></div><em class="site-state ${state}">${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}</em><button class="icon-button site-inspector-close" data-close-site-inspector aria-label="关闭">×</button></header>
+  $("#site-inspector-content").innerHTML = `<header class="site-detail-head"><span class="site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><div><strong>${escapeHtml(site.name)}</strong><a class="site-detail-url" href="${escapeHtml(safeExternalUrl(site.base_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(site.base_url)}</a></div><em class="site-state ${state}">${state === "normal" ? "连接正常" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知"}</em><button class="icon-button site-inspector-close" data-close-site-inspector aria-label="关闭">×</button></header>
     <div class="site-detail-stats"><div><span>上传量</span><strong>${account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong></div><div><span>下载量</span><strong>${account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong></div><div><span>分享率</span><strong>${account.ratio == null ? "—" : Number(account.ratio).toFixed(2)}</strong></div><div><span>做种数</span><strong>${account.seeding == null ? "—" : Number(account.seeding).toLocaleString()}</strong></div></div>
     <dl class="site-detail-list"><dt>参与资源搜索</dt><dd>${site.search_enabled ? "是" : "否"}</dd><dt>本地 Cookie</dt><dd>${site.cookie_configured ? "已配置" : "未配置"}</dd><dt>User-Agent</dt><dd class="site-ua-value">${escapeHtml(site.user_agent || "AutoList 默认 UA")}</dd><dt>最近连接检测</dt><dd>${site.last_tested_at ? `${formatTime(site.last_tested_at)}${site.last_duration_ms == null ? "" : ` · ${Number(site.last_duration_ms)}ms`}` : "尚未检测"}</dd><dt>账户统计更新</dt><dd>${escapeHtml(account.checked_at ? formatTime(account.checked_at) : "等待后台刷新")}${account.error ? ` · ${escapeHtml(account.error)}` : ""}</dd><dt>最近搜索</dt><dd>${escapeHtml(stats.last_attempt_at || "暂无记录")}</dd><dt>站点搜索表现</dt><dd id="site-health-summary">${stats.total ? `${Number(stats.success_rate || 0).toFixed(1)}% 成功 · ${Number(stats.average_ms || 0)}ms · ${Number(stats.total)} 次` : "等待搜索样本"}</dd></dl>
     <div class="site-detail-actions"><button class="button button-secondary" data-test-site="${site.id}">检测站点</button><button class="button button-secondary" data-refresh-site-cookie="${site.id}">刷新 Cookie</button><button class="button button-secondary" data-edit-site="${site.id}">编辑站点 / UA</button><button class="button button-danger" data-delete-site="${site.id}">删除站点</button></div>

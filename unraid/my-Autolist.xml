@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>Autolist</Name>
-  <Repository>autolist:1.01</Repository>
+  <Repository>autolist:1.02</Repository>
   <Registry/>
   <Network>bridge</Network>
   <Shell>sh</Shell>
@@ -12,18 +12,37 @@
   <Category>MediaApp:Other</Category>
   <WebUI>http://[IP]:[PORT:8585]/</WebUI>
   <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/CiaoBye/AutoList/main/unraid/autolist-icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/CiaoBye/AutoList/8a704fe03e381518b190a2d6c015e20a0ffce67f/unraid/autolist-icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Requires>先在 Unraid 终端构建 autolist:1.01；镜像已内置 Web Logo 与 Unraid PNG 图标。联网时模板会从项目仓库加载图标，离线安装可将 unraid/autolist-icon.png 放入 /mnt/user/appdata/Autolist/ 并改回 file:///mnt/user/appdata/Autolist/autolist-icon.png。</Requires>
+  <Requires>使用本地标签 autolist:1.02，不要在模板中改成远程仓库镜像。首次启动前请先创建 /mnt/user/appdata/Autolist/data，并只读检查目录属主 UID 是否为 10001：stat -c '%u:%g %a' /mnt/user/appdata/Autolist/data；构建镜像后可用 docker run --rm --user 10001:10001 -v /mnt/user/appdata/Autolist/data:/data:rw autolist:1.02 python -c 'import os; assert os.access(&quot;/data&quot;, os.W_OK | os.X_OK)' 预检非 root 写入权限；若失败，先停止容器并备份数据，再执行 chown -R 10001:10001 /mnt/user/appdata/Autolist/data。镜像已内置 Web Logo、favicon 与 PNG 图标，当前模板使用固定 commit 图标资源；离线安装可将 unraid/autolist-icon.png 放入 /mnt/user/appdata/Autolist/，再将 Icon 改为 file:///mnt/user/appdata/Autolist/autolist-icon.png。</Requires>
   <Config Name="Web UI" Target="8080" Default="8585" Mode="tcp" Description="AutoList Web 端口" Type="Port" Display="always" Required="true" Mask="false">8585</Config>
   <Config Name="持久化数据" Target="/data" Default="/mnt/user/appdata/Autolist/data" Mode="rw" Description="数据库、运行设置与 CookieCloud 密文" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/Autolist/data</Config>
   <Config Name="访问令牌" Target="AUTOLIST_ACCESS_TOKEN" Default="" Mode="" Description="非可信内网必须设置强随机令牌" Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="强制令牌强度" Target="AUTOLIST_REQUIRE_STRONG_TOKEN" Default="true" Mode="" Description="配置访问令牌后强制至少 32 个字符；仅可信内网迁移旧令牌时改为 false" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="启用 API 文档" Target="AUTOLIST_ENABLE_DOCS" Default="false" Mode="" Description="仅调试时设为 true；生产建议保持 false" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="允许的内网域名后缀" Target="AUTOLIST_ALLOW_PRIVATE_HOSTS" Default="" Mode="" Description="启用访问令牌后，按逗号分隔放行 Prowlarr/Jackett 等受控内网域名；不要填写宽泛后缀" Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="TMDB API Key" Target="TMDB_API_KEY" Default="" Mode="" Description="支持 TMDB v3 Key 或 v4 Token，也可稍后在网页设置" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="TMDB 语言" Target="TMDB_LANGUAGE" Default="zh-CN" Mode="" Description="TMDB 返回语言" Type="Variable" Display="advanced" Required="false" Mask="false">zh-CN</Config>
+  <Config Name="MDBList API Key" Target="MDBLIST_API_KEY" Default="" Mode="" Description="可选，用于导入 MDBList 公开片单" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="CookieCloud 用户 KEY" Target="COOKIECLOUD_KEY" Default="" Mode="" Description="可选；需与浏览器 CookieCloud 扩展保持一致" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="CookieCloud 加密密码" Target="COOKIECLOUD_PASSWORD" Default="" Mode="" Description="可选；CookieCloud 端对端加密密码" Type="Variable" Display="advanced" Required="false" Mask="true"/>
   <Config Name="MoviePilot 地址" Target="MP_BASE_URL" Default="" Mode="" Description="下载分类与整理下游地址" Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="MoviePilot API Key" Target="MP_API_KEY" Default="" Mode="" Description="MoviePilot API Key" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="MoviePilot 超时秒数" Target="MP_TIMEOUT_SECONDS" Default="30" Mode="" Description="MoviePilot 连接超时时间" Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
+  <Config Name="Emby 地址" Target="EMBY_BASE_URL" Default="" Mode="" Description="可选，用于检查实体媒体入库状态；建议使用 HTTPS 或受控内网" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Emby API Key" Target="EMBY_API_KEY" Default="" Mode="" Description="Emby API Key" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Transmission 地址" Target="TR_BASE_URL" Default="" Mode="" Description="可选，仅用于下载状态诊断；实际提交统一经过 MoviePilot" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Transmission 用户名" Target="TR_USERNAME" Default="" Mode="" Description="Transmission BasicAuth 用户名" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Transmission 密码" Target="TR_PASSWORD" Default="" Mode="" Description="Transmission BasicAuth 密码" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="出站代理地址" Target="OUTBOUND_PROXY_URL" Default="" Mode="" Description="可选；代理认证信息不得写入 URL 查询参数" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TMDB 走代理" Target="TMDB_PROXY_ENABLED" Default="false" Mode="" Description="是否让 TMDB 请求走出站代理" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="PT 站点走代理" Target="PT_PROXY_ENABLED" Default="false" Mode="" Description="是否让 PT 站点请求走出站代理" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="AI 地址" Target="AI_BASE_URL" Default="" Mode="" Description="可选 OpenAI 兼容识别服务地址" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="AI API Key" Target="AI_API_KEY" Default="" Mode="" Description="可选 AI 识别服务 API Key" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="AI 模型" Target="AI_MODEL" Default="" Mode="" Description="可选 AI 识别模型名称" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>

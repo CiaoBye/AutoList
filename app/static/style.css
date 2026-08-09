@@ -35,8 +35,8 @@
 }
 
 * { box-sizing: border-box; }
-html { overflow-x: clip; scroll-behavior: smooth; }
-body { min-width: 0; margin: 0; min-height: 100vh; overflow-x: clip; color: var(--ink); background: linear-gradient(90deg,var(--nav) 0 236px,var(--paper) 236px); font-size: 16px; line-height: 1.5; }
+html { overflow-x: visible; scroll-behavior: smooth; }
+body { min-width: 0; margin: 0; min-height: 100vh; overflow-x: visible; color: var(--ink); background: linear-gradient(90deg,var(--nav) 0 236px,var(--paper) 236px); font-size: 16px; line-height: 1.5; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button { cursor: pointer; }
@@ -191,7 +191,7 @@ h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.025em; }
 .field > span i { margin-left: 5px; color: var(--blue); font-style: normal; }
 input, select, textarea { width: 100%; min-height: 44px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 6px; outline: none; color: var(--ink); background: var(--surface-strong); font-size: 14px; transition: border .18s ease, box-shadow .18s ease; }
 textarea { padding-block: 11px; resize: vertical; }
-input::placeholder, textarea::placeholder { color: #9ca2ad; }
+input::placeholder, textarea::placeholder { color: #64747b; }
 input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(83,99,165,.12); }
 select { appearance: none; padding-right: 34px; background-image: linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%); background-position: calc(100% - 17px) 19px,calc(100% - 12px) 19px; background-size: 5px 5px; background-repeat: no-repeat; }
 .settings-inline { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
@@ -230,6 +230,8 @@ select { appearance: none; padding-right: 34px; background-image: linear-gradien
 .playlist-detail-actions input { width: 230px; }
 .playlist-detail-actions select { width: 130px; }
 .recognition-progress, .task-progress { margin: 18px 26px 0; padding: 15px; border: 1px solid var(--line); border-radius: 6px; background: #f5f6f2; }
+.poll-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 26px 0; }
+.poll-error .text-button { min-height: 36px; }
 .table-wrap { padding: 15px 20px 8px; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th { padding: 11px 12px; color: var(--subtle); font: 650 10px var(--font-data); letter-spacing: .1em; text-align: left; text-transform: uppercase; }
@@ -336,6 +338,7 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .history-status.submitted { color: var(--rust-dark); background: var(--rust-soft); }
 .history-status.failed { color: var(--danger); background: var(--danger-soft); }
 .history-message.failed { color: var(--danger); }
+.history-truncate-note { margin: 0 26px 16px; }
 
 /* 候选规则 */
 .rule-summary { display: flex; align-items: center; gap: 10px; margin: 22px 26px 0; padding: 14px 16px; border-left: 4px solid var(--blue); color: var(--muted); background: var(--blue-soft); font-size: 12px; }
@@ -460,9 +463,9 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .site-login-hint { margin: 15px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: var(--surface-soft); font-size: 12px; line-height: 1.6; }
 
 /* 弹窗和设置 */
-.dialog { width: min(520px,calc(100vw - 28px)); padding: 0; border: 0; color: var(--ink); background: transparent; }
+.dialog { width: min(520px,calc(100vw - 28px)); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 0; border: 0; color: var(--ink); background: transparent; overscroll-behavior: contain; }
 .dialog::backdrop { background: rgba(17,22,35,.48); backdrop-filter: blur(5px); }
-.dialog-card { padding: 24px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-strong); box-shadow: 0 30px 90px rgba(15,20,35,.24); }
+.dialog-card { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 24px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-strong); box-shadow: 0 30px 90px rgba(15,20,35,.24); }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .dialog-copy { margin: 12px 0 19px; color: var(--muted); font-size: 13px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
@@ -508,8 +511,10 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .setting-toggles { margin-top: 9px; }
 .settings-actions { flex: 0 0 auto; align-items: center; margin: 20px -24px -24px; padding: 15px 24px; border-top: 1px solid var(--line); background: var(--surface-strong); }
 .settings-action-spacer { flex: 1; }
-.drop-zone { display: grid; place-items: center; min-height: 150px; border: 1px dashed var(--blue); border-radius: 6px; color: var(--muted); background: var(--blue-soft); text-align: center; }
-.drop-zone input { display: none; }
+.drop-zone { position: relative; display: grid; place-items: center; min-height: 150px; border: 1px dashed var(--blue); border-radius: 6px; color: var(--muted); background: var(--blue-soft); text-align: center; cursor: pointer; }
+.drop-zone:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 3px rgba(31,99,131,.2); }
+.drop-zone input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.drop-zone input:focus-visible { outline: 0; }
 .drop-zone strong, .drop-zone small { display: block; }
 .drop-zone small { margin-top: 4px; }
 .drop-icon { color: var(--blue); font-size: 25px; }
@@ -584,6 +589,34 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
   .playlist-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 
+/* 901–1160px：保留桌面密度，但让搜索控制台和候选列共享真实可用宽度。 */
+@media (min-width: 901px) and (max-width: 1160px) {
+  .search-form { gap: 10px; padding-inline: 22px; }
+  .search-form.is-pending {
+    grid-template-columns: minmax(0,1.15fr) minmax(0,.9fr) minmax(0,.85fr);
+    grid-template-areas: "playlist scope count" ". . action";
+  }
+  .search-form.is-range {
+    grid-template-columns: minmax(0,1.1fr) minmax(0,.85fr) minmax(0,.8fr);
+    grid-template-areas: "playlist scope start" "arrow end action";
+  }
+  .search-form .field-playlist { grid-area: playlist; }
+  .search-form .field-search-scope { grid-area: scope; }
+  .search-form .field-search-count { grid-area: count; }
+  .search-form .field-search-start { grid-area: start; }
+  .search-form .range-arrow { grid-area: arrow; width: auto; padding-top: 0; }
+  .search-form .field-search-end { grid-area: end; }
+  .search-form > .button { grid-area: action; justify-self: end; width: 100%; min-width: 0; }
+  .candidate-labels, .candidate-row {
+    grid-template-columns: minmax(0,1.1fr) minmax(0,.7fr) minmax(0,.95fr) minmax(54px,.32fr) minmax(92px,.65fr);
+    gap: 10px;
+  }
+  .candidate-row { padding-inline: 22px; }
+  .candidate-labels { padding-inline: 22px; }
+  .candidate-score { text-align: left; }
+  .candidate-action { width: 100%; min-width: 0; padding-inline: 8px; }
+}
+
 @media (max-width: 900px) {
   body { padding-bottom: 72px; background: var(--paper); }
   body.site-inspector-open { overflow: hidden; }
@@ -636,10 +669,19 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
   .group-score-options { grid-template-columns: 1fr; }
   .playlist-detail-actions { width: 100%; justify-content: flex-start; }
   .candidate-heading { align-items: flex-start; flex-direction: column; }
+  .search-form, .search-form.is-pending, .search-form.is-range {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    padding-inline: 18px;
+  }
+  .search-form .field-playlist, .search-form > .button { grid-column: 1 / -1; }
+  .search-form .range-arrow { display: none; }
+  .dialog:not(.settings-dialog) { width: min(520px,calc(100vw - 20px)); max-height: calc(100dvh - 16px); }
+  .dialog:not(.settings-dialog) .dialog-card { max-height: calc(100dvh - 16px); padding: 20px; }
 }
 
 @media (max-width: 680px) {
   body { font-size: 16px; }
+  input, select, textarea { font-size: 16px; }
   .main-content { padding-inline: 14px; }
   .topbar { min-height: 96px; gap: 12px; }
   .topbar h1 { font-size: 27px; }

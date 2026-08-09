@@ -45,17 +45,61 @@ export const promptAccessToken = (message) => {
   return getAccessToken();
 };
 
+const DEFAULT_API_TIMEOUT_MS = 30000;
+
 export const api = async (path, options = {}, allowRetry = true) => {
   const method = String(options.method || "GET").toUpperCase();
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+    ? Math.max(1000, Number(options.timeoutMs))
+    : DEFAULT_API_TIMEOUT_MS;
+  const callerSignal = options.signal;
+  const controller = new AbortController();
+  let timedOut = false;
+  let callerAbortHandler = null;
+  const requestOptions = {...options};
+  delete requestOptions.timeoutMs;
+  delete requestOptions.signal;
   const headers = {"Content-Type": "application/json", ...(options.headers || {})};
   const token = getAccessToken();
   if (token) headers["X-AutoList-Token"] = token;
-  const response = await fetch(path, {
-    cache: method === "GET" ? "no-store" : undefined,
-    ...options,
-    headers,
-  });
-  const text = await response.text();
+  if (callerSignal) {
+    callerAbortHandler = () => controller.abort(callerSignal.reason);
+    if (callerSignal.aborted) callerAbortHandler();
+    else callerSignal.addEventListener("abort", callerAbortHandler, {once: true});
+  }
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  let response;
+  let text;
+  try {
+    response = await fetch(path, {
+      cache: method === "GET" ? "no-store" : undefined,
+      ...requestOptions,
+      headers,
+      signal: controller.signal,
+    });
+    text = await response.text();
+  } catch (error) {
+    if (timedOut) {
+      const timeoutError = new Error(`请求超时（${Math.ceil(timeoutMs / 1000)} 秒），请稍后重试`);
+      timeoutError.name = "TimeoutError";
+      timeoutError.code = "TIMEOUT";
+      throw timeoutError;
+    }
+    if (error?.name === "AbortError") {
+      const abortError = new Error("请求已取消");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
+    const networkError = new Error("网络连接失败，请检查服务状态后重试");
+    networkError.cause = error;
+    throw networkError;
+  } finally {
+    window.clearTimeout(timer);
+    if (callerSignal && callerAbortHandler) callerSignal.removeEventListener("abort", callerAbortHandler);
+  }
   let data = {};
   if (text) {
     try { data = JSON.parse(text); }
@@ -99,6 +143,7 @@ export const showToast = (message) => {
 };
 
 export const setButtonLoading = (button, loading, text) => {
+  if (!button) return;
   if (button.dataset.labelHtml == null) button.dataset.labelHtml = button.innerHTML;
   if (button.dataset.labelAria == null && button.hasAttribute("aria-label")) button.dataset.labelAria = button.getAttribute("aria-label");
   button.disabled = loading;

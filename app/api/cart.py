@@ -20,7 +20,7 @@ from ..state import (
     prune_raw_candidates,
     raw_candidates,
 )
-from ..util import first_value, resource_fingerprint, rows_to_dicts, utc_now
+from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, utc_now
 
 router = APIRouter()
 
@@ -91,6 +91,7 @@ async def cart() -> list[dict[str, Any]]:
         ).fetchall()
     items = rows_to_dicts(rows)
     for item in items:
+        item["detail_url"] = safe_detail_url(item.get("detail_url"))
         item["context_available"] = item["id"] in raw_candidates
     return items
 
@@ -113,14 +114,16 @@ async def download_cart() -> dict[str, Any]:
             ).fetchall()
         if not rows:
             raise HTTPException(422, "下载列表为空")
+        transmission = TransmissionClient()
         try:
-            current_torrents = await asyncio.wait_for(TransmissionClient().current_downloads(), timeout=6)
-        except Exception:
-            current_torrents = []
+            current_torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
+        except Exception as exc:
+            raise HTTPException(503, "无法确认 Transmission 当前下载任务，已暂停提交") from exc
         active_torrents = [torrent for torrent in current_torrents if is_transmission_downloading(torrent)]
         emby = EmbyClient()
         moviepilot, completed, needs_research, submitted_tasks, expired_items = MoviePilotClient(), 0, 0, [], []
         skipped: list[dict[str, Any]] = []
+        blocked_unknown: list[dict[str, Any]] = []
         for candidate in rows:
             item_snapshot = playlist_item_snapshot({
                 "id": candidate["playlist_snapshot_id"],
@@ -170,7 +173,7 @@ async def download_cart() -> dict[str, Any]:
             if already_submitted:
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "该发布已提交过"})
                 continue
-            # 幂等复查 2：相同发布已在 Transmission 下载中（含查询失败时的静默降级保护），跳过。
+            # 幂等复查 2：相同发布已在 Transmission 下载中时跳过；查询失败已在提交前阻断。
             playlist_item = {
                 "id": candidate["playlist_snapshot_id"], "imdb_id": candidate["playlist_imdb_id"],
                 "original_title": candidate["playlist_original_title"], "chinese_title": candidate["playlist_chinese_title"],
@@ -181,17 +184,20 @@ async def download_cart() -> dict[str, Any]:
             if _matches_active_torrent(candidate, playlist_item, active_torrents):
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "Transmission 正在下载"})
                 continue
-            # 幂等复查 3：搜索期间 Emby 状态未知（故障窗口）时，提交前复查实体库。
-            if candidate["playlist_library_state"] == "unknown":
-                state, _, _ = await library_details(
-                    emby,
-                    str(candidate["playlist_tmdb_title"] or candidate["playlist_chinese_title"] or candidate["playlist_original_title"]),
-                    candidate["playlist_tmdb_year"] or candidate["playlist_year"],
-                    candidate["playlist_tmdb_id"], candidate["playlist_tmdb_imdb_id"] or candidate["playlist_imdb_id"],
-                )
-                if state == "in_library":
-                    skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "影片已入库"})
-                    continue
+            # 幂等复查 3：每次提交前都重新确认 Emby，避免旧的 not_found
+            # 状态在 Emby 短暂故障时被误当成“肯定未入库”。
+            state, _, _ = await library_details(
+                emby,
+                str(candidate["playlist_tmdb_title"] or candidate["playlist_chinese_title"] or candidate["playlist_original_title"]),
+                candidate["playlist_tmdb_year"] or candidate["playlist_year"],
+                candidate["playlist_tmdb_id"], candidate["playlist_tmdb_imdb_id"] or candidate["playlist_imdb_id"],
+            )
+            if state == "in_library":
+                skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "影片已入库"})
+                continue
+            if state == "unknown":
+                blocked_unknown.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "无法确认 Emby 媒体库状态"})
+                continue
             try:
                 if not raw.get("media"):
                     raise RuntimeError("缺少媒体信息，无法应用 MoviePilot 分类规则")
@@ -225,14 +231,14 @@ async def download_cart() -> dict[str, Any]:
                     forget_raw_candidate(candidate["id"])
         if needs_research and completed == 0 and not skipped:
             raise HTTPException(409, f"下载列表中 {needs_research} 个资源的搜索上下文已失效，请重新搜索后加入下载列表")
-        failed = len(rows) - completed - len(skipped) - needs_research
+        failed = len(rows) - completed - len(skipped) - needs_research - len(blocked_unknown)
         event_logger().info("download_submit", extra={
-            "submitted": completed, "skipped": len(skipped), "needs_research": needs_research, "failed": failed,
+            "submitted": completed, "skipped": len(skipped), "blocked_unknown": len(blocked_unknown), "needs_research": needs_research, "failed": failed,
             "skipped_reasons": sorted({str(item.get("reason")) for item in skipped}),
         })
         return {
             "submitted": completed, "needs_research": needs_research, "expired_items": expired_items,
-            "skipped": skipped, "mode": "moviepilot", "tasks": submitted_tasks,
+            "skipped": skipped, "blocked_unknown": blocked_unknown, "mode": "moviepilot", "tasks": submitted_tasks,
         }
 
 @router.get("/api/history")

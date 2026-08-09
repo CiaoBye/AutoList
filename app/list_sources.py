@@ -9,6 +9,7 @@ import httpx
 from defusedxml import ElementTree as ET
 
 from .config import settings
+from .util import safe_request
 
 
 ALLOWED_HOSTS = {
@@ -91,13 +92,15 @@ class PlaylistSourceFetcher:
         path = urlparse(url).path.strip("/")
         headers, auth = self._tmdb_auth()
         proxy = settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None
-        async with httpx.AsyncClient(headers={**self.headers, **headers}, timeout=30, proxy=proxy) as client:
+        request_headers = {**self.headers, **headers}
+        async with httpx.AsyncClient(timeout=30, proxy=proxy, follow_redirects=False) as client:
             collection = re.search(r"(?:^|/)collection/(\d+)", path)
             list_match = re.search(r"(?:^|/)list/(\d+)", path)
             if collection:
-                response = await client.get(
+                response = await safe_request(
+                    client, "GET",
                     f"https://api.themoviedb.org/3/collection/{collection.group(1)}",
-                    params={**auth, "language": settings.tmdb_language},
+                    headers=request_headers, params={**auth, "language": settings.tmdb_language}, label="TMDB 片单地址",
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -106,9 +109,10 @@ class PlaylistSourceFetcher:
             elif list_match:
                 entries, page, name = [], 1, None
                 while len(entries) < limit:
-                    response = await client.get(
+                    response = await safe_request(
+                        client, "GET",
                         f"https://api.themoviedb.org/4/list/{list_match.group(1)}",
-                        params={**auth, "page": page, "language": settings.tmdb_language},
+                        headers=request_headers, params={**auth, "page": page, "language": settings.tmdb_language}, label="TMDB 片单地址",
                     )
                     response.raise_for_status()
                     data = response.json()
@@ -144,10 +148,10 @@ class PlaylistSourceFetcher:
         params: dict[str, Any] = {"limit": min(limit, 1000), "offset": 0}
         if settings.mdblist_api_key:
             params["apikey"] = settings.mdblist_api_key
-        async with httpx.AsyncClient(headers=self.headers, timeout=30, proxy=self._proxy()) as client:
-            response = await client.get(api_url, params=params)
+        async with httpx.AsyncClient(timeout=30, proxy=self._proxy(), follow_redirects=False) as client:
+            response = await safe_request(client, "GET", api_url, headers=self.headers, params=params, label="MDBList 片单地址")
             if response.status_code >= 400:
-                response = await client.get(f"{clean}/json", params={"limit": limit, "offset": 0})
+                response = await safe_request(client, "GET", f"{clean}/json", headers=self.headers, params={"limit": limit, "offset": 0}, label="MDBList 片单地址")
             response.raise_for_status()
             data = response.json()
         entries = data if isinstance(data, list) else data.get("movies") or data.get("items") or []
@@ -175,8 +179,8 @@ class PlaylistSourceFetcher:
         seen: set[str] = set()
         page = 1
         name = "Letterboxd 片单"
-        async with httpx.AsyncClient(headers=self.headers, timeout=30, follow_redirects=True, proxy=self._proxy()) as client:
-            rss = await client.get(f"https://letterboxd.com/{username}/list/{slug}/rss/")
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False, proxy=self._proxy()) as client:
+            rss = await safe_request(client, "GET", f"https://letterboxd.com/{username}/list/{slug}/rss/", headers=self.headers, label="Letterboxd 片单地址")
             if rss.is_success and "xml" in rss.headers.get("content-type", ""):
                 try:
                     root = ET.fromstring(rss.text)
@@ -198,7 +202,7 @@ class PlaylistSourceFetcher:
             embed_base = f"https://embed.letterboxd.com/{username}/list/{slug}"
             while len(all_items) < limit:
                 page_url = f"{embed_base}/" if page == 1 else f"{embed_base}/page/{page}/"
-                response = await client.get(page_url)
+                response = await safe_request(client, "GET", page_url, headers=self.headers, label="Letterboxd 片单地址")
                 response.raise_for_status()
                 html = response.text
                 if page == 1:
@@ -247,9 +251,13 @@ class PlaylistSourceFetcher:
         headers = {**self.headers, "Content-Type": "application/json", "x-imdb-client-name": "imdb-web-next"}
         items: list[dict[str, Any]] = []
         cursor = None
-        async with httpx.AsyncClient(headers=headers, timeout=30, proxy=self._proxy()) as client:
+        async with httpx.AsyncClient(timeout=30, proxy=self._proxy(), follow_redirects=False) as client:
             while len(items) < limit:
-                response = await client.post("https://api.graphql.imdb.com/", json={"query": query, "variables": {"id": list_id, "first": min(250, limit - len(items)), "after": cursor}})
+                response = await safe_request(
+                    client, "POST", "https://api.graphql.imdb.com/", headers=headers,
+                    json={"query": query, "variables": {"id": list_id, "first": min(250, limit - len(items)), "after": cursor}},
+                    label="IMDb 片单地址",
+                )
                 response.raise_for_status()
                 payload = response.json()
                 if payload.get("errors"):

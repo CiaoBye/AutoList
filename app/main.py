@@ -19,7 +19,15 @@ from .api import playlists as playlist_routes
 from .api import search as search_routes
 from .api import sites as site_routes
 from .api import system as system_routes
-from .config import access_token, access_token_required, load_runtime_settings
+from .config import (
+    APP_VERSION,
+    access_token,
+    access_token_is_strong,
+    access_token_required,
+    access_token_strength_enforced,
+    access_token_validation_error,
+    load_runtime_settings,
+)
 from .database import cleanup_old_data, connect, initialize
 from .security import extract_access_token, token_matches
 from .services.automation import sync_scheduler
@@ -112,7 +120,7 @@ _ENABLE_DOCS = os.getenv("AUTOLIST_ENABLE_DOCS", "").strip().lower() == "true"
 
 app = FastAPI(
     title="AutoList",
-    version="1.01",
+    version=APP_VERSION,
     lifespan=lifespan,
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
@@ -136,6 +144,16 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
     path = request.url.path
     if path in AUTH_EXEMPT_PATHS or path.startswith("/assets/") or path.startswith("/cookiecloud/"):
         return await call_next(request)
+    if access_token_strength_enforced() and not access_token_is_strong():
+        return JSONResponse(
+            {
+                "detail": "服务端访问令牌强度不足，请更换至少 32 个字符的随机令牌",
+                "code": "weak_access_token",
+                "configured": bool(access_token()),
+                "validation": access_token_validation_error(),
+            },
+            status_code=503,
+        )
     provided = extract_access_token(request.headers.get("authorization"), request.headers.get("x-autolist-token"))
     if not token_matches(provided, access_token()):
         return JSONResponse({"detail": "需要有效的访问令牌"}, status_code=401)

@@ -6,6 +6,13 @@ from typing import Any
 
 
 REDACTED_SECRET = str()
+APP_VERSION = "1.02"
+ACCESS_TOKEN_MIN_LENGTH = 32
+ACCESS_TOKEN_MAX_LENGTH = 256
+
+
+def _truthy_environment(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 # 仅从环境变量读取，不写入 runtime-settings.json，避免被设置页覆盖。
 def access_token() -> str:
@@ -14,6 +21,50 @@ def access_token() -> str:
 
 def access_token_required() -> bool:
     return bool(access_token())
+
+
+def access_token_validation_error(value: str | None = None) -> str | None:
+    """Validate the configured token without ever returning the token itself.
+
+    Token strength is enforced by default whenever authentication is enabled.
+    A trusted-LAN deployment that still needs a legacy token can explicitly set
+    ``AUTOLIST_REQUIRE_STRONG_TOKEN=false`` during migration. Keeping
+    validation separate from ``access_token_required`` means the health
+    endpoint can report a safe diagnostic without exposing the token itself.
+    """
+    token = access_token() if value is None else str(value).strip()
+    if not token:
+        return "未配置访问令牌"
+    if len(token) < ACCESS_TOKEN_MIN_LENGTH:
+        return f"访问令牌至少需要 {ACCESS_TOKEN_MIN_LENGTH} 个字符"
+    if len(token) > ACCESS_TOKEN_MAX_LENGTH:
+        return f"访问令牌不能超过 {ACCESS_TOKEN_MAX_LENGTH} 个字符"
+    if len(set(token)) < 8:
+        return "访问令牌字符多样性不足"
+    return None
+
+
+def access_token_is_strong(value: str | None = None) -> bool:
+    return access_token_validation_error(value) is None
+
+
+def access_token_strength_enforced() -> bool:
+    """Return whether weak configured tokens should block protected requests.
+
+    Authentication is fail-closed by default. The explicit ``false`` value is
+    retained only as a deliberate compatibility escape hatch for trusted LAN
+    migrations; it should not be used for an internet-facing deployment.
+    """
+    configured = os.getenv("AUTOLIST_REQUIRE_STRONG_TOKEN")
+    if configured is not None and configured.strip():
+        return _truthy_environment("AUTOLIST_REQUIRE_STRONG_TOKEN")
+    return access_token_required()
+
+
+def access_token_strength() -> str:
+    if not access_token_required():
+        return "missing"
+    return "strong" if access_token_is_strong() else "weak"
 
 
 @dataclass
@@ -89,6 +140,8 @@ class Settings:
             "tr_password_configured": bool(self.tr_password),
             "dashboard_random_posters": self.dashboard_random_posters,
             "access_token_required": access_token_required(),
+            "access_token_strength": access_token_strength(),
+            "access_token_strength_enforced": access_token_strength_enforced(),
         }
 
 

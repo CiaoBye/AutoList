@@ -1,7 +1,12 @@
 services:
   autolist:
-    build: .
-    image: autolist:1.01
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${AUTOLIST_PYTHON_IMAGE:-python:3.12-slim}
+        PIP_INDEX_URL: ${AUTOLIST_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        AUTOLIST_ICON_URL: ${AUTOLIST_ICON_URL:-https://raw.githubusercontent.com/CiaoBye/AutoList/8a704fe03e381518b190a2d6c015e20a0ffce67f/unraid/autolist-icon.png}
+    image: autolist:1.02
     container_name: Autolist
     restart: unless-stopped
     env_file: .env
@@ -12,8 +17,19 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, sqlite3, urllib.request; response = urllib.request.urlopen("http://127.0.0.1:8080/api/health", timeout=2); payload = json.load(response); assert response.status == 200 and payload.get("ok") is True; database = sqlite3.connect("/data/playlist-autodown.db", timeout=2); database.execute("PRAGMA query_only=ON"); assert database.execute("PRAGMA quick_check(1)").fetchone()[0] == "ok"; assert database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='playlists'").fetchone(); database.close()
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     labels:
-      net.unraid.docker.icon: "https://raw.githubusercontent.com/CiaoBye/AutoList/main/unraid/autolist-icon.png"
+      net.unraid.docker.icon: "${AUTOLIST_ICON_URL:-https://raw.githubusercontent.com/CiaoBye/AutoList/8a704fe03e381518b190a2d6c015e20a0ffce67f/unraid/autolist-icon.png}"
       net.unraid.docker.managed: "dockerman"
       net.unraid.docker.webui: "http://[IP]:[PORT:8585]/"
     volumes:

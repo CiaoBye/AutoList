@@ -6,7 +6,6 @@ import asyncio
 import base64
 import sqlite3
 from typing import Any
-from urllib.parse import urljoin
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -18,10 +17,11 @@ from ..schemas import SitePayload
 from ..services.cookiecloud_store import stored_cookiecloud_payload
 from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_site_config
 from ..state import remember_site_icon, site_icon_cache
-from ..util import raster_image_media_type, rows_to_dicts, utc_now, validate_remote_icon_url
+from ..util import raster_image_media_type, rows_to_dicts, safe_request, utc_now, validate_remote_icon_url
 from .system import validated_base_url
 
 router = APIRouter()
+MAX_SITE_ICON_BYTES = 512 * 1024
 
 @router.get("/api/sites")
 async def sites() -> list[dict[str, Any]]:
@@ -83,37 +83,26 @@ async def site_icon(site_id: int) -> Response:
         if icon_value.startswith("data:image/"):
             header, encoded = icon_value.split(",", 1)
             media_type = header.split(";", 1)[0].split(":", 1)[1]
-            content = base64.b64decode(encoded)
+            if len(encoded) > MAX_SITE_ICON_BYTES * 2:
+                raise RuntimeError("站点图标过大")
+            content = base64.b64decode(encoded, validate=True)
+            if len(content) > MAX_SITE_ICON_BYTES:
+                raise RuntimeError("站点图标过大")
         else:
             source = icon_value if icon_value.startswith(("http://", "https://")) else f"{str(row['base_url']).rstrip('/')}/favicon.ico"
             # 逐跳校验重定向目标：禁止自动跟随（否则内网地址已在请求后才被拦截）。
             async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
-                current = source
-                for _hop in range(4):
-                    await validate_remote_icon_url(current, str(row["base_url"]))
-                    upstream = await client.get(current)
-                    if upstream.status_code in {301, 302, 303, 307, 308}:
-                        location = upstream.headers.get("location")
-                        if not location:
-                            raise RuntimeError("图标重定向缺少 Location")
-                        current = urljoin(current, location)
-                        continue
-                    upstream.raise_for_status()
-                    break
-                else:
-                    raise RuntimeError("图标重定向次数过多")
-                # DNS 重绑定复验：请求已完成，但仅在域名仍解析到公网时才回传响应，
-                # 避免攻击者轮换解析把内网响应回传给客户端。
-                try:
-                    await validate_remote_icon_url(current, str(row["base_url"]))
-                except RuntimeError:
-                    raise RuntimeError("图标域名解析结果变化，已拒绝回传") from None
-                if int(upstream.headers.get("content-length") or 0) > 2 * 1024 * 1024:
+                await validate_remote_icon_url(source, str(row["base_url"]))
+                upstream = await safe_request(client, "GET", source, label="图标地址")
+                upstream.raise_for_status()
+                if int(upstream.headers.get("content-length") or 0) > MAX_SITE_ICON_BYTES:
                     raise RuntimeError("图标文件过大")
                 content = upstream.content
+                if len(content) > MAX_SITE_ICON_BYTES:
+                    raise RuntimeError("图标文件过大")
                 media_type = upstream.headers.get("content-type", "image/x-icon").split(";", 1)[0]
         detected_media_type = raster_image_media_type(content)
-        if not content or len(content) > 2 * 1024 * 1024 or not detected_media_type:
+        if not content or len(content) > MAX_SITE_ICON_BYTES or not detected_media_type:
             raise RuntimeError("图标内容无效")
         media_type = detected_media_type
         remember_site_icon(site_id, (content, media_type))

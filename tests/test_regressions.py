@@ -186,9 +186,11 @@ class SecurityTests(unittest.TestCase):
 
     def test_access_token_middleware_protects_api_but_keeps_health_open(self) -> None:
         previous_token = os.environ.get("AUTOLIST_ACCESS_TOKEN")
+        previous_strict = os.environ.get("AUTOLIST_REQUIRE_STRONG_TOKEN")
         previous_data_dir = settings.data_dir
         temp = tempfile.TemporaryDirectory()
         os.environ["AUTOLIST_ACCESS_TOKEN"] = "unit-test-token"
+        os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = "false"
         settings.data_dir = temp.name
         try:
             with TestClient(main.app) as client:
@@ -208,6 +210,10 @@ class SecurityTests(unittest.TestCase):
                 os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
             else:
                 os.environ["AUTOLIST_ACCESS_TOKEN"] = previous_token
+            if previous_strict is None:
+                os.environ.pop("AUTOLIST_REQUIRE_STRONG_TOKEN", None)
+            else:
+                os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = previous_strict
             temp.cleanup()
 
 

@@ -2,6 +2,23 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 1.02 - 2026-08-09
+
+### 修复与优化
+
+- 收紧访问令牌默认策略：只要配置 `AUTOLIST_ACCESS_TOKEN`，默认要求至少 32 个字符且具备足够字符多样性；健康检查只返回强度状态，不返回令牌。可信内网迁移旧令牌时可显式设置 `AUTOLIST_REQUIRE_STRONG_TOKEN=false`。
+- 加固所有主要出站请求：拒绝危险地址与敏感查询参数，手动校验每一跳重定向并在跨域时剥离授权头；图标、候选详情 URL 和代理地址统一使用安全校验。
+- 修复下游状态未知时仍可能提交下载的问题；Transmission 或 Emby 无法确认时改为阻断并给出可恢复提示；自动化片单同步增加并发锁，避免重复执行。
+- 为搜索任务、导入文件、批量范围和候选上下文增加数量、字节数与生命周期上限；修复来源刷新、历史快照、片单删除、任务重试和取消中的数据一致性边界。
+- 候选影片组使用更醒目的深色横向分隔和组间距，橙色仅保留为首选状态；移动抽屉、站点筛选、弹窗、文件选择、异步错误和轮询区域补齐键盘/ARIA/焦点恢复语义。
+- 统一应用版本为 `1.02`，修正 User-Agent fallback；Docker/Compose/Unraid 镜像内嵌 SVG、favicon 与 PNG Logo，补充本地 SQLite healthcheck、非 root UID、构建上下文排除和备份恢复文档。
+
+### 验证
+
+- 通过 101 项 unittest、Python `compileall`、JavaScript `node --check`、`pip check`、`git diff --check`、XML/Dockerfile/版本静态校验；Compose 解析与 Docker 镜像 smoke test 已加入 CI，本机因未安装 Docker CLI 未执行。
+- 已在隔离临时数据目录完成本地服务与浏览器页面回归：8 个路由、桌面/窄屏/横屏、弹窗、筛选、Logo、无横向溢出和控制台错误检查。
+- 未执行真实 TMDB、Emby、Transmission、MoviePilot 或 PT 站点连接，未提交真实下载，未修改 Unraid 生产容器和持久化数据；Docker 镜像构建/healthcheck 由 CI 配置覆盖，本机未因环境缺少 Docker 而伪报已执行。
+
 ## 1.01 - 2026-08-02
 
 ### 修复与优化

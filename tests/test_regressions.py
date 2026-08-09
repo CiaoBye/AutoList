@@ -100,10 +100,12 @@ class SecurityTests(unittest.TestCase):
             "metric-search", "metric-search-state", "metric-items", "metric-items-progress",
             "dashboard-recognized", "dashboard-in-library", "dashboard-in-library-progress",
             "dashboard-history-count", "metric-cart", "metric-cart-size", "dashboard-library-bar",
-            "dashboard-shelf", "dashboard-history",
         ):
             with self.subTest(element_id=element_id):
                 self.assertEqual(html.count(f'id="{element_id}"'), 1)
+        self.assertNotIn('class="screening-recent"', html)
+        self.assertNotIn('class="screening-activity"', html)
+        self.assertNotIn('id="settings-random-posters"', html)
 
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):

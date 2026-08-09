@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.07.0">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.08.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.07.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.08.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -28,7 +28,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.07.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.08.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -45,7 +45,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg>日志</a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.07</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.08</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -93,9 +93,6 @@
             <div class="screening-collection-body"><div class="screening-stat-grid"><div><strong id="metric-items">—</strong><span>片单影片</span></div><div><strong id="dashboard-recognized">—</strong><span>已识别</span></div><div><strong id="dashboard-in-library">—</strong><span>已入库</span></div><div><strong id="dashboard-history-count">0</strong><span>下载记录</span></div><div><strong id="metric-cart">0</strong><span>下载列表</span></div><div><strong id="metric-cart-size">0 GB</strong><span>待下载体积</span></div></div><div class="screening-progress-card"><div><span>入库进度</span><strong><b id="dashboard-in-library-progress">—</b> / <b id="metric-items-progress">—</b></strong></div><div class="collection-progress-bar" role="progressbar" aria-label="电影库入库进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-library-bar"></i></div><p>识别、选源、下载和入库都会回到这条馆藏进度线上。</p></div></div>
           </section>
 
-          <section class="screening-recent" aria-labelledby="screening-recent-title"><div class="screening-section-heading"><div><p class="section-kicker">CURATED SHELF</p><h2 id="screening-recent-title">馆藏精选</h2></div><button class="text-link" data-route-target="playlists">查看全部 →</button></div><div id="dashboard-shelf" class="poster-shelf" aria-live="polite"></div></section>
-
-          <section class="screening-activity" aria-labelledby="screening-activity-title"><div class="screening-section-heading"><div><p class="section-kicker">COLLECTION LOG</p><h2 id="screening-activity-title">最近活动</h2></div><button class="text-link" data-route-target="history">查看全部 →</button></div><div id="dashboard-history" class="activity-list"></div></section>
         </div>
       </section>
 
@@ -374,13 +371,9 @@
           </div>
           <div id="settings-panel-system" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-system" data-settings-panel="system" hidden>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.07.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.08.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
-            </section>
-            <section class="settings-section shelf-preference-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.07.0" alt=""></span><div><strong>首页海报</strong><small>最近入库展示方式</small></div><em>界面偏好</em></div>
-              <div class="shelf-preference-row"><label class="toggle-field"><input id="settings-random-posters" type="checkbox"><span>随机展示首页海报</span></label><p>关闭时按片单顺序展示；开启后每天随机选取一组已入库影片。</p></div>
             </section>
           </div>
         </div>
@@ -411,6 +404,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>藏馆</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.07.0"></script>
+  <script type="module" src="/assets/app.js?v=1.08.0"></script>
 </body>
 </html>

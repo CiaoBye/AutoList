@@ -207,7 +207,7 @@ h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.025em; }
 .screening-feature-kicker { display: block; color: #d5ac61; font: 700 10px var(--font-data); letter-spacing: .16em; }
 .screening-feature-copy strong { display: block; overflow: hidden; margin-top: 8px; color: #fff4d4; font: 600 clamp(23px,2.8vw,37px)/1.05 var(--font-editorial); letter-spacing: -.05em; text-overflow: ellipsis; white-space: nowrap; }
 .screening-feature-copy small { display: block; margin-top: 6px; color: #d1ded8; font-size: 11px; }
-.screening-program, .screening-collection, .screening-recent, .screening-activity { min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+.screening-program, .screening-collection { min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
 .screening-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 21px 25px 0; }
 .screening-section-heading h2 { margin: 0; font-size: 21px; letter-spacing: -.04em; }
 .screening-section-note { color: var(--muted); font-size: 12px; }
@@ -237,8 +237,6 @@ h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.025em; }
 .screening-progress-card .collection-progress-bar { height: 5px; margin: 18px 0 12px; background: rgba(255,255,255,.14); }
 .screening-progress-card .collection-progress-bar i { background: #d5ac61; }
 .screening-progress-card p { margin: 0; color: #a7b9b2; font-size: 11px; line-height: 1.6; }
-.screening-recent .poster-shelf { padding-top: 18px; }
-.screening-activity .activity-list { padding-bottom: 20px; }
 
 /* C 方向：站点星图 / Live Site Constellation */
 .site-constellation-workspace { grid-template-columns: minmax(0,1fr) 340px; gap: 18px; }
@@ -615,8 +613,6 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .settings-icon img { width: 24px; height: 24px; }
 .settings-icon.autolist { border-radius: 8px; background: transparent; }
 .settings-icon.autolist img { width: 26px; height: 26px; }
-.shelf-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.shelf-preference-row p { max-width: 650px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .settings-section > .field + .field, .settings-section > .settings-inline + .field, .settings-section > .field + .settings-inline { margin-top: 13px; }
 .settings-inline-three { grid-template-columns: repeat(3,minmax(0,1fr)); }
 .settings-help { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
@@ -775,7 +771,6 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
   .settings-layout { grid-template-columns: 180px minmax(0,1fr); }
   .settings-content-grid { grid-template-columns: 1fr; }
   .settings-section-wide { grid-column: auto; }
-  .shelf-preference-row { align-items: flex-start; flex-direction: column; gap: 10px; }
   .rule-sections-rebuilt { grid-template-columns: 1fr; }
   .rule-card-groups, .rule-card-result { grid-column: auto; }
   .group-score-options { grid-template-columns: 1fr; }
@@ -962,8 +957,6 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
   .screening-section-heading { align-items: flex-start; flex-direction: column; padding-inline: 18px; }
   .screening-collection-body { padding-inline: 18px; }
   .screening-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .screening-recent .poster-shelf { padding-inline: 18px; }
-  .screening-activity .activity-list { padding-inline: 18px; }
   .site-live-map { min-height: 650px; padding: 16px; }
   .site-map-heading h2 { font-size: 24px; }
   .site-map-field { min-height: 560px; margin-top: 12px; }

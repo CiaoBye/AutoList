@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <script src="/assets/js/theme-init.js?v=1.11.0"></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.11.0">
+  <script src="/assets/js/theme-init.js?v=1.13.0"></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.13.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.11.0">
-  <link rel="stylesheet" href="/assets/theme.css?v=1.11.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.13.0">
+  <link rel="stylesheet" href="/assets/theme.css?v=1.13.0">
 </head>
 <body data-page="dashboard">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -30,24 +30,24 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.11.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.13.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
       <nav class="nav" aria-label="主导航">
-        <span class="nav-group-label">媒体库</span>
-        <a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg>电影藏馆</a>
-        <a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg>片单</a>
-        <span class="nav-group-label">队列</span>
-        <a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg>资源搜索</a>
-        <a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg>下载列表 <em id="nav-cart-count">0</em></a>
-        <a class="nav-item" href="#rules" data-route="rules"><svg><use href="#icon-rules"></use></svg>候选规则</a>
-        <a class="nav-item" href="#history" data-route="history"><svg><use href="#icon-history"></use></svg>下载历史</a>
-        <span class="nav-group-label">管理</span>
-        <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg>站点与服务</a>
-        <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg>日志</a>
+        <span class="nav-group-label"><span class="theme-copy theme-copy-archive">馆藏</span><span class="theme-copy theme-copy-cinema">放映</span><span class="theme-copy theme-copy-ledger">目录</span></span>
+        <a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">电影藏馆</span><span class="theme-copy theme-copy-cinema">放映台</span><span class="theme-copy theme-copy-ledger">总册索引</span></span></a>
+        <a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">馆藏片单</span><span class="theme-copy theme-copy-cinema">场次片单</span><span class="theme-copy theme-copy-ledger">片目目录</span></span></a>
+        <span class="nav-group-label"><span class="theme-copy theme-copy-archive">排片</span><span class="theme-copy theme-copy-cinema">场次</span><span class="theme-copy theme-copy-ledger">登记</span></span>
+        <a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">来源检索</span><span class="theme-copy theme-copy-cinema">排片搜索</span><span class="theme-copy theme-copy-ledger">来源索引</span></span></a>
+        <a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">待入馆</span><span class="theme-copy theme-copy-cinema">放映队列</span><span class="theme-copy theme-copy-ledger">待登记</span></span> <em id="nav-cart-count">0</em></a>
+        <a class="nav-item" href="#rules" data-route="rules"><svg><use href="#icon-rules"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">选片标准</span><span class="theme-copy theme-copy-cinema">放映规则</span><span class="theme-copy theme-copy-ledger">规则簿</span></span></a>
+        <a class="nav-item" href="#history" data-route="history"><svg><use href="#icon-history"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">入馆记录</span><span class="theme-copy theme-copy-cinema">放映履历</span><span class="theme-copy theme-copy-ledger">入馆台账</span></span></a>
+        <span class="nav-group-label"><span class="theme-copy theme-copy-archive">管理</span><span class="theme-copy theme-copy-cinema">场务</span><span class="theme-copy theme-copy-ledger">管理</span></span>
+        <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">来源网络</span><span class="theme-copy theme-copy-cinema">来源场</span><span class="theme-copy theme-copy-ledger">来源目录</span></span></a>
+        <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">放映日志</span><span class="theme-copy theme-copy-cinema">场务日志</span><span class="theme-copy theme-copy-ledger">操作记录</span></span></a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.11</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.13</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -64,8 +64,8 @@
             <summary aria-label="选择界面主题"><span class="theme-menu-dot" aria-hidden="true"></span><span id="theme-menu-label">主题</span></summary>
             <div class="theme-menu-panel" role="group" aria-label="界面主题">
               <p>界面主题</p>
-              <button class="theme-menu-option" type="button" data-theme-option="archive" aria-pressed="true"><span class="theme-swatch theme-swatch-archive" aria-hidden="true"></span><span><strong>馆藏档案</strong><small>默认 C 方向 · 纸张与档案卡</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
-              <button class="theme-menu-option" type="button" data-theme-option="cinema" aria-pressed="false"><span class="theme-swatch theme-swatch-cinema" aria-hidden="true"></span><span><strong>午夜放映</strong><small>影院暗场 · 主视觉与放映感</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+              <button class="theme-menu-option" type="button" data-theme-option="archive" aria-pressed="true"><span class="theme-swatch theme-swatch-archive" aria-hidden="true"></span><span><strong>馆藏档案</strong><small>默认 C 方向 · 片目与来源档案</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+              <button class="theme-menu-option" type="button" data-theme-option="cinema" aria-pressed="false"><span class="theme-swatch theme-swatch-cinema" aria-hidden="true"></span><span><strong>午夜放映</strong><small>暗场 · 场次与放映队列</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
               <button class="theme-menu-option" type="button" data-theme-option="ledger" aria-pressed="false"><span class="theme-swatch theme-swatch-ledger" aria-hidden="true"></span><span><strong>编目索引</strong><small>目录纸张 · 数据与编号优先</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
             </div>
           </details>
@@ -79,46 +79,46 @@
         <div class="screening-dashboard">
           <header class="screening-hero">
             <div class="screening-hero-copy">
-              <p class="section-kicker">FILM ARCHIVE · TODAY'S PROGRAM</p>
-              <h2>今天，<em>放哪一部？</em></h2>
-              <p class="screening-hero-lead">把片单、站点和下载历史留在同一条胶片上。当前有 <strong id="dashboard-new-count">— 部电影</strong> 已入馆，仍有 <strong id="dashboard-pending">—</strong> 部尚未入馆。</p>
-              <div class="screening-hero-actions"><button class="button button-primary" data-route-target="search">开始整理 →</button><button class="button button-secondary" data-route-target="playlists">浏览馆藏</button></div>
+              <p class="section-kicker"><span class="theme-copy theme-copy-archive">COLLECTION ROOM · ARCHIVE NOTE</span><span class="theme-copy theme-copy-cinema">MIDNIGHT PROGRAM · TODAY'S REEL</span><span class="theme-copy theme-copy-ledger">CATALOGUE · REGISTER PAGE</span></p>
+              <h2><span class="theme-copy theme-copy-archive">留住一部，<em>讲清一部</em></span><span class="theme-copy theme-copy-cinema">下一场，<em>放哪一部？</em></span><span class="theme-copy theme-copy-ledger">登记一部，<em>留下一部</em></span></h2>
+              <p class="screening-hero-lead"><span class="theme-copy theme-copy-archive">从片单到入馆，每部电影都留下片名、来源与版本档案。馆内现有</span><span class="theme-copy theme-copy-cinema">把片单、来源和下载排成一场放映。当前已有</span><span class="theme-copy theme-copy-ledger">按编号、来源和入馆状态建立一页总册。当前登记</span> <strong id="dashboard-new-count">— 部电影</strong> <span class="theme-copy theme-copy-archive">已入馆，尚有</span><span class="theme-copy theme-copy-cinema">已经入馆，仍有</span><span class="theme-copy theme-copy-ledger">入馆，尚有</span> <strong id="dashboard-pending">—</strong> <span class="theme-copy theme-copy-archive">部待整理。</span><span class="theme-copy theme-copy-cinema">部等待下一场。</span><span class="theme-copy theme-copy-ledger">部留在待登记页。</span></p>
+              <div class="screening-hero-actions"><button class="button button-primary" data-route-target="search"><span class="theme-copy theme-copy-archive">打开馆藏台 →</span><span class="theme-copy theme-copy-cinema">开始排片 →</span><span class="theme-copy theme-copy-ledger">进入登记台 →</span></button><button class="button button-secondary" data-route-target="playlists"><span class="theme-copy theme-copy-archive">浏览片目</span><span class="theme-copy theme-copy-cinema">查看片单</span><span class="theme-copy theme-copy-ledger">打开总册</span></button></div>
             </div>
             <div class="screening-feature" aria-label="当前主片单">
               <span class="screening-feature-orbit" aria-hidden="true"></span><span class="screening-feature-glow" aria-hidden="true"></span>
-              <div class="screening-feature-copy"><span class="screening-feature-kicker">CURRENT PLAYLIST</span><strong id="metric-playlist">等待处理</strong><small>当前主片单 · AutoList Collection</small></div>
+              <div class="screening-feature-copy"><span class="screening-feature-kicker"><span class="theme-copy theme-copy-archive">ARCHIVE SHELF</span><span class="theme-copy theme-copy-cinema">CURRENT REEL</span><span class="theme-copy theme-copy-ledger">REGISTERED LIST</span></span><strong id="metric-playlist">等待处理</strong><small><span class="theme-copy theme-copy-archive">本期馆藏 · AutoList Collection</span><span class="theme-copy theme-copy-cinema">今晚场次 · AutoList Collection</span><span class="theme-copy theme-copy-ledger">当前总册 · AutoList Collection</span></small></div>
             </div>
           </header>
 
           <section class="screening-program" aria-labelledby="screening-program-title">
-            <div class="screening-section-heading"><div><p class="section-kicker">SCREENING DESK</p><h2 id="screening-program-title">今日放映计划</h2></div><span class="screening-section-note">把待办变成下一场放映</span></div>
+            <div class="screening-section-heading"><div><p class="section-kicker"><span class="theme-copy theme-copy-archive">CATALOGUE ROOM</span><span class="theme-copy theme-copy-cinema">SCREENING DESK</span><span class="theme-copy theme-copy-ledger">REGISTER INDEX</span></p><h2 id="screening-program-title"><span class="theme-copy theme-copy-archive">馆藏目录</span><span class="theme-copy theme-copy-cinema">今日放映计划</span><span class="theme-copy theme-copy-ledger">入馆登记表</span></h2></div><span class="screening-section-note"><span class="theme-copy theme-copy-archive">按片目、来源与入馆状态阅读</span><span class="theme-copy theme-copy-cinema">把待办变成下一场放映</span><span class="theme-copy theme-copy-ledger">用编号追踪每一部电影</span></span></div>
             <div class="screening-mission-grid">
-              <article class="screening-mission selected"><header><span>01 / NEXT FEATURE</span><span id="dashboard-task-pill" class="pill pill-neutral">暂无任务</span></header><strong id="dashboard-task-title">还没有搜索记录</strong><p id="dashboard-task-copy">导入片单后，可以按序号范围批量搜索资源。</p><div class="progress-track dashboard-progress" role="progressbar" aria-label="最近搜索进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-task-bar"></i></div><button class="text-link" data-route-target="search">打开整理台 →</button></article>
-              <article class="screening-mission"><header><span>02 / CANDIDATES</span><span class="screening-mission-mark">最近任务</span></header><strong id="metric-candidates">0</strong><p>最近一次搜索的合格候选，优先处理首选编码和制作组。</p><button class="text-link" data-route-target="search">查看候选 →</button></article>
-              <article class="screening-mission"><header><span>03 / LAST SEARCH</span><span class="screening-mission-mark" id="metric-search-state">暂无任务</span></header><strong id="metric-search">—</strong><p>最近一次搜索的完成进度和候选数量。</p><button class="text-link" data-route-target="search">打开搜索台 →</button></article>
+              <article class="screening-mission selected"><header><span><span class="theme-copy theme-copy-archive">01 / ARCHIVE GAP</span><span class="theme-copy theme-copy-cinema">01 / NEXT FEATURE</span><span class="theme-copy theme-copy-ledger">01 / REGISTER GAP</span></span><span id="dashboard-task-pill" class="pill pill-neutral">暂无任务</span></header><strong id="dashboard-task-title">还没有搜索记录</strong><p id="dashboard-task-copy">导入片单后，可以按序号范围批量搜索资源。</p><div class="progress-track dashboard-progress" role="progressbar" aria-label="最近搜索进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-task-bar"></i></div><button class="text-link" data-route-target="search"><span class="theme-copy theme-copy-archive">打开馆藏台 →</span><span class="theme-copy theme-copy-cinema">打开整理台 →</span><span class="theme-copy theme-copy-ledger">打开登记台 →</span></button></article>
+              <article class="screening-mission"><header><span><span class="theme-copy theme-copy-archive">02 / SOURCE NOTES</span><span class="theme-copy theme-copy-cinema">02 / CANDIDATES</span><span class="theme-copy theme-copy-ledger">02 / SOURCE INDEX</span></span><span class="screening-mission-mark"><span class="theme-copy theme-copy-archive">来源摘录</span><span class="theme-copy theme-copy-cinema">最近任务</span><span class="theme-copy theme-copy-ledger">来源索引</span></span></header><strong id="metric-candidates">0</strong><p><span class="theme-copy theme-copy-archive">最近一次检索留下的合格来源，按编码与制作组留档。</span><span class="theme-copy theme-copy-cinema">最近一次搜索的合格候选，优先处理首选编码和制作组。</span><span class="theme-copy theme-copy-ledger">最近一批来源的命中数量，按片目编号归档。</span></p><button class="text-link" data-route-target="search"><span class="theme-copy theme-copy-archive">查看来源 →</span><span class="theme-copy theme-copy-cinema">查看候选 →</span><span class="theme-copy theme-copy-ledger">查看索引 →</span></button></article>
+              <article class="screening-mission"><header><span><span class="theme-copy theme-copy-archive">03 / INTAKE RECORD</span><span class="theme-copy theme-copy-cinema">03 / LAST SEARCH</span><span class="theme-copy theme-copy-ledger">03 / LAST ENTRY</span></span><span class="screening-mission-mark" id="metric-search-state">暂无任务</span></header><strong id="metric-search">—</strong><p><span class="theme-copy theme-copy-archive">最近一次入馆动作的处理进度与片目数量。</span><span class="theme-copy theme-copy-cinema">最近一次搜索的完成进度和候选数量。</span><span class="theme-copy theme-copy-ledger">最近一次登记的完成进度与编号范围。</span></p><button class="text-link" data-route-target="search"><span class="theme-copy theme-copy-archive">查看入馆记录 →</span><span class="theme-copy theme-copy-cinema">打开搜索台 →</span><span class="theme-copy theme-copy-ledger">打开登记台 →</span></button></article>
             </div>
           </section>
 
           <section class="screening-collection" aria-labelledby="screening-collection-title">
-            <div class="screening-section-heading"><div><p class="section-kicker">COLLECTION STATUS</p><h2 id="screening-collection-title">馆藏总览</h2></div><button class="text-link" data-route-target="playlists">打开馆藏索引 →</button></div>
-            <div class="screening-collection-body"><div class="screening-stat-grid"><div><strong id="metric-items">—</strong><span>片单影片</span></div><div><strong id="dashboard-recognized">—</strong><span>已识别</span></div><div><strong id="dashboard-in-library">—</strong><span>已入库</span></div><div><strong id="dashboard-history-count">0</strong><span>下载记录</span></div><div><strong id="metric-cart">0</strong><span>下载列表</span></div><div><strong id="metric-cart-size">0 GB</strong><span>待下载体积</span></div></div><div class="screening-progress-card"><div><span>入库进度</span><strong><b id="dashboard-in-library-progress">—</b> / <b id="metric-items-progress">—</b></strong></div><div class="collection-progress-bar" role="progressbar" aria-label="电影库入库进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-library-bar"></i></div><p>识别、选源、下载和入库都会回到这条馆藏进度线上。</p></div></div>
+            <div class="screening-section-heading"><div><p class="section-kicker"><span class="theme-copy theme-copy-archive">CATALOGUE STATUS</span><span class="theme-copy theme-copy-cinema">COLLECTION STATUS</span><span class="theme-copy theme-copy-ledger">REGISTER TOTAL</span></p><h2 id="screening-collection-title"><span class="theme-copy theme-copy-archive">馆藏索引</span><span class="theme-copy theme-copy-cinema">馆藏总览</span><span class="theme-copy theme-copy-ledger">总册进度</span></h2></div><button class="text-link" data-route-target="playlists"><span class="theme-copy theme-copy-archive">打开馆藏目录 →</span><span class="theme-copy theme-copy-cinema">打开馆藏索引 →</span><span class="theme-copy theme-copy-ledger">查看总册 →</span></button></div>
+            <div class="screening-collection-body"><div class="screening-stat-grid"><div><strong id="metric-items">—</strong><span><span class="theme-copy theme-copy-archive">片目总数</span><span class="theme-copy theme-copy-cinema">片单影片</span><span class="theme-copy theme-copy-ledger">登记片目</span></span></div><div><strong id="dashboard-recognized">—</strong><span><span class="theme-copy theme-copy-archive">已建档</span><span class="theme-copy theme-copy-cinema">已识别</span><span class="theme-copy theme-copy-ledger">已编目</span></span></div><div><strong id="dashboard-in-library">—</strong><span><span class="theme-copy theme-copy-archive">已入馆</span><span class="theme-copy theme-copy-cinema">已入库</span><span class="theme-copy theme-copy-ledger">已登记</span></span></div><div><strong id="dashboard-history-count">0</strong><span><span class="theme-copy theme-copy-archive">入馆记录</span><span class="theme-copy theme-copy-cinema">下载记录</span><span class="theme-copy theme-copy-ledger">历史条目</span></span></div><div><strong id="metric-cart">0</strong><span><span class="theme-copy theme-copy-archive">待排片目</span><span class="theme-copy theme-copy-cinema">下载列表</span><span class="theme-copy theme-copy-ledger">待登记</span></span></div><div><strong id="metric-cart-size">0 GB</strong><span><span class="theme-copy theme-copy-archive">待入馆体积</span><span class="theme-copy theme-copy-cinema">待下载体积</span><span class="theme-copy theme-copy-ledger">待归档体积</span></span></div></div><div class="screening-progress-card"><div><span><span class="theme-copy theme-copy-archive">馆藏完成度</span><span class="theme-copy theme-copy-cinema">入库进度</span><span class="theme-copy theme-copy-ledger">登记进度</span></span><strong><b id="dashboard-in-library-progress">—</b> / <b id="metric-items-progress">—</b></strong></div><div class="collection-progress-bar" role="progressbar" aria-label="电影库入库进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-library-bar"></i></div><p><span class="theme-copy theme-copy-archive">识别、选源与入馆都会为这份档案留下新页。</span><span class="theme-copy theme-copy-cinema">识别、选源、下载和入库都会回到这条馆藏进度线上。</span><span class="theme-copy theme-copy-ledger">每一次识别、选源和入馆都会推进总册页码。</span></p></div></div>
           </section>
 
         </div>
       </section>
 
-      <section id="playlists-page" class="app-page" data-page="playlists" aria-label="片单">
+      <section id="playlists-page" class="app-page" data-page="playlists" aria-label="馆藏片单">
         <div class="page-stack">
           <section class="panel">
             <div class="panel-heading candidate-heading">
-              <div><p class="section-kicker">PLAYLIST LIBRARY</p><h2>我的片单</h2></div>
+              <div><p class="section-kicker">CATALOGUE SHELF</p><h2>馆藏片单</h2></div>
               <button class="button button-primary" data-open-import>＋ 导入片单</button>
             </div>
             <div id="playlist-cards" class="playlist-cards"></div>
           </section>
           <section id="playlist-detail-panel" class="panel playlist-detail-panel">
             <div class="panel-heading candidate-heading">
-              <div><p class="section-kicker">PLAYLIST ITEMS</p><h2 id="playlist-detail-title">片单明细</h2></div>
+              <div><p class="section-kicker">CATALOGUE ENTRIES</p><h2 id="playlist-detail-title">片目明细</h2></div>
             <div class="playlist-detail-actions"><input id="playlist-item-query" aria-label="搜索片名或 IMDb ID" placeholder="搜索片名或 IMDb ID"><select id="playlist-library-filter" aria-label="Emby 入库状态"><option value="all">全部状态</option><option value="not_downloaded">待入库</option><option value="in_library">已入库</option><option value="unknown">未检查</option></select><button id="refresh-library" class="button button-secondary" disabled>刷新 Emby 状态</button><button id="recognize-playlist" class="button button-secondary" disabled>识别 TMDB</button><button id="delete-playlist" class="button button-danger" disabled>删除片单</button></div>
             </div>
             <div id="recognition-progress" class="recognition-progress" role="region" aria-label="TMDB 识别进度" aria-live="polite" hidden><span id="recognition-text">准备识别</span><div id="recognition-progress-bar" class="progress-track" role="progressbar" aria-label="TMDB 识别进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="recognition-bar"></i></div></div>
@@ -135,11 +135,11 @@
         </div>
       </section>
 
-      <section id="search-page" class="app-page" data-page="search" aria-label="资源搜索">
+      <section id="search-page" class="app-page" data-page="search" aria-label="选片台">
         <div class="page-stack">
           <section class="panel search-console">
             <div class="panel-heading">
-              <div><p class="section-kicker">SEARCH CONTROL</p><h2>搜索控制台</h2></div>
+              <div><p class="section-kicker">SCREENING DESK</p><h2>选片台</h2></div>
               <span id="task-pill" class="pill pill-neutral" role="status" aria-live="polite">就绪</span>
             </div>
 
@@ -186,7 +186,7 @@
 
           <section class="panel candidates-panel">
             <div class="panel-heading candidate-heading">
-              <div><p class="section-kicker">RESOURCE MATCHES</p><h2>候选资源</h2></div>
+              <div><p class="section-kicker">SOURCE REELS</p><h2>候选片源</h2></div>
               <div class="filter-group" role="group" aria-label="候选筛选">
                 <button class="filter-chip active" type="button" aria-pressed="true" data-filter="all">全部</button>
                 <button class="filter-chip" type="button" aria-pressed="false" data-filter="preferred">优先</button>
@@ -204,10 +204,10 @@
         </div>
       </section>
 
-      <section id="cart-page" class="app-page" data-page="cart" aria-label="下载列表">
+      <section id="cart-page" class="app-page" data-page="cart" aria-label="放映队列">
         <section class="panel cart-page-panel">
           <div class="panel-heading cart-page-heading">
-            <div><p class="section-kicker">DOWNLOAD LIST</p><h2>待提交资源</h2></div>
+            <div><p class="section-kicker">HOLDING BAY</p><h2>待放映资源</h2></div>
             <span id="cart-count" class="count-badge">0</span>
           </div>
           <div id="cart-list" class="cart-list cart-list-page">
@@ -222,10 +222,10 @@
         </section>
       </section>
 
-      <section id="rules-page" class="app-page" data-page="rules" aria-label="候选规则">
+      <section id="rules-page" class="app-page" data-page="rules" aria-label="选片标准">
         <div class="page-stack">
           <section class="panel rules-editor-panel">
-            <div class="panel-heading candidate-heading"><div><p class="section-kicker">MOVIE DECISION POLICY</p><h2>电影候选决策</h2><p class="panel-lead">先决定能不能下，再按允许组合、站点和分辨率选出最合适的版本。</p></div><button id="save-rules" class="button button-primary">保存规则</button></div>
+            <div class="panel-heading candidate-heading"><div><p class="section-kicker">CURATION NOTES</p><h2>选片标准</h2><p class="panel-lead">先决定哪些版本值得进入馆藏，再按允许组合、来源和分辨率选出最合适的一份。</p></div><button id="save-rules" class="button button-primary">保存规则</button></div>
             <div class="rule-summary" aria-label="候选决策顺序"><span>硬性排除</span><i>→</i><span>允许组合</span><i>→</i><span>站点优先</span><i>→</i><span>分辨率</span><i>→</i><span>做种与优惠</span></div>
             <div class="policy-layout">
               <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">01</span><div><h3>硬性排除</h3><p>命中后不会进入下载列表；普通 BluRay 压制不受影响。</p></div></div><div id="hard-exclusion-options" class="exclusion-grid"></div></section>
@@ -240,7 +240,7 @@
         </div>
       </section>
 
-      <section id="sites-page" class="app-page" data-page="sites" aria-label="站点配置">
+      <section id="sites-page" class="app-page" data-page="sites" aria-label="来源网络">
         <section class="sites-management-panel">
           <div class="service-rail" aria-label="服务状态">
             <article><img src="/assets/service-tmdb.svg" alt="TMDB 标志"><span><strong>TMDB</strong><small id="rail-tmdb-status">检测中</small></span></article>
@@ -249,18 +249,18 @@
             <article><img src="/assets/service-moviepilot.svg" alt="MoviePilot 标志"><span><strong>MoviePilot</strong><small id="rail-mp-status">检测中</small></span></article>
           </div>
           <div class="site-toolbar">
-            <div><p class="section-kicker">PT SITES</p><h2>站点</h2><p class="panel-lead">搜索、连接检测与 Cookie 由 AutoList 独立管理。</p></div>
+            <div><p class="section-kicker">SOURCE ROOM / PT NETWORK</p><h2>来源网络</h2><p class="panel-lead">每个站点都是馆藏链上的一座来源档案室：可检测、可定位、可重新排布。</p></div>
             <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary">＋ 添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-orientation="horizontal" aria-label="站点筛选"><button id="site-filter-all" class="site-filter active" type="button" role="tab" aria-selected="true" aria-controls="sites-list" data-site-filter="all">全部</button><button id="site-filter-active" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="active">已启用</button><button id="site-filter-inactive" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="inactive">已停用</button><button id="site-filter-normal" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="normal">正常</button><button id="site-filter-slow" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="slow">缓慢</button><button id="site-filter-failed" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="failed">失败</button><button id="site-filter-unknown" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="unknown">未知</button></div>
-          <div class="site-workspace site-constellation-workspace"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭站点详情"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="站点档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一个站点</strong><p>查看连接质量、搜索表现、Cookie 与 User-Agent 状态。</p></div></div></aside></div>
+          <div class="site-workspace site-constellation-workspace"><div class="site-map-column"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><div class="site-map-action-strip" role="note"><span class="site-map-action-copy"><strong><span class="theme-copy theme-copy-archive">来源地图</span><span class="theme-copy theme-copy-cinema">放映来源图</span><span class="theme-copy theme-copy-ledger">来源目录图</span></strong> <span class="theme-copy theme-copy-archive">拖动节点或地图空白处调整排布，点击节点查看来源档案。</span><span class="theme-copy theme-copy-cinema">拖动节点或地图空白处编排来源，点击节点查看场务档案。</span><span class="theme-copy theme-copy-ledger">拖动节点或地图空白处调整排布，线性目录用于精确登记。</span></span><span class="site-map-action-controls"><button id="toggle-site-orientation" class="button button-secondary" type="button" aria-pressed="false">切换为纵向排布</button><button id="reset-site-layout" class="button button-secondary" type="button">恢复默认排布</button></span></div></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭来源档案"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="来源档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一座来源档案室</strong><p>点击或拖动来源节点，查看连接质量、搜索表现、Cookie 与 User-Agent 状态。</p></div></div></aside></div>
         </section>
       </section>
 
-      <section id="history-page" class="app-page" data-page="history" aria-label="下载历史">
+      <section id="history-page" class="app-page" data-page="history" aria-label="入馆记录">
         <section class="panel history-panel history-page-panel">
           <div class="panel-heading">
-            <div><p class="section-kicker">ACTIVITY</p><h2>全部下载记录</h2><p class="panel-lead">追踪提交、下载与入库状态。</p></div>
+            <div><p class="section-kicker">ARCHIVE INTAKE</p><h2>入馆记录</h2><p class="panel-lead">追踪提交、下载与入馆状态，确认每一部电影走到哪一页。</p></div>
             <div class="panel-heading-actions" style="display:flex;gap:0.6rem;align-items:center">
               <label class="field" style="margin:0"><span class="sr-only">按状态筛选</span>
                 <select id="history-status-filter" aria-label="按生命周期状态筛选">
@@ -286,11 +286,11 @@
           <p id="history-truncate-note" class="inline-message history-truncate-note" role="status" aria-live="polite" hidden></p>
         </section>
       </section>
-      <section id="logs-page" class="app-page" data-page="logs" aria-label="日志">
+      <section id="logs-page" class="app-page" data-page="logs" aria-label="放映日志">
         <div class="page-stack">
           <section class="panel logs-panel">
             <div class="panel-heading logs-toolbar">
-              <div><p class="section-kicker">OPERATIONS / EVENT LOG</p><h2>事件日志</h2></div>
+              <div><p class="section-kicker">PROJECTION LOG / EVENT REEL</p><h2>放映日志</h2></div>
               <div class="logs-filters">
                 <label>级别 <select id="logs-level"><option value="">全部</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label>
                 <label>关键词 <input id="logs-query" type="search" placeholder="片名 / 站点 / 错误" aria-label="日志关键词"></label>
@@ -384,15 +384,15 @@
             <section class="settings-section settings-section-wide theme-settings-section">
               <div class="settings-section-title"><span class="settings-icon autolist" aria-hidden="true"><span class="theme-swatch theme-swatch-cinema"></span></span><div><strong>界面主题</strong><small>所有页面共享主题，页面保留各自场景</small></div><em id="settings-theme-status">馆藏档案</em></div>
               <div class="theme-options" role="group" aria-label="选择界面主题">
-                <button class="theme-option" type="button" data-theme-option="archive" aria-pressed="true"><span class="theme-swatch theme-swatch-archive" aria-hidden="true"></span><span><strong>馆藏档案</strong><small>稳定、耐读</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
-                <button class="theme-option" type="button" data-theme-option="cinema" aria-pressed="false"><span class="theme-swatch theme-swatch-cinema" aria-hidden="true"></span><span><strong>午夜放映</strong><small>沉浸、电影感</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+                <button class="theme-option" type="button" data-theme-option="archive" aria-pressed="true"><span class="theme-swatch theme-swatch-archive" aria-hidden="true"></span><span><strong>馆藏档案</strong><small>纸张、片目与来源注记</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+                <button class="theme-option" type="button" data-theme-option="cinema" aria-pressed="false"><span class="theme-swatch theme-swatch-cinema" aria-hidden="true"></span><span><strong>午夜放映</strong><small>暗场、场次与放映队列</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
                 <button class="theme-option" type="button" data-theme-option="ledger" aria-pressed="false"><span class="theme-swatch theme-swatch-ledger" aria-hidden="true"></span><span><strong>编目索引</strong><small>清晰、高密度</small></span><span class="theme-option-check" aria-hidden="true">✓</span></button>
               </div>
               <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-scene-mode" type="checkbox" checked><span>启用页面场景化</span></label><label class="toggle-field"><input id="settings-reduced-motion" type="checkbox"><span>减少主题动效</span></label></div>
               <p class="theme-settings-note">主题会改变页面的阅读布局与视觉层，不改变片单、搜索、下载和站点数据。关闭页面场景化后仍保留主题颜色与字体。</p>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.11.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.13.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
@@ -423,8 +423,8 @@
     </form>
   </dialog>
 
-  <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span>藏馆</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span>片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span>搜索</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span>下载列表</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span>更多</span></button></nav>
+  <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">藏馆</span><span class="theme-copy theme-copy-cinema">放映</span><span class="theme-copy theme-copy-ledger">总册</span></span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">片单</span><span class="theme-copy theme-copy-cinema">场次</span><span class="theme-copy theme-copy-ledger">目录</span></span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">来源</span><span class="theme-copy theme-copy-cinema">搜索</span><span class="theme-copy theme-copy-ledger">索引</span></span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">待入馆</span><span class="theme-copy theme-copy-cinema">队列</span><span class="theme-copy theme-copy-ledger">登记</span></span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">更多</span><span class="theme-copy theme-copy-cinema">场务</span><span class="theme-copy theme-copy-ledger">管理</span></span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.11.0"></script>
+  <script type="module" src="/assets/app.js?v=1.13.0"></script>
 </body>
 </html>

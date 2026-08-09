@@ -238,7 +238,7 @@ h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.025em; }
 .screening-progress-card .collection-progress-bar i { background: #d5ac61; }
 .screening-progress-card p { margin: 0; color: #a7b9b2; font-size: 11px; line-height: 1.6; }
 
-/* C 方向：站点星图 / Live Site Constellation */
+/* 片源网络 / Source Network */
 .site-constellation-workspace { grid-template-columns: minmax(0,1fr) 340px; gap: 18px; }
 .site-live-map { position: relative; min-width: 0; min-height: 655px; overflow: hidden; padding: 24px; border: 1px solid rgba(182,208,226,.2); border-radius: 8px; color: #eaf0f7; background: #121d31; box-shadow: 0 18px 55px rgba(18,29,49,.16); }
 .site-live-map:before { position: absolute; inset: 0; content: ""; pointer-events: none; background: radial-gradient(circle at 74% 9%, rgba(87,143,182,.25), transparent 28%), radial-gradient(circle at 12% 88%, rgba(193,139,50,.14), transparent 25%); }

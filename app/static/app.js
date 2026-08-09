@@ -150,11 +150,69 @@ function rememberRouteScroll(page, value = window.scrollY) {
   safeSessionStorageSet(routeScrollStorageKey(page), String(scrollTop));
 }
 
-function applyTheme() {
-  document.documentElement.dataset.theme = "light";
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = "#f0f3f2";
+const themeController = window.AutoListTheme;
+
+function themeDetails(theme) {
+  return themeController?.themes?.[theme] || {
+    label: "馆藏档案",
+    shortLabel: "档案",
+    description: "纸张、档案卡与深青色",
+  };
 }
+
+function syncThemeControls(theme = themeController?.getTheme?.() || document.documentElement.dataset.theme || "archive") {
+  const details = themeDetails(theme);
+  $$('[data-theme-option]').forEach((option) => {
+    const active = option.dataset.themeOption === theme;
+    option.setAttribute("aria-pressed", String(active));
+  });
+  const label = $("#theme-menu-label");
+  if (label) label.textContent = `主题 · ${details.shortLabel || details.label}`;
+  const status = $("#settings-theme-status");
+  if (status) status.textContent = details.label;
+  const sceneToggle = $("#settings-scene-mode");
+  if (sceneToggle) sceneToggle.checked = themeController?.getSceneMode?.() ?? document.documentElement.dataset.scene !== "off";
+  const motionToggle = $("#settings-reduced-motion");
+  if (motionToggle) motionToggle.checked = themeController?.getReducedMotion?.() ?? document.documentElement.dataset.motion === "reduced";
+  if (document.body) document.body.dataset.scene = String(theme) + "-" + currentPage;
+  const siteLinearList = $("#sites-list .site-linear-list");
+  if (siteLinearList) siteLinearList.open = theme === "ledger";
+  return theme;
+}
+
+function applyTheme(theme = themeController?.getTheme?.() || "archive") {
+  const nextTheme = themeController?.apply
+    ? themeController.apply(theme, {persist: false, announce: false})
+    : (document.documentElement.dataset.theme = theme);
+  syncThemeControls(nextTheme);
+  return nextTheme;
+}
+
+function selectTheme(theme) {
+  const nextTheme = themeController?.apply
+    ? themeController.apply(theme)
+    : applyTheme(theme);
+  syncThemeControls(nextTheme);
+  const menu = $("#theme-menu");
+  if (menu) menu.open = false;
+  showToast(`已切换到「${themeDetails(nextTheme).label}」主题`);
+}
+
+function setSceneMode(enabled) {
+  if (themeController?.setSceneMode) themeController.setSceneMode(enabled);
+  else document.documentElement.dataset.scene = enabled ? "on" : "off";
+  syncThemeControls();
+}
+
+function setReducedMotion(enabled) {
+  if (themeController?.setReducedMotion) themeController.setReducedMotion(enabled);
+  else document.documentElement.dataset.motion = enabled ? "reduced" : "standard";
+  syncThemeControls();
+}
+
+window.addEventListener("autolist-theme-change", (event) => syncThemeControls(event.detail?.theme));
+window.addEventListener("autolist-scene-change", () => syncThemeControls());
+window.addEventListener("autolist-motion-change", () => syncThemeControls());
 
 const pageMeta = {
   dashboard: {eyebrow: "FILM ARCHIVE / SCREENING DESK", title: "电影藏馆", lead: ""},
@@ -204,6 +262,7 @@ function navigate(page, updateHash = true, preserveScroll = false) {
   const commit = () => {
     currentPage = target;
     document.body.dataset.page = target;
+    document.body.dataset.scene = String(themeController?.getTheme?.() || document.documentElement.dataset.theme || "archive") + "-" + target;
     $$(".app-page").forEach((section) => section.classList.toggle("active", section.dataset.page === target));
     $$(".nav-item").forEach((item) => {
       const active = item.dataset.route === target;
@@ -819,6 +878,7 @@ async function loadSettings() {
   $("#settings-tr-url").value = runtime.tr_base_url || "";
   $("#settings-tr-username").value = runtime.tr_username || "";
   $("#settings-tr-password").value = runtime.tr_password || "";
+  syncThemeControls();
 }
 
 async function testSettings() {
@@ -990,7 +1050,9 @@ function renderSites() {
     const stateLabel = siteStateLabel(state);
     return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes} aria-controls="site-inspector-panel" aria-expanded="${mobileInspector && selected ? "true" : "false"}" aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
   };
-  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SITE CONSTELLATION</p><h2>${list.length} 个来源在星域中</h2><p>点击节点打开站点档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="站点星图"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}<div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div><details class="site-linear-list"><summary>以线性列表查看全部站点</summary><div class="site-linear-list-items">${list.map((site) => `<button type="button" data-open-site="${site.id}" aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`).join("")}</div></details>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SOURCE NETWORK</p><h2>${list.length} 个来源在片源网络中</h2><p>点击节点打开来源档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="片源网络"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}<div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list.map((site) => `<button type="button" data-open-site="${site.id}" aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`).join("")}</div></details>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+  const linearList = $("#sites-list .site-linear-list");
+  if (linearList) linearList.open = (themeController?.getTheme?.() || document.documentElement.dataset.theme) === "ledger";
   renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
   bindSiteLogoFallback($("#sites-list"));
 }
@@ -1439,6 +1501,12 @@ $$("[data-settings-tab]").forEach((tab) => {
     activateSettingsTab(tabs[next].dataset.settingsTab, true);
   });
 });
+
+$$('[data-theme-option]').forEach((option) => {
+  option.addEventListener("click", () => selectTheme(option.dataset.themeOption));
+});
+$("#settings-scene-mode")?.addEventListener("change", (event) => setSceneMode(event.currentTarget.checked));
+$("#settings-reduced-motion")?.addEventListener("change", (event) => setReducedMotion(event.currentTarget.checked));
 
 $("#open-settings").addEventListener("click", async (event) => {
   const button = event.currentTarget;

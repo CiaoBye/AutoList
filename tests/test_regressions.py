@@ -107,6 +107,27 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn('class="screening-activity"', html)
         self.assertNotIn('id="settings-random-posters"', html)
 
+    def test_theme_ui_keeps_three_presets_and_shared_scene_hooks(self) -> None:
+        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
+        theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
+        self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.09.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.09.0"', html)
+        for theme in ("archive", "cinema", "ledger"):
+            with self.subTest(theme=theme):
+                self.assertIn(f'{theme}: Object.freeze', theme_init)
+                self.assertIn(f'data-theme-option="{theme}"', html)
+                self.assertIn(f'html[data-theme="{theme}"]', theme_css)
+        for page in ("dashboard", "playlists", "search", "cart", "rules", "sites", "history", "logs"):
+            with self.subTest(page=page):
+                self.assertIn(f'data-page="{page}"', html)
+                self.assertIn(f'body[data-page="{page}"]', theme_css)
+        self.assertIn('id="settings-scene-mode"', html)
+        self.assertIn('id="settings-reduced-motion"', html)
+        self.assertNotIn('document.documentElement.dataset.theme = "light"', (static_dir / "app.js").read_text(encoding="utf-8"))
+
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):
             validate_source_url("https://letterboxd.com/user/list/example/?token=secret")

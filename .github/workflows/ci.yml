@@ -23,6 +23,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check app/static/app.js
+          node --check app/static/js/theme-init.js
           node --check docs/prototypes/autolist-directions.js
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
@@ -37,7 +38,7 @@ jobs:
           from xml.etree import ElementTree
 
           root = ElementTree.parse("unraid/my-Autolist.xml").getroot()
-          assert root.findtext("Repository") == "autolist:1.08"
+          assert root.findtext("Repository") == "autolist:1.09"
           assert root.findtext("Icon", "").endswith("/unraid/autolist-icon.png")
           assert "10001" in root.findtext("Requires", "")
           assert root.find("./Config[@Target='/data']") is not None

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AutoList · 电影藏馆视觉方向提案</title>
+  <link rel="icon" type="image/svg+xml" href="../../app/static/favicon.svg">
+  <link rel="stylesheet" href="autolist-directions.css">
+</head>
+<body>
+  <main class="proposal-shell">
+    <header class="proposal-head">
+      <a class="brand-lockup" href="#top" aria-label="AutoList 视觉方向提案首页">
+        <span class="brand-lockup-mark"><img src="../../app/static/logo.svg" alt=""></span>
+        <span><strong>AutoList</strong><small>VISUAL DIRECTION STUDY</small></span>
+      </a>
+      <div>
+        <p class="proposal-kicker">06 PROTOTYPES · AUG 2026</p>
+        <h1 id="top">把下载工具，做成一座电影藏馆。</h1>
+        <p class="proposal-head-copy">下面是两组并行的视觉方向：站点页解决“卡片＋右侧详情”带来的割裂感；首页把第一眼从工作台切换成馆藏入口。每套原型都保留现有数据语义与操作路径，先选气质，再进入正式重构。</p>
+      </div>
+      <nav class="mode-tabs" role="tablist" aria-label="原型类别">
+        <button class="tab-button" type="button" role="tab" aria-selected="true" data-section-tab="sites">站点布局 · 3 套</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-section-tab="home">电影藏馆首页 · 3 套</button>
+      </nav>
+    </header>
+
+    <div class="proposal-divider"></div>
+
+    <section class="proposal-section" data-section-panel="sites" aria-labelledby="sites-title">
+      <div class="section-intro">
+        <div><p class="proposal-kicker">PT SITES · STRUCTURE STUDY</p><h2 id="sites-title">站点页：让站点像馆藏索引，而不是后台卡片墙</h2></div>
+        <p>三种方向都取消“固定左网格＋固定右详情”的强分割：详情改为底部 dock、行内展开或空间化焦点，主内容获得完整横向呼吸。</p>
+      </div>
+      <div class="direction-tabs" data-direction-group="sites" role="tablist" aria-label="站点布局方案">
+        <button class="tab-button" type="button" role="tab" aria-selected="true" data-direction-tab="site-a">A · 横向书架</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-direction-tab="site-b">B · 索引台</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-direction-tab="site-c">C · 星图索引</button>
+      </div>
+
+      <article class="direction-panel" data-direction-panel="site-a">
+        <div class="direction-meta"><strong>A · 横向书架 / Shelf Wall</strong><span class="recommendation">推荐：当前生产页最稳的重构</span><span>站点卡片全宽排列，详情变成底部 dock</span></div>
+        <div class="prototype-stage site-shelf">
+          <div class="stage-chrome"><div class="stage-title"><span class="stage-mark">A</span><span><strong>站点</strong><small>一眼浏览可用来源，点击卡片后在底部处理</small></span></div><div class="stage-actions"><button>检测全部</button><button class="primary">＋ 添加站点</button></div></div>
+          <div class="stage-body">
+            <div class="shelf-tools"><div><div class="mock-label">COLLECTION FILTER</div><div class="shelf-filters"><span class="shelf-filter active">全部 21</span><span class="shelf-filter">正常 17</span><span class="shelf-filter">缓慢 2</span><span class="shelf-filter">失败 1</span></div></div><p class="proto-note">左侧不再挤压详情；筛选、状态与站点数量在同一条索引线上。</p></div>
+            <div class="shelf-grid">
+              <article class="shelf-card selected"><div class="shelf-card-head"><span class="site-mark purple">朱雀</span><strong>朱雀</strong><span class="mini-status">正常</span></div><span class="shelf-card-url">https://zhuque.in</span><div class="shelf-stats"><div><strong>352 GB</strong><small>上传量</small></div><div><strong>86 GB</strong><small>下载量</small></div><div><strong>4.09</strong><small>分享率</small></div></div></article>
+              <article class="shelf-card"><div class="shelf-card-head"><span class="site-mark green">南洋</span><strong>南洋</strong><span class="mini-status">正常</span></div><span class="shelf-card-url">https://nanyangpt.com</span><div class="shelf-stats"><div><strong>17 TB</strong><small>上传量</small></div><div><strong>1 TB</strong><small>下载量</small></div><div><strong>15.63</strong><small>分享率</small></div></div></article>
+              <article class="shelf-card"><div class="shelf-card-head"><span class="site-mark warm">烧包</span><strong>烧包乐园</strong><span class="mini-status">正常</span></div><span class="shelf-card-url">https://ptsbao.club</span><div class="shelf-stats"><div><strong>19 TB</strong><small>上传量</small></div><div><strong>2 TB</strong><small>下载量</small></div><div><strong>7.82</strong><small>分享率</small></div></div></article>
+              <article class="shelf-card"><div class="shelf-card-head"><span class="site-mark red">杜比</span><strong>高清杜比</strong><span class="mini-status">正常</span></div><span class="shelf-card-url">https://www.hdolby.com</span><div class="shelf-stats"><div><strong>19 TB</strong><small>上传量</small></div><div><strong>3 TB</strong><small>下载量</small></div><div><strong>6.28</strong><small>分享率</small></div></div></article>
+              <article class="shelf-card"><div class="shelf-card-head"><span class="site-mark">观众</span><strong>观众</strong><span class="mini-status">正常</span></div><span class="shelf-card-url">https://audiences.me</span><div class="shelf-stats"><div><strong>114 TB</strong><small>上传量</small></div><div><strong>20 TB</strong><small>下载量</small></div><div><strong>5.62</strong><small>分享率</small></div></div></article>
+              <article class="shelf-card"><div class="shelf-card-head"><span class="site-mark green">彩虹</span><strong>彩虹岛</strong><span class="mini-status">正常</span></div><span class="shelf-card-url">https://ptcdbits.co</span><div class="shelf-stats"><div><strong>139 TB</strong><small>上传量</small></div><div><strong>11 TB</strong><small>下载量</small></div><div><strong>11.83</strong><small>分享率</small></div></div></article>
+            </div>
+            <aside class="shelf-dock"><span class="site-mark purple">朱雀</span><span><strong>朱雀 · 最近连接正常</strong><small>站点详情在底部展开，不遮挡整个页面的浏览节奏。</small></span><div class="stat-pair"><strong>4.09</strong><span>分享率</span></div><div class="dock-actions"><button>编辑站点</button><button>刷新 Cookie</button></div></aside>
+          </div>
+        </div>
+        <div class="option-summary"><div class="summary-card"><strong>记忆点</strong><p>像一面横向展开的馆藏书架，站点是“藏品”，详情是拉出的索引卡。</p><b>密度：中 · 学习成本：低</b></div><div class="summary-card"><strong>优点</strong><p>取消固定右栏，桌面空间完整；移动端自然变成单列卡片＋底部详情。</p><b>适合：21+ 站点</b></div><div class="summary-card"><strong>注意</strong><p>底部 dock 要有明确选中状态和键盘焦点，不能让详情“凭空出现”。</p><b>风险：低</b></div></div>
+      </article>
+
+      <article class="direction-panel" data-direction-panel="site-b" hidden>
+        <div class="direction-meta"><strong>B · 索引台 / Ledger</strong><span>适合高频管理与快速比较</span><span>用行和列表达“状态、表现、账号”</span></div>
+        <div class="prototype-stage site-ledger">
+          <div class="stage-chrome"><div class="stage-title"><span class="stage-mark">B</span><span><strong>站点索引台</strong><small>像馆员的总目录：每行就是一个可追踪来源</small></span></div><div class="stage-actions"><button>导出索引</button><button class="primary">＋ 添加站点</button></div></div>
+          <div class="stage-body"><div class="ledger-toolbar"><div><div class="mock-label">PT SITE LEDGER · 21 SOURCES</div><h3>来源总目录</h3></div><div class="shelf-filters"><span class="shelf-filter active">全部</span><span class="shelf-filter">正常</span><span class="shelf-filter">失败</span></div></div>
+            <div class="ledger-table"><div class="ledger-row"><span>#</span><span>站点 / 地址</span><span>连接</span><span>分享率</span><span>最近搜索</span><span>操作</span></div><div class="ledger-row"><span class="mono">01</span><div class="ledger-site"><span class="site-mark purple">朱雀</span><span><strong>朱雀</strong><small>zhuque.in</small></span></div><span class="ledger-health">● 正常</span><span class="ledger-ratio">4.09<small>352 GB ↑</small></span><span class="ledger-ratio">994ms</span><span class="ledger-cta">查看详情 →</span></div><div class="ledger-row"><span class="mono">02</span><div class="ledger-site"><span class="site-mark green">南洋</span><span><strong>南洋</strong><small>nanyangpt.com</small></span></div><span class="ledger-health">● 正常</span><span class="ledger-ratio">15.63<small>17 TB ↑</small></span><span class="ledger-ratio">421ms</span><span class="ledger-cta">查看详情 →</span></div><div class="ledger-row"><span class="mono">03</span><div class="ledger-site"><span class="site-mark warm">烧包</span><span><strong>烧包乐园</strong><small>ptsbao.club</small></span></div><span class="ledger-health">● 正常</span><span class="ledger-ratio">7.82<small>19 TB ↑</small></span><span class="ledger-ratio">576ms</span><span class="ledger-cta">查看详情 →</span></div><div class="ledger-row"><span class="mono">04</span><div class="ledger-site"><span class="site-mark red">杜比</span><span><strong>高清杜比</strong><small>hdolby.com</small></span></div><span class="ledger-health">● 正常</span><span class="ledger-ratio">6.28<small>19 TB ↑</small></span><span class="ledger-ratio">638ms</span><span class="ledger-cta">查看详情 →</span></div></div><div class="ledger-foot"><span>按连接耗时排序 · 最近更新 20:13</span><span>1 / 6 页 · 21 个来源</span></div>
+          </div>
+        </div>
+        <div class="option-summary"><div class="summary-card"><strong>记忆点</strong><p>像纸质电影馆目录和放映排片表，信息密度高，扫描速度快。</p><b>密度：高 · 学习成本：低</b></div><div class="summary-card"><strong>优点</strong><p>最适合比较连接耗时、分享率和搜索表现；不需要长期占用右侧详情区。</p><b>适合：维护型用户</b></div><div class="summary-card"><strong>注意</strong><p>需要行内展开或弹层承载 Cookie、UA 等详情；移动端改成卡片行。</p><b>风险：中</b></div></div>
+      </article>
+
+      <article class="direction-panel" data-direction-panel="site-c" hidden>
+        <div class="direction-meta"><strong>C · 星图索引 / Constellation</strong><span>适合把 AutoList 做出收藏与探索感</span><span>连接质量成为空间关系，而不是一排绿点</span></div>
+        <div class="prototype-stage site-constellation">
+          <div class="stage-chrome"><div class="stage-title"><span class="stage-mark">C</span><span><strong>站点星图</strong><small>以连接质量、搜索参与和资源表现组织来源</small></span></div><div class="stage-actions"><button>筛选星域</button><button class="primary">＋ 添加站点</button></div></div>
+          <div class="stage-body"><div class="constellation-body"><div class="constellation-map" aria-label="站点关系原型图"><span class="star-line l1"></span><span class="star-line l2"></span><span class="star-line l3"></span><span class="star-node n1">南洋<span>南洋</span></span><span class="star-node n2">朱雀<span>朱雀 · 当前</span></span><span class="star-node n3">烧包<span>烧包乐园</span></span><span class="star-node n4">杜比<span>高清杜比</span></span><div class="constellation-legend"><span><i></i>正常连接</span><span><i class="warm"></i>当前选中</span><span><i class="green"></i>参与搜索</span></div></div><aside class="constellation-card"><span class="site-mark purple">朱雀</span><h3>朱雀</h3><p>选中站点后，详情聚焦在一个小型档案卡中；其余站点退到“星域”背景。</p><div class="constellation-kv"><div><strong>4.09</strong><small>分享率</small></div><div><strong>994ms</strong><small>连接耗时</small></div><div><strong>352 GB</strong><small>上传量</small></div><div><strong>参与</strong><small>资源搜索</small></div></div><button>打开站点档案</button></aside></div></div>
+        </div>
+        <div class="option-summary"><div class="summary-card"><strong>记忆点</strong><p>站点不是后台表格，而是属于这座藏馆的“来源星图”，最有品牌辨识度。</p><b>密度：中 · 记忆点：高</b></div><div class="summary-card"><strong>优点</strong><p>适合展示连接质量和参与关系，能让站点页具备探索与收藏的情绪。</p><b>适合：品牌化版本</b></div><div class="summary-card"><strong>注意</strong><p>不能只靠位置和颜色表达状态；必须配文字、筛选和可访问的列表视图。</p><b>风险：较高</b></div></div>
+      </article>
+    </section>
+
+    <section class="proposal-section" data-section-panel="home" aria-labelledby="home-title" hidden>
+      <div class="section-intro"><div><p class="proposal-kicker">FILM ARCHIVE · ENTRY STUDY</p><h2 id="home-title">首页：先让人进入藏馆，再让人处理任务</h2></div><p>首页不再直接把“工作台”当作产品人格，而是用序厅、档案室或放映台建立馆藏语境；核心任务仍然保持一跳可达。</p></div>
+      <div class="direction-tabs" data-direction-group="home" role="tablist" aria-label="电影藏馆首页方案">
+        <button class="tab-button" type="button" role="tab" aria-selected="true" data-direction-tab="home-a">A · 序厅</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-direction-tab="home-b">B · 档案室</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-direction-tab="home-c">C · 放映台</button>
+      </div>
+
+      <article class="direction-panel" data-direction-panel="home-a"><div class="direction-meta"><strong>A · 序厅 / Cinematic Lobby</strong><span class="recommendation">推荐：最能建立电影藏馆气质</span><span>深色、剧院式、把下一部电影放在第一屏</span></div><div class="prototype-stage home-cinema"><div class="stage-chrome"><div class="stage-title"><span class="stage-mark">A</span><span><strong>AutoList · 电影藏馆</strong><small>COLLECTION SYSTEM / ENTRANCE HALL</small></span></div><div class="stage-actions"><button>馆藏索引</button><button class="primary">继续处理片单 →</button></div></div><div class="stage-body"><div class="cinema-hero"><div class="cinema-copy"><div class="mock-label">THE NEXT SCREENING</div><h2>把下一部<em>电影</em>放进馆里。</h2><p>从片单、站点到下载历史，AutoList 记录每一次收藏的来路。今天从 12 部待处理影片继续。</p><div class="cinema-actions"><button class="primary">继续处理片单</button><button>查看最近入馆</button></div></div><div class="film-poster"><div class="poster-copy"><small>COLLECTION 1967 · 00328</small><strong>玩乐时间</strong></div></div></div><div class="cinema-rail"><div class="rail-poster"><small>01 · 1993</small><strong>因父之名</strong></div><div class="rail-poster"><small>02 · 2022</small><strong>RRR：双雄起义</strong></div><div class="rail-poster"><small>03 · 2020</small><strong>燃烧女子的肖像</strong></div><div class="rail-poster"><small>04 · 2018</small><strong>小偷家族</strong></div><div class="rail-poster"><small>05 · 1974</small><strong>窃听大阴谋</strong></div></div><div class="cinema-ledger"><div><strong>1,248</strong><span>馆藏影片</span></div><div><strong>86%</strong><span>已入库</span></div><div><strong>21</strong><span>合作站点</span></div><div><strong>26</strong><span>下载记录</span></div></div></div></div><div class="option-summary"><div class="summary-card"><strong>记忆点</strong><p>第一眼是“入口”和“放映”，不是一堆指标；电影海报承担品牌主视觉。</p><b>气质：强 · 建议优先</b></div><div class="summary-card"><strong>优点</strong><p>能把首页从后台工具升级成内容产品；继续任务与馆藏索引仍在首屏。</p><b>适合：长期品牌</b></div><div class="summary-card"><strong>注意</strong><p>需要真实海报或稳定占位图，首屏图片加载必须预留尺寸，避免跳动。</p><b>实现：中</b></div></div></article>
+
+      <article class="direction-panel" data-direction-panel="home-b" hidden><div class="direction-meta"><strong>B · 档案室 / Archive Room</strong><span>适合喜欢编辑感、纸张和年代目录的馆藏产品</span><span>浅色、衬线字、双栏档案索引</span></div><div class="prototype-stage home-archive"><div class="stage-chrome"><div class="stage-title"><span class="stage-mark">B</span><span><strong>电影藏馆 · 档案室</strong><small>THE ARCHIVE ROOM / 2026.08</small></span></div><div class="stage-actions"><button>检索馆藏</button><button class="primary">＋ 导入片单</button></div></div><div class="stage-body"><div class="archive-masthead"><div><div class="mock-label">AUTO LIST · FILM CATALOGUE</div><h2>电影<br><span>藏馆</span></h2></div><aside><strong>本周馆藏札记</strong>12 部影片等待从片单进入收藏流程。最近一次整理完成于 08/09，当前有 26 条下载记录。</aside></div><div class="archive-feature"><div class="film-poster"><div class="poster-copy"><small>FEATURED ENTRY · 1967</small><strong>玩乐时间</strong></div></div><div class="archive-copy"><div class="mock-label">CURATOR'S PICK · 00328</div><h3>一部电影的来路，值得被记录。</h3><p>首页把最近入馆、待处理片单和来源信息排成一页可阅读的档案。任务不是警报，而是馆员今天要完成的一项整理。</p><div class="button-line"><button class="primary">打开片单明细</button><button>阅读最近活动</button></div></div></div><div class="archive-index"><div><div class="index-heading"><strong>RECENT ACQUISITIONS</strong><span>最近入馆 →</span></div><div class="archive-row"><span>01</span><strong>因父之名</strong><small>1993 · 已入库</small></div><div class="archive-row"><span>02</span><strong>RRR：双雄起义</strong><small>2022 · 待整理</small></div><div class="archive-row"><span>03</span><strong>燃烧女子的肖像</strong><small>2019 · 已入库</small></div></div><div><div class="index-heading"><strong>COLLECTION NOTES</strong><span>馆藏总览</span></div><div class="archive-stat"><div><span>馆藏影片</span><strong>1,248</strong></div><div><span>待确认资源</span><strong>86</strong></div><div><span>合作站点</span><strong>21</strong></div><div><span>下载历史</span><strong>26</strong></div></div></div></div></div></div><div class="option-summary"><div class="summary-card"><strong>记忆点</strong><p>像一份电影馆年鉴，信息和文字本身就是氛围，而不是装饰。</p><b>气质：文献感</b></div><div class="summary-card"><strong>优点</strong><p>对真实数据依赖小，空状态也能成立；适合用户喜欢“收藏和整理”的心智。</p><b>适合：重内容</b></div><div class="summary-card"><strong>注意</strong><p>需要控制文字长度和列宽，避免档案感变成密集表格。</p><b>实现：中低</b></div></div></article>
+
+      <article class="direction-panel" data-direction-panel="home-c" hidden><div class="direction-meta"><strong>C · 放映台 / Screening Desk</strong><span>适合希望首页直接推动完成任务的版本</span><span>仍然高效，但把任务包装成影院放映计划</span></div><div class="prototype-stage home-screening"><div class="stage-chrome"><div class="stage-title"><span class="stage-mark">C</span><span><strong>放映台</strong><small>SCREENING DESK / TODAY'S PROGRAM</small></span></div><div class="stage-actions"><button>浏览馆藏</button><button class="primary">开始整理 →</button></div></div><div class="stage-body"><div class="screening-layout"><section class="screening-feature"><div class="mock-label">TODAY'S FEATURE · 01</div><div class="screening-feature-copy"><small>PLAYLIST · 12 FILMS WAITING</small><h2>今天，放哪一部？</h2><p>把待处理影片安排进下一场放映：识别、选源、下载、入库，每一步都留在同一条胶片上。</p></div></section><aside class="screening-side"><div class="mock-label">CURRENT PROGRAM</div><article class="mission-card selected"><header><strong>下一场：片单整理</strong><span>72%</span></header><p>已识别 9 / 12 部，接下来检查候选资源。</p><div class="progress"><i></i></div></article><article class="mission-card"><header><strong>候选资源待确认</strong><span>86</span></header><p>优先处理首选 x265 与 2160p 资源。</p></article><article class="mission-card"><header><strong>最近入库</strong><span>26</span></header><p>查看最近完成的下载与整理记录。</p></article></aside></div><div class="screening-bottom"><article><div class="mock-label">COLLECTION</div><strong>1,248</strong><small>馆藏影片</small></article><article><div class="mock-label">SOURCES</div><strong>21</strong><small>合作站点</small></article><article><div class="mock-label">ACTIVE</div><strong>03</strong><small>进行中任务</small></article><article><div class="mock-label">LAST ENTRY</div><strong>08/09</strong><small>最近入馆</small></article></div></div></div><div class="option-summary"><div class="summary-card"><strong>记忆点</strong><p>像影院的今日排片表，把“待办”转成“下一场放映”，行动感最强。</p><b>效率：最高 · 气质：中强</b></div><div class="summary-card"><strong>优点</strong><p>保留工作台的任务效率，但用电影语汇包裹，适合每天打开处理工作的用户。</p><b>适合：日常操作</b></div><div class="summary-card"><strong>注意</strong><p>任务卡不能太像普通 SaaS KPI，要持续使用电影语义和真实馆藏内容。</p><b>实现：低</b></div></div></article>
+    </section>
+  </main>
+  <script src="autolist-directions.js"></script>
+</body>
+</html>

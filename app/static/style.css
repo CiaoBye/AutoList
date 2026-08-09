@@ -420,7 +420,7 @@ td { padding: 16px 12px; border-top: 1px solid var(--line); color: var(--muted);
 .mp-site-card header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site-logo { position: relative; display: grid; place-items: center; width: 39px; height: 39px; flex: 0 0 auto; overflow: hidden; border-radius: 50%; color: var(--blue-dark); background: var(--blue-soft); }
 .site-logo img { width: 100%; height: 100%; object-fit: contain; }
-.site-logo b { display: none; }
+.site-logo b { display: none; color: currentColor; font: 700 13px/1 var(--font-data); letter-spacing: -.08em; }
 .site-logo.image-failed img { display: none; }
 .site-logo.image-failed b { display: block; }
 .mp-state { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--subtle); }

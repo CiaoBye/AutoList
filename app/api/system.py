@@ -300,7 +300,10 @@ async def release_groups() -> dict[str, Any]:
 
 @router.get("/")
 async def index() -> FileResponse:
-    return FileResponse(Path(__file__).resolve().parent.parent / "static" / "index.html")
+    return FileResponse(
+        Path(__file__).resolve().parent.parent / "static" / "index.html",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @router.get("/favicon.ico", include_in_schema=False)
@@ -308,4 +311,5 @@ async def favicon() -> FileResponse:
     return FileResponse(
         Path(__file__).resolve().parent.parent / "static" / "favicon.svg",
         media_type="image/svg+xml",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
     )

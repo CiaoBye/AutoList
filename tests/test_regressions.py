@@ -571,6 +571,24 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["recent_items"][0]["poster_url"], f"/api/playlist-items/{item_id}/poster?tag=tag1")
         self.assertNotIn("api_key", result["recent_items"][0]["poster_url"])
 
+    async def test_overview_labels_latest_task_playlist_and_not_in_library_count(self) -> None:
+        now = main.utc_now()
+        with connect() as conn:
+            second_playlist_id = int(conn.execute(
+                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
+                ("第二片单", 2, now),
+            ).lastrowid)
+            conn.execute(
+                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (second_playlist_id, 1, 1, "completed", 1, now, now),
+            )
+        result = await main.overview()
+        self.assertEqual(result["playlist_name"], "测试片单")
+        self.assertEqual(result["not_in_library_count"], 125)
+        self.assertEqual(result["pending_count"], result["not_in_library_count"])
+        self.assertEqual(result["latest_task"]["playlist_id"], second_playlist_id)
+        self.assertEqual(result["latest_task"]["playlist_name"], "第二片单")
+
     async def test_history_projects_source_backed_lifecycle_states(self) -> None:
         with connect() as conn:
             items = {

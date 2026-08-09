@@ -106,7 +106,9 @@ async def overview() -> dict[str, Any]:
                 (playlist["id"],),
             ).fetchall()) if playlist else []
         latest_task = conn.execute(
-            "SELECT * FROM search_tasks WHERE status!='archived' ORDER BY id DESC LIMIT 1"
+            """SELECT t.*, p.name AS playlist_name
+               FROM search_tasks t JOIN playlists p ON p.id=t.playlist_id
+               WHERE t.status!='archived' ORDER BY t.id DESC LIMIT 1"""
         ).fetchone()
         latest_candidates = conn.execute(
             "SELECT playlist_item_id,title,size,resource_key FROM candidates WHERE task_id=? AND eligibility='eligible'", (latest_task["id"],),
@@ -123,13 +125,19 @@ async def overview() -> dict[str, Any]:
             f"/api/playlist-items/{item['id']}/poster?tag={item['emby_image_tag']}"
             if item.get("emby_item_id") and item.get("emby_image_tag") else None
         )
+    not_in_library_count = (
+        max(0, int(playlist["item_count"] or 0) - int(playlist_stats["in_library_count"] or 0))
+        if playlist and playlist_stats else 0
+    )
     return {
         "playlist_id": playlist["id"] if playlist else None,
         "playlist_name": playlist["name"] if playlist else None,
         "item_count": playlist["item_count"] if playlist else 0,
         "recognized_count": int(playlist_stats["recognized_count"] or 0) if playlist_stats else 0,
         "in_library_count": int(playlist_stats["in_library_count"] or 0) if playlist_stats else 0,
-        "pending_count": max(0, int(playlist["item_count"] or 0) - int(playlist_stats["in_library_count"] or 0)) if playlist and playlist_stats else 0,
+        "not_in_library_count": not_in_library_count,
+        # 保留旧字段，避免外部客户端升级时中断；新界面使用语义更明确的 not_in_library_count。
+        "pending_count": not_in_library_count,
         "recent_items": recent_items,
         "cart_count": cart_count,
         "history_count": history_count,

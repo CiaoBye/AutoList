@@ -313,7 +313,8 @@ function updateDashboardTask(task) {
   pill.textContent = taskLabels[task.status] || task.status;
   pill.className = `pill ${taskPillClass(task.status)}`;
   $("#dashboard-task-title").textContent = `序号 ${task.range_start}–${task.range_end}`;
-  $("#dashboard-task-copy").textContent = `${task.completed}/${task.total} 部已处理 · ${task.matched || 0} 个候选资源`;
+  const taskPlaylist = task.playlist_name ? `「${task.playlist_name}」 · ` : "";
+  $("#dashboard-task-copy").textContent = `${taskPlaylist}${task.completed}/${task.total} 部已处理 · ${task.matched || 0} 个候选资源`;
   setProgressValue("#dashboard-task-bar", percent);
   $(".dashboard-progress")?.setAttribute("aria-valuenow", String(percent));
 }
@@ -326,7 +327,7 @@ async function loadOverview() {
   $("#dashboard-recognized").textContent = Number(overview.recognized_count || 0).toLocaleString("zh-CN");
   $("#dashboard-in-library").textContent = Number(overview.in_library_count || 0).toLocaleString("zh-CN");
   $("#dashboard-in-library-progress").textContent = Number(overview.in_library_count || 0).toLocaleString("zh-CN");
-  $("#dashboard-pending").textContent = Number(overview.pending_count || 0).toLocaleString("zh-CN");
+  $("#dashboard-pending").textContent = Number(overview.not_in_library_count ?? overview.pending_count ?? 0).toLocaleString("zh-CN");
   $("#dashboard-new-count").textContent = `${Number(overview.in_library_count || 0).toLocaleString("zh-CN")} 部电影`;
   $("#dashboard-history-count").textContent = Number(overview.history_count || 0).toLocaleString("zh-CN");
   const libraryPercent = Number(overview.item_count) ? Math.round(Number(overview.in_library_count || 0) / Number(overview.item_count) * 100) : 0;
@@ -966,9 +967,30 @@ function siteMonogram(name) {
 function siteStateLabel(state) {
   return state === "normal" ? "正常连接" : state === "slow" ? "连接缓慢" : state === "failed" ? "连接失败" : "连接未知";
 }
+const siteNodePositionCache = new Map();
+function siteNodePosition(siteId) {
+  const key = String(siteId);
+  if (siteNodePositionCache.has(key)) return siteNodePositionCache.get(key);
+  let hash = 2166136261;
+  for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  const occupied = [...siteNodePositionCache.values()];
+  let position = null;
+  for (let attempt = 0; attempt < 96; attempt += 1) {
+    const mixed = Math.imul(hash ^ Math.imul(attempt + 1, 0x9e3779b9), 2654435761) >>> 0;
+    const x = 14 + (mixed % 7201) / 100;
+    const y = 17 + (((mixed >>> 8) % 6601) / 100);
+    if (occupied.every(([otherX, otherY]) => Math.hypot(x - otherX, y - otherY) >= 8.5)) {
+      position = [x, y];
+      break;
+    }
+  }
+  position ||= [14 + (hash % 7201) / 100, 17 + (((hash >>> 8) % 6601) / 100)];
+  siteNodePositionCache.set(key, position);
+  return position;
+}
 function matchesSiteFilter(site) {
   const state = siteConnectionState(site);
-  return siteFilter === "all" || (siteFilter === "active" && site.search_enabled) || (siteFilter === "inactive" && !site.search_enabled) || siteFilter === state;
+  return siteFilter === "all" || (siteFilter === "active" && site.enabled) || (siteFilter === "inactive" && !site.enabled) || siteFilter === state;
 }
 function bindSiteLogoFallback(scope = document) {
   scope.querySelectorAll("[data-site-logo] img").forEach((image) => {
@@ -981,18 +1003,21 @@ function renderSites() {
   const list = siteCache.filter(matchesSiteFilter);
   if (list.length && !list.some((site) => site.id === selectedSiteId)) selectedSiteId = list[0].id;
   if (!list.length) selectedSiteId = null;
-  const positions = [[12,18],[29,13],[48,19],[68,12],[86,21],[20,39],[39,34],[59,39],[78,33],[10,60],[29,55],[48,61],[68,55],[88,63],[17,82],[38,77],[58,84],[78,78],[49,47],[68,79],[29,72]];
   const normalCount = list.filter((site) => siteConnectionState(site) === "normal").length;
   const slowCount = list.filter((site) => siteConnectionState(site) === "slow").length;
   const failedCount = list.filter((site) => siteConnectionState(site) === "failed").length;
-  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SITE CONSTELLATION</p><h2>${list.length} 个来源在星域中</h2><p>点击节点打开站点档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败</span></header><div class="site-map-field" aria-label="站点星图"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map((site, index) => {
+  const unknownCount = list.length - normalCount - slowCount - failedCount;
+  const mobileInspector = window.matchMedia("(max-width: 900px)").matches;
+  const nodeButtonAttributes = mobileInspector ? 'aria-haspopup="dialog"' : "";
+  const nodeHtml = (site) => {
     const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
     const state = siteConnectionState(site);
-    const [left, top] = positions[index % positions.length];
+    const [left, top] = siteNodePosition(site.id);
     const selected = selectedSiteId === site.id;
     const stateLabel = siteStateLabel(state);
-    return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" aria-haspopup="dialog" aria-controls="site-inspector-panel" aria-expanded="${selected ? "true" : "false"}" aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${index * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
-  }).join("")}<div class="site-constellation-legend" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+    return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes} aria-controls="site-inspector-panel" aria-expanded="${mobileInspector && selected ? "true" : "false"}" aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
+  };
+  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SITE CONSTELLATION</p><h2>${list.length} 个来源在星域中</h2><p>点击节点打开站点档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="站点星图"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}<div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div><details class="site-linear-list"><summary>以线性列表查看全部站点</summary><div class="site-linear-list-items">${list.map((site) => `<button type="button" data-open-site="${site.id}" aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`).join("")}</div></details>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
   renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
   bindSiteLogoFallback($("#sites-list"));
 }
@@ -1019,6 +1044,8 @@ function syncSiteInspectorMode() {
   const mobile = window.matchMedia("(max-width: 900px)").matches;
   if (mobile) {
     panel.setAttribute("aria-hidden", String(!panel.classList.contains("open")));
+    if (panel.classList.contains("open")) panel.removeAttribute("inert");
+    else panel.setAttribute("inert", "");
   } else {
     siteInspectorReturnFocus?.setAttribute("aria-expanded", "false");
     siteInspectorReturnFocus = null;
@@ -1028,6 +1055,7 @@ function syncSiteInspectorMode() {
     panel.setAttribute("aria-hidden", "false");
     panel.removeAttribute("aria-modal");
     panel.removeAttribute("aria-labelledby");
+    panel.removeAttribute("inert");
   }
 }
 function openSiteInspector(trigger) {
@@ -1044,6 +1072,7 @@ function openSiteInspector(trigger) {
   panel.setAttribute("aria-modal", "true");
   panel.setAttribute("aria-labelledby", "site-inspector-title");
   panel.setAttribute("aria-hidden", "false");
+  panel.removeAttribute("inert");
   trigger?.setAttribute("aria-expanded", "true");
   requestAnimationFrame(() => panel.querySelector(siteInspectorFocusableSelector)?.focus({preventScroll: true}));
 }
@@ -1057,7 +1086,9 @@ function closeSiteInspector(restoreFocus = true) {
   panel.setAttribute("role", "complementary");
   panel.removeAttribute("aria-modal");
   panel.removeAttribute("aria-labelledby");
-  panel.setAttribute("aria-hidden", window.matchMedia("(max-width: 900px)").matches ? "true" : "false");
+  const mobile = window.matchMedia("(max-width: 900px)").matches;
+  panel.setAttribute("aria-hidden", mobile ? "true" : "false");
+  if (mobile) panel.setAttribute("inert", "");
   siteInspectorReturnFocus = null;
   if (restoreFocus && returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus({preventScroll: true}));
 }

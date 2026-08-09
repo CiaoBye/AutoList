@@ -15,6 +15,8 @@
 
 - 通过 Python `compileall`、前端模块 `node --check`、全量 unittest、`git diff --check` 和版本一致性检查。
 - 通过隔离数据实例浏览器回归三套主题、全部路由、主题切换、候选列表、搜索、日志、390px 移动端与控制台错误检查；未执行真实下载或外部服务写入。
+- 已在 Unraid 实际构建并切换唯一 `Autolist` 容器至 `autolist:1.10`，健康接口返回 `1.10`；保留 `/mnt/user/appdata/Autolist/data`，并创建部署前数据备份。
+- Unraid 桌面与 390px 移动端三套主题的 8 个路由均无横向溢出、浏览器控制台无 error/warning；22 个站点图标接口全部加载成功，旧 `autolist:1.09` 镜像已在验收通过后删除。
 
 ## 1.09 - 2026-08-09
 

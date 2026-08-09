@@ -11,7 +11,7 @@ import httpx
 from datetime import datetime, timedelta
 from defusedxml import ElementTree
 
-from .config import APP_VERSION, settings
+from .config import APP_VERSION, public_endpoint_url, settings
 from .util import safe_request
 
 
@@ -165,12 +165,16 @@ class TMDBClient:
 
     async def _get(self, path: str, params: dict[str, Any]) -> httpx.Response:
         headers, _ = self._auth()
+        request_path = str(path or "").lstrip("/")
+        if not request_path:
+            raise ValueError("TMDB 请求路径不能为空")
+        base_url = f"{self.base_url.rstrip('/')}/"
         last_error: Exception | None = None
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(base_url=self.base_url, headers=headers, timeout=settings.mp_timeout_seconds,
+                async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=settings.mp_timeout_seconds,
                                              proxy=settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None) as client:
-                    response = await safe_request(client, "GET", path, params=params, label="TMDB 地址")
+                    response = await safe_request(client, "GET", request_path, params=params, label="TMDB 地址")
                     response.raise_for_status()
                     return response
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -184,7 +188,9 @@ class TMDBClient:
                     await asyncio.sleep(1.0 * (attempt + 1))
                     continue
                 raise
-        raise RuntimeError(f"TMDB 网络连接失败：{type(last_error).__name__}") from last_error
+        proxy = public_endpoint_url(settings.outbound_proxy_url) if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else "直连"
+        endpoint = proxy or "已配置代理"
+        raise RuntimeError(f"TMDB 网络连接失败（{endpoint}）：{type(last_error).__name__}") from last_error
 
     async def check(self) -> dict[str, Any]:
         if not settings.tmdb_api_key:

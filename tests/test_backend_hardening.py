@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 from fastapi import HTTPException
@@ -56,6 +56,27 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = self.previous_strict
         self.temp.cleanup()
+
+    async def test_tmdb_client_preserves_v3_prefix_when_normalizing_paths(self) -> None:
+        previous_key = settings.tmdb_api_key
+        previous_proxy = settings.outbound_proxy_url
+        previous_tmdb_proxy = settings.tmdb_proxy_enabled
+        settings.tmdb_api_key = "unit-test-tmdb-key"
+        settings.outbound_proxy_url = ""
+        settings.tmdb_proxy_enabled = False
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status = Mock()
+        try:
+            with patch("app.clients.safe_request", new=AsyncMock(return_value=response)) as request:
+                result = await main.TMDBClient().check()
+            self.assertEqual(result, {"ok": True, "configured": True})
+            self.assertEqual(request.await_args.args[2], "configuration")
+            self.assertEqual(str(request.await_args.args[0].base_url), "https://api.themoviedb.org/3/")
+        finally:
+            settings.tmdb_api_key = previous_key
+            settings.outbound_proxy_url = previous_proxy
+            settings.tmdb_proxy_enabled = previous_tmdb_proxy
 
     def _seed_cart(self, candidate_id: str = "hardening-candidate") -> int:
         with connect() as conn:

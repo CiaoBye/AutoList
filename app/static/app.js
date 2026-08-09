@@ -175,6 +175,20 @@ function syncThemeControls(theme = themeController?.getTheme?.() || document.doc
   const motionToggle = $("#settings-reduced-motion");
   if (motionToggle) motionToggle.checked = themeController?.getReducedMotion?.() ?? document.documentElement.dataset.motion === "reduced";
   if (document.body) document.body.dataset.scene = String(theme) + "-" + currentPage;
+  const meta = resolvePageMeta(currentPage, theme);
+  if ($("#page-eyebrow")) $("#page-eyebrow").textContent = meta.eyebrow;
+  if ($("#page-title")) $("#page-title").textContent = meta.title;
+  if ($("#page-lead")) { $("#page-lead").textContent = meta.lead; $("#page-lead").hidden = !meta.lead; }
+  document.title = meta.title + " · AutoList";
+  const dashboardLabels = {
+    archive: {page: "电影藏馆首页", feature: "当前馆藏片单", taskProgress: "最近检索进度", libraryProgress: "馆藏完成度"},
+    cinema: {page: "放映台首页", feature: "当前放映片单", taskProgress: "最近排片进度", libraryProgress: "放映准备度"},
+    ledger: {page: "总册索引首页", feature: "当前登记片单", taskProgress: "最近登记进度", libraryProgress: "总册登记进度"},
+  }[theme] || {};
+  $("#dashboard-page")?.setAttribute("aria-label", dashboardLabels.page || "电影藏馆首页");
+  $(".screening-feature")?.setAttribute("aria-label", dashboardLabels.feature || "当前主片单");
+  $(".dashboard-progress")?.setAttribute("aria-label", dashboardLabels.taskProgress || "最近搜索进度");
+  $(".collection-progress-bar")?.setAttribute("aria-label", dashboardLabels.libraryProgress || "馆藏完成度");
   const siteLinearList = $("#sites-list .site-linear-list");
   if (siteLinearList) siteLinearList.open = theme === "ledger";
   syncSiteMapCopy(theme);
@@ -217,15 +231,20 @@ window.addEventListener("autolist-scene-change", () => syncThemeControls());
 window.addEventListener("autolist-motion-change", () => syncThemeControls());
 
 const pageMeta = {
-  dashboard: {eyebrow: "FILM ARCHIVE / COLLECTION ROOM", title: "电影藏馆", lead: ""},
-  playlists: {eyebrow: "CATALOGUE / SHELF", title: "馆藏片单", lead: ""},
-  search: {eyebrow: "SCREENING / SOURCE DESK", title: "选片台", lead: ""},
-  cart: {eyebrow: "SCREENING QUEUE / HOLDING BAY", title: "放映队列", lead: ""},
-  rules: {eyebrow: "CURATION / SELECTION NOTES", title: "选片标准", lead: ""},
-  sites: {eyebrow: "SOURCE ROOM / PT NETWORK", title: "来源网络", lead: ""},
-  history: {eyebrow: "ARCHIVE / INTAKE RECORD", title: "入馆记录", lead: ""},
-  logs: {eyebrow: "PROJECTION LOG / EVENT REEL", title: "放映日志", lead: ""},
+  dashboard: {eyebrow: "FILM ARCHIVE / COLLECTION ROOM", title: "电影藏馆", lead: "", themes: {cinema: {eyebrow: "MIDNIGHT PROGRAM / SCREENING FLOOR", title: "放映台"}, ledger: {eyebrow: "CATALOGUE / REGISTER DESK", title: "总册索引"}}},
+  playlists: {eyebrow: "CATALOGUE / SHELF", title: "馆藏片单", lead: "", themes: {cinema: {eyebrow: "SCREENING / REEL LIST", title: "场次片单"}, ledger: {eyebrow: "CATALOGUE / FILM INDEX", title: "片目目录"}}},
+  search: {eyebrow: "SCREENING / SOURCE DESK", title: "选片台", lead: "", themes: {cinema: {eyebrow: "SCREENING / BOOKING DESK", title: "排片搜索"}, ledger: {eyebrow: "REGISTER / SOURCE INDEX", title: "来源索引"}}},
+  cart: {eyebrow: "SCREENING QUEUE / HOLDING BAY", title: "放映队列", lead: "", themes: {cinema: {eyebrow: "SCREENING QUEUE / READY ROOM", title: "放映队列"}, ledger: {eyebrow: "REGISTER / PENDING SHEET", title: "待登记"}}},
+  rules: {eyebrow: "CURATION / SELECTION NOTES", title: "选片标准", lead: "", themes: {cinema: {eyebrow: "SCREENING / HOUSE RULES", title: "放映规则"}, ledger: {eyebrow: "CATALOGUE / RULE BOOK", title: "规则簿"}}},
+  sites: {eyebrow: "SOURCE ROOM / PT NETWORK", title: "来源网络", lead: "", themes: {cinema: {eyebrow: "SCREENING FLOOR / SOURCE STAGE", title: "来源场"}, ledger: {eyebrow: "CATALOGUE / SOURCE DIRECTORY", title: "来源目录"}}},
+  history: {eyebrow: "ARCHIVE / INTAKE RECORD", title: "入馆记录", lead: "", themes: {cinema: {eyebrow: "SCREENING / SHOW HISTORY", title: "放映履历"}, ledger: {eyebrow: "REGISTER / ENTRY LEDGER", title: "入馆台账"}}},
+  logs: {eyebrow: "PROJECTION LOG / EVENT REEL", title: "放映日志", lead: "", themes: {cinema: {eyebrow: "SCREENING FLOOR / CREW LOG", title: "场务日志"}, ledger: {eyebrow: "CATALOGUE / OPERATION LOG", title: "操作记录"}}},
 };
+
+function resolvePageMeta(page, theme = themeController?.getTheme?.() || document.documentElement.dataset.theme || "archive") {
+  const base = pageMeta[page] || pageMeta.dashboard;
+  return {...base, ...(base.themes?.[theme] || {})};
+}
 
 const taskLabels = {
   queued: "排队中",
@@ -272,7 +291,7 @@ function navigate(page, updateHash = true, preserveScroll = false) {
       if (active) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
     });
-    const meta = pageMeta[target];
+    const meta = resolvePageMeta(target);
     $("#page-eyebrow").textContent = meta.eyebrow;
     $("#page-title").textContent = meta.title;
     $("#page-lead").textContent = meta.lead;
@@ -1008,7 +1027,11 @@ const siteNodePositionCache = new Map();
 const siteNodePositionOverrides = new Map();
 const siteNodePositionStorageKey = "autolist-site-node-positions";
 const siteMapOrientationStorageKey = "autolist-site-map-orientation";
+const siteMapViewportStorageKey = "autolist-site-map-viewport";
+const siteMapZoomMin = 0.78;
+const siteMapZoomMax = 2.4;
 let siteMapOrientation = safeStorageGet(siteMapOrientationStorageKey) === "vertical" ? "vertical" : "horizontal";
+let siteMapViewport = {scale: 1, x: 0, y: 0};
 try {
   const storedPositions = JSON.parse(safeStorageGet(siteNodePositionStorageKey) || "{}");
   Object.entries(storedPositions).forEach(([siteId, position]) => {
@@ -1017,8 +1040,90 @@ try {
     if (Number.isFinite(left) && Number.isFinite(top)) siteNodePositionOverrides.set(String(siteId), [Math.max(8, Math.min(92, left)), Math.max(12, Math.min(88, top))]);
   });
 } catch (_error) { /* 浏览器存储损坏时回退到稳定的默认排布 */ }
+try {
+  const storedViewport = JSON.parse(safeStorageGet(siteMapViewportStorageKey) || "{}");
+  const scale = Number(storedViewport.scale);
+  const x = Number(storedViewport.x), y = Number(storedViewport.y);
+  if (Number.isFinite(scale) && Number.isFinite(x) && Number.isFinite(y)) {
+    siteMapViewport = {scale: Math.max(siteMapZoomMin, Math.min(siteMapZoomMax, scale)), x, y};
+  }
+} catch (_error) { /* 浏览器存储损坏时回退到默认视野 */ }
 function persistSiteNodePositions() {
   safeStorageSet(siteNodePositionStorageKey, JSON.stringify(Object.fromEntries(siteNodePositionOverrides)));
+}
+function persistSiteMapViewport() {
+  safeStorageSet(siteMapViewportStorageKey, JSON.stringify(siteMapViewport));
+}
+function siteMapViewportBounds(field) {
+  const rect = field?.getBoundingClientRect?.();
+  if (!rect?.width || !rect?.height) return {x: 120, y: 120};
+  const scale = Math.max(siteMapZoomMin, Math.min(siteMapZoomMax, Number(siteMapViewport.scale) || 1));
+  return {
+    x: Math.max(90, ((scale - 1) * rect.width) / 2 + 90),
+    y: Math.max(90, ((scale - 1) * rect.height) / 2 + 90),
+  };
+}
+function clampSiteMapViewport(next, field = $("#sites-list .site-map-field")) {
+  const bounds = siteMapViewportBounds(field);
+  const scale = Math.max(siteMapZoomMin, Math.min(siteMapZoomMax, Number(next.scale) || 1));
+  return {
+    scale,
+    x: Math.max(-bounds.x, Math.min(bounds.x, Number(next.x) || 0)),
+    y: Math.max(-bounds.y, Math.min(bounds.y, Number(next.y) || 0)),
+  };
+}
+function syncSiteMapViewport() {
+  const field = $("#sites-list .site-map-field");
+  const canvas = $("#sites-list .site-map-canvas");
+  if (!field || !canvas) return;
+  siteMapViewport = clampSiteMapViewport(siteMapViewport, field);
+  canvas.style.setProperty("--map-scale", String(siteMapViewport.scale));
+  canvas.style.setProperty("--map-pan-x", `${siteMapViewport.x}px`);
+  canvas.style.setProperty("--map-pan-y", `${siteMapViewport.y}px`);
+  field.dataset.zoom = String(Math.round(siteMapViewport.scale * 100));
+  field.setAttribute("aria-label", `${siteMapCopy().ariaLabel}，当前缩放 ${Math.round(siteMapViewport.scale * 100)}%，滚轮或双指缩放，拖动画布平移`);
+  field.setAttribute("aria-description", "拖动画布平移；滚轮、双指或加减按钮缩放；点击来源节点进入档案；Alt 加拖动可调整节点位置");
+  const output = $("#sites-list .site-map-zoom-value");
+  if (output) output.textContent = `${Math.round(siteMapViewport.scale * 100)}%`;
+  $("#sites-list [data-site-map-zoom='out']")?.toggleAttribute("disabled", siteMapViewport.scale <= siteMapZoomMin);
+  $("#sites-list [data-site-map-zoom='in']")?.toggleAttribute("disabled", siteMapViewport.scale >= siteMapZoomMax);
+}
+function resetSiteMapViewport() {
+  siteMapViewport = {scale: 1, x: 0, y: 0};
+  persistSiteMapViewport();
+  syncSiteMapViewport();
+}
+function zoomSiteMap(nextScale, anchorX = null, anchorY = null) {
+  const field = $("#sites-list .site-map-field");
+  const current = siteMapViewport;
+  const scale = Math.max(siteMapZoomMin, Math.min(siteMapZoomMax, Number(nextScale) || 1));
+  if (!field || scale === current.scale) return;
+  const rect = field.getBoundingClientRect();
+  const x = Number.isFinite(anchorX) ? anchorX - rect.left - rect.width / 2 : 0;
+  const y = Number.isFinite(anchorY) ? anchorY - rect.top - rect.height / 2 : 0;
+  siteMapViewport = clampSiteMapViewport({
+    scale,
+    x: current.x + (current.scale - scale) * x,
+    y: current.y + (current.scale - scale) * y,
+  }, field);
+  persistSiteMapViewport();
+  syncSiteMapViewport();
+}
+function focusSiteNode(siteId) {
+  const field = $("#sites-list .site-map-field");
+  const node = [...($("#sites-list")?.querySelectorAll(".site-star-node") || [])].find((item) => String(item.dataset.openSite) === String(siteId));
+  if (!field || !node) return;
+  const rect = field.getBoundingClientRect();
+  const left = Number.parseFloat(node.style.getPropertyValue("--node-left")) || 50;
+  const top = Number.parseFloat(node.style.getPropertyValue("--node-top")) || 50;
+  const scale = Math.max(siteMapViewport.scale, 1.12);
+  siteMapViewport = clampSiteMapViewport({
+    scale,
+    x: -((left / 100) - .5) * rect.width * scale,
+    y: -((top / 100) - .5) * rect.height * scale,
+  }, field);
+  persistSiteMapViewport();
+  syncSiteMapViewport();
 }
 function resetSiteNodePositions() {
   siteNodePositionOverrides.clear();
@@ -1050,7 +1155,6 @@ function setSiteNodePosition(siteId, left, top) {
   const position = [Math.max(8, Math.min(92, Number(left))), Math.max(12, Math.min(88, Number(top)))];
   siteNodePositionOverrides.set(String(siteId), position);
   siteNodePositionCache.set(String(siteId), position);
-  persistSiteNodePositions();
 }
 function matchesSiteFilter(site) {
   const state = siteConnectionState(site);
@@ -1058,9 +1162,9 @@ function matchesSiteFilter(site) {
 }
 function siteMapCopy(theme = themeController?.getTheme?.() || document.documentElement.dataset.theme || "archive") {
   const copy = {
-    archive: {kicker: "SOURCE ROOM / ARCHIVE NETWORK", heading: "座来源档案室", description: "拖动节点或地图空白处调整排布，点击节点查看来源档案；键盘可用线性目录。", ariaLabel: "可操作的来源档案地图"},
-    cinema: {kicker: "SCREENING FLOOR / SOURCE MAP", heading: "个放映来源", description: "拖动节点或地图空白处编排来源，点击节点查看场务档案；键盘可用线性目录。", ariaLabel: "可操作的放映来源地图"},
-    ledger: {kicker: "CATALOGUE / SOURCE REGISTER", heading: "条来源记录", description: "拖动节点或地图空白处调整排布，点击节点查看目录条目；线性目录用于精确登记。", ariaLabel: "可操作的来源目录地图"},
+    archive: {kicker: "SOURCE ROOM / ARCHIVE NETWORK", heading: "座来源档案室", description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入档案，Alt+拖动可重新排布。", ariaLabel: "可操作的来源档案地图"},
+    cinema: {kicker: "SCREENING FLOOR / SOURCE MAP", heading: "个放映来源", description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入场务档案，Alt+拖动可重新排布。", ariaLabel: "可操作的放映来源地图"},
+    ledger: {kicker: "CATALOGUE / SOURCE REGISTER", heading: "条来源记录", description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入目录条目，Alt+拖动可重新排布。", ariaLabel: "可操作的来源目录地图"},
   }[theme] || null;
   return copy || siteMapCopy("archive");
 }
@@ -1072,7 +1176,7 @@ function syncSiteMapCopy(theme = themeController?.getTheme?.() || document.docum
   mapHeading.querySelector(".section-kicker")?.replaceChildren(document.createTextNode(copy.kicker));
   mapHeading.querySelector("h2")?.replaceChildren(document.createTextNode(String(count) + copy.heading));
   mapHeading.querySelector("p:not(.section-kicker)")?.replaceChildren(document.createTextNode(copy.description));
-  $("#sites-list .site-map-field")?.setAttribute("aria-label", copy.ariaLabel + "，拖动节点或空白处调整排布");
+  $("#sites-list .site-map-field")?.setAttribute("aria-label", copy.ariaLabel + "，滚轮或双指缩放，拖动画布平移，点击节点进入档案");
 }
 function syncSiteMapOrientationControls() {
   const map = $("#sites-list");
@@ -1102,21 +1206,24 @@ function renderSites() {
   const failedCount = list.filter((site) => siteConnectionState(site) === "failed").length;
   const unknownCount = list.length - normalCount - slowCount - failedCount;
   const mobileInspector = window.matchMedia("(max-width: 900px)").matches;
-  const nodeButtonAttributes = mobileInspector ? 'aria-haspopup="dialog"' : "";
+  const nodeButtonAttributes = (selected) => mobileInspector
+    ? `aria-haspopup="dialog" aria-controls="site-inspector-panel" aria-expanded="${selected ? "true" : "false"}"`
+    : `aria-pressed="${selected ? "true" : "false"}"`;
   const nodeHtml = (site) => {
     const icon = site.icon_endpoint || site.icon_url || `${site.base_url.replace(/\/$/, "")}/favicon.ico`;
     const state = siteConnectionState(site);
     const [left, top] = siteNodePosition(site.id);
     const selected = selectedSiteId === site.id;
     const stateLabel = siteStateLabel(state);
-    return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes} aria-controls="site-inspector-panel" aria-expanded="${mobileInspector && selected ? "true" : "false"}" aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
+    return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes(selected)} aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
   };
-  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SOURCE NETWORK</p><h2>${list.length} 个来源在片源网络中</h2><p>点击节点打开来源档案；节点颜色和文字共同表达连接状态。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="片源网络"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}<div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list.map((site) => `<button type="button" data-open-site="${site.id}" aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`).join("")}</div></details>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+  $("#sites-list").innerHTML = list.length ? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SOURCE NETWORK</p><h2>${list.length} 个来源在片源网络中</h2><p>滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。按住 Alt 再拖动节点可重新排布。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="片源网络" tabindex="0"><div class="site-map-viewport"><div class="site-map-canvas"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}</div></div><div class="site-map-zoom-tools" role="group" aria-label="地图缩放"><button type="button" data-site-map-zoom="out" aria-label="缩小地图" title="缩小地图">−</button><output class="site-map-zoom-value" aria-live="polite">100%</output><button type="button" data-site-map-zoom="in" aria-label="放大地图" title="放大地图">＋</button><button type="button" data-site-map-zoom="reset" aria-label="重置地图视野" title="重置地图视野">重置</button></div><div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list.map((site) => `<button type="button" data-open-site="${site.id}" aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`).join("")}</div></details>` : "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
   syncSiteMapCopy();
   $("#sites-list .site-linear-list summary")?.replaceChildren(document.createTextNode("打开线性来源目录（键盘可用）"));
   const linearList = $("#sites-list .site-linear-list");
   if (linearList) linearList.open = (themeController?.getTheme?.() || document.documentElement.dataset.theme) === "ledger";
   syncSiteMapOrientationControls();
+  syncSiteMapViewport();
   renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
   bindSiteLogoFallback($("#sites-list"));
 }
@@ -1137,43 +1244,49 @@ function renderSiteInspector(site) {
 }
 const siteInspectorFocusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 let siteInspectorReturnFocus = null;
-let siteDragState = null;
+let siteNodeDragState = null;
+let siteMapPanState = null;
+const siteMapPointers = new Map();
+let siteMapPinchState = null;
 function siteMapPositionFromPointer(event, node) {
   const field = node.closest(".site-map-field");
   if (!field) return null;
   const rect = field.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
+  // 节点位于经过 scale + translate 的画布内；拖动时先把屏幕坐标还原到
+  // 画布坐标，否则在放大或平移后拖动节点会产生明显的偏移。
+  const scale = Math.max(siteMapZoomMin, Number(siteMapViewport.scale) || 1);
+  const localX = (event.clientX - rect.left - rect.width / 2 - siteMapViewport.x) / scale + rect.width / 2;
+  const localY = (event.clientY - rect.top - rect.height / 2 - siteMapViewport.y) / scale + rect.height / 2;
   return {
-    left: Math.max(8, Math.min(92, ((event.clientX - rect.left) / rect.width) * 100)),
-    top: Math.max(12, Math.min(88, ((event.clientY - rect.top) / rect.height) * 100)),
+    left: Math.max(8, Math.min(92, (localX / rect.width) * 100)),
+    top: Math.max(12, Math.min(88, (localY / rect.height) * 100)),
   };
 }
-function finishSiteDrag(event) {
-  if (!siteDragState) return;
-  if (event?.pointerId != null && event.pointerId !== siteDragState.pointerId) return;
-  const state = siteDragState;
-  siteDragState = null;
-  const {node, field, moved, pointerId, captureTarget, source} = state;
+function finishSiteNodeDrag(event) {
+  if (!siteNodeDragState) return;
+  if (event?.pointerId != null && event.pointerId !== siteNodeDragState.pointerId) return;
+  const state = siteNodeDragState;
+  siteNodeDragState = null;
+  const {node, pointerId, captureTarget} = state;
   node.classList.remove("dragging");
-  field?.classList.remove("is-moving");
   try { captureTarget?.releasePointerCapture?.(pointerId); } catch (_error) { /* 指针捕获可能已在取消事件中释放 */ }
-  $("#sites-list")?.classList.remove("is-dragging");
-  if (moved) {
-    if (source === "node") {
-      node.dataset.suppressSiteOpen = "true";
-      window.setTimeout(() => {
-        if (node.isConnected) delete node.dataset.suppressSiteOpen;
-      }, 0);
-    }
-    showToast("来源节点已重新排布，可用“恢复默认排布”撤销");
+  $("#sites-list")?.classList.remove("is-node-dragging");
+  if (state.moved) {
+    persistSiteNodePositions();
+    node.dataset.suppressSiteOpen = "true";
+    window.setTimeout(() => {
+      if (node.isConnected) delete node.dataset.suppressSiteOpen;
+    }, 0);
+    showToast("来源节点已重新排布，可用“恢复节点排布”撤销");
   }
 }
 function isPrimarySitePointer(event) {
   return event.isPrimary !== false && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen");
 }
-function beginSiteDrag(node, event, captureTarget = node, source = "node") {
+function beginSiteNodeDrag(node, event, captureTarget = node) {
   if (!node || !isPrimarySitePointer(event)) return false;
-  siteDragState = {
+  siteNodeDragState = {
     node,
     field: node.closest(".site-map-field"),
     pointerId: event.pointerId,
@@ -1181,42 +1294,158 @@ function beginSiteDrag(node, event, captureTarget = node, source = "node") {
     startY: event.clientY,
     moved: false,
     captureTarget,
-    source,
   };
   node.classList.add("dragging");
-  siteDragState.field?.classList.add("is-moving");
-  $("#sites-list")?.classList.add("is-dragging");
+  $("#sites-list")?.classList.add("is-node-dragging");
   captureTarget.setPointerCapture?.(event.pointerId);
   event.preventDefault();
   return true;
 }
+function beginSiteMapPan(field, event) {
+  if (!field || !isPrimarySitePointer(event)) return false;
+  siteMapPointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+  siteMapPanState = {
+    field,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: siteMapViewport.x,
+    originY: siteMapViewport.y,
+    moved: false,
+  };
+  field.classList.add("is-panning", "is-gesturing");
+  $("#sites-list")?.classList.add("is-panning");
+  field.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+  return true;
+}
+function siteMapPointerDistance(points) {
+  if (points.length < 2) return 0;
+  return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+}
+function siteMapPointerMidpoint(points) {
+  return {x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2};
+}
+function finishSiteMapGesture(event) {
+  const pointerId = event?.pointerId;
+  if (siteNodeDragState && (pointerId == null || pointerId === siteNodeDragState.pointerId)) finishSiteNodeDrag(event);
+  if (pointerId != null) siteMapPointers.delete(pointerId);
+  if (siteMapPinchState && siteMapPointers.size < 2) {
+    const pinchField = siteMapPinchState.field;
+    siteMapPinchState = null;
+    const remaining = [...siteMapPointers.entries()][0];
+    if (remaining) {
+      pinchField?.classList.add("is-panning");
+      $("#sites-list")?.classList.add("is-panning");
+      siteMapPanState = {
+        field: pinchField || $("#sites-list .site-map-field"),
+        pointerId: remaining[0],
+        startX: remaining[1].x,
+        startY: remaining[1].y,
+        originX: siteMapViewport.x,
+        originY: siteMapViewport.y,
+        moved: false,
+      };
+    }
+  }
+  if (siteMapPanState && (pointerId == null || pointerId === siteMapPanState.pointerId) && siteMapPointers.size === 0) {
+    try { siteMapPanState.field?.releasePointerCapture?.(siteMapPanState.pointerId); } catch (_error) { /* 指针捕获可能已释放 */ }
+    siteMapPanState = null;
+  }
+  if (siteMapPointers.size < 2) siteMapPinchState = null;
+  if (!siteMapPointers.size) {
+    const field = $("#sites-list .site-map-field");
+    field?.classList.remove("is-panning", "is-gesturing");
+    $("#sites-list")?.classList.remove("is-panning");
+    persistSiteMapViewport();
+  }
+}
 $("#sites-list")?.addEventListener("pointerdown", (event) => {
   const node = event.target.closest(".site-star-node");
   if (node) {
-    beginSiteDrag(node, event);
+    if (event.altKey || event.metaKey) beginSiteNodeDrag(node, event);
     return;
   }
   const field = event.target.closest(".site-map-field");
-  if (!field || event.target.closest(".site-constellation-legend") || !isPrimarySitePointer(event)) return;
-  const selectedNode = [...field.querySelectorAll(".site-star-node")].find((item) => String(item.dataset.openSite) === String(selectedSiteId));
-  if (selectedNode) beginSiteDrag(selectedNode, event, field, "field");
+  const isTouchPointer = event.pointerType === "touch";
+  if (!field || event.target.closest(".site-constellation-legend, .site-map-zoom-tools") || (!isPrimarySitePointer(event) && !isTouchPointer)) return;
+  if (event.pointerType === "touch" && siteMapPointers.size === 1) {
+    siteMapPointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+    const points = [...siteMapPointers.values()];
+    const distance = siteMapPointerDistance(points);
+    if (!distance) return;
+    siteMapPanState = null;
+    siteMapPinchState = {field, initialDistance: distance, initialScale: siteMapViewport.scale, initialX: siteMapViewport.x, initialY: siteMapViewport.y};
+    field.classList.add("is-gesturing");
+    try { field.setPointerCapture?.(event.pointerId); } catch (_error) { /* 触控设备可能不支持捕获 */ }
+    event.preventDefault();
+    return;
+  }
+  beginSiteMapPan(field, event);
 });
 $("#sites-list")?.addEventListener("pointermove", (event) => {
-  if (!siteDragState || event.pointerId !== siteDragState.pointerId) return;
-  const {node} = siteDragState;
-  const distance = Math.hypot(event.clientX - siteDragState.startX, event.clientY - siteDragState.startY);
-  if (distance < 5 && !siteDragState.moved) return;
-  const position = siteMapPositionFromPointer(event, node);
-  if (!position) return;
-  siteDragState.moved = true;
-  setSiteNodePosition(node.dataset.openSite, position.left, position.top);
-  node.style.setProperty("--node-left", String(position.left) + "%");
-  node.style.setProperty("--node-top", String(position.top) + "%");
+  if (siteNodeDragState && event.pointerId === siteNodeDragState.pointerId) {
+    const distance = Math.hypot(event.clientX - siteNodeDragState.startX, event.clientY - siteNodeDragState.startY);
+    if (distance < 5 && !siteNodeDragState.moved) return;
+    const position = siteMapPositionFromPointer(event, siteNodeDragState.node);
+    if (!position) return;
+    siteNodeDragState.moved = true;
+    setSiteNodePosition(siteNodeDragState.node.dataset.openSite, position.left, position.top);
+    siteNodeDragState.node.style.setProperty("--node-left", String(position.left) + "%");
+    siteNodeDragState.node.style.setProperty("--node-top", String(position.top) + "%");
+    event.preventDefault();
+    return;
+  }
+  if (siteMapPointers.has(event.pointerId)) siteMapPointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+  if (siteMapPinchState && siteMapPointers.size >= 2) {
+    const field = siteMapPinchState.field;
+    const points = [...siteMapPointers.values()];
+    const rect = field?.getBoundingClientRect?.();
+    const distance = siteMapPointerDistance(points);
+    if (!rect?.width || !rect.height || !distance) return;
+    const midpoint = siteMapPointerMidpoint(points);
+    const scale = Math.max(siteMapZoomMin, Math.min(siteMapZoomMax, siteMapPinchState.initialScale * distance / siteMapPinchState.initialDistance));
+    siteMapViewport = clampSiteMapViewport({
+      scale,
+      x: siteMapPinchState.initialX + (siteMapPinchState.initialScale - scale) * (midpoint.x - rect.left - rect.width / 2),
+      y: siteMapPinchState.initialY + (siteMapPinchState.initialScale - scale) * (midpoint.y - rect.top - rect.height / 2),
+    }, field);
+    syncSiteMapViewport();
+    event.preventDefault();
+    return;
+  }
+  if (!siteMapPanState || event.pointerId !== siteMapPanState.pointerId) return;
+  const distance = Math.hypot(event.clientX - siteMapPanState.startX, event.clientY - siteMapPanState.startY);
+  if (distance < 3 && !siteMapPanState.moved) return;
+  siteMapPanState.moved = true;
+  siteMapViewport = clampSiteMapViewport({
+    scale: siteMapViewport.scale,
+    x: siteMapPanState.originX + event.clientX - siteMapPanState.startX,
+    y: siteMapPanState.originY + event.clientY - siteMapPanState.startY,
+  }, siteMapPanState.field);
+  syncSiteMapViewport();
   event.preventDefault();
 });
-$("#sites-list")?.addEventListener("pointerup", finishSiteDrag);
-$("#sites-list")?.addEventListener("pointercancel", finishSiteDrag);
-$("#sites-list")?.addEventListener("lostpointercapture", finishSiteDrag);
+$("#sites-list")?.addEventListener("wheel", (event) => {
+  const field = event.target.closest(".site-map-field");
+  if (!field) return;
+  event.preventDefault();
+  zoomSiteMap(siteMapViewport.scale + (event.deltaY < 0 ? .12 : -.12), event.clientX, event.clientY);
+}, {passive: false});
+$("#sites-list")?.addEventListener("keydown", (event) => {
+  const field = event.target.closest(".site-map-field");
+  if (!field || event.target !== field) return;
+  if (["+", "=", "PageUp"].includes(event.key)) { event.preventDefault(); zoomSiteMap(siteMapViewport.scale + .12); }
+  else if (["-", "_", "PageDown"].includes(event.key)) { event.preventDefault(); zoomSiteMap(siteMapViewport.scale - .12); }
+  else if (event.key === "0" || event.key === "Home") { event.preventDefault(); resetSiteMapViewport(); }
+  else if (event.key === "ArrowLeft") { event.preventDefault(); siteMapViewport = clampSiteMapViewport({...siteMapViewport, x: siteMapViewport.x + 32}, field); syncSiteMapViewport(); persistSiteMapViewport(); }
+  else if (event.key === "ArrowRight") { event.preventDefault(); siteMapViewport = clampSiteMapViewport({...siteMapViewport, x: siteMapViewport.x - 32}, field); syncSiteMapViewport(); persistSiteMapViewport(); }
+  else if (event.key === "ArrowUp") { event.preventDefault(); siteMapViewport = clampSiteMapViewport({...siteMapViewport, y: siteMapViewport.y + 32}, field); syncSiteMapViewport(); persistSiteMapViewport(); }
+  else if (event.key === "ArrowDown") { event.preventDefault(); siteMapViewport = clampSiteMapViewport({...siteMapViewport, y: siteMapViewport.y - 32}, field); syncSiteMapViewport(); persistSiteMapViewport(); }
+});
+$("#sites-list")?.addEventListener("pointerup", finishSiteMapGesture);
+$("#sites-list")?.addEventListener("pointercancel", finishSiteMapGesture);
+$("#sites-list")?.addEventListener("lostpointercapture", finishSiteMapGesture);
 function syncSiteInspectorMode() {
   const panel = $("#site-inspector-panel");
   if (!panel) return;
@@ -1445,6 +1674,14 @@ async function handleDocumentClick(event) {
   const editSiteButton = event.target.closest("[data-edit-site]");
   const toggleSiteOrientation = event.target.closest("#toggle-site-orientation");
   const resetSiteLayout = event.target.closest("#reset-site-layout");
+  const siteMapZoomButton = event.target.closest("[data-site-map-zoom]");
+  if (siteMapZoomButton) {
+    const action = siteMapZoomButton.dataset.siteMapZoom;
+    if (action === "in") zoomSiteMap(siteMapViewport.scale + .12);
+    else if (action === "out") zoomSiteMap(siteMapViewport.scale - .12);
+    else if (action === "reset") resetSiteMapViewport();
+    return;
+  }
   if (toggleSiteOrientation) {
     siteMapOrientation = siteMapOrientation === "vertical" ? "horizontal" : "vertical";
     safeStorageSet(siteMapOrientationStorageKey, siteMapOrientation);
@@ -1455,8 +1692,9 @@ async function handleDocumentClick(event) {
   }
   if (resetSiteLayout) {
     resetSiteNodePositions();
+    resetSiteMapViewport();
     renderSites();
-    showToast("来源地图已恢复默认排布");
+    showToast("来源节点与地图视野已恢复默认");
     return;
   }
   if (editSiteButton) {
@@ -1476,7 +1714,9 @@ async function handleDocumentClick(event) {
     loadSiteHealth(selectedSiteId).catch((error) => {
       if ($("#site-health-summary")) $("#site-health-summary").textContent = `统计读取失败：${error.message}`;
     });
-    const currentSiteButton = $$("[data-open-site]").find((button) => Number(button.dataset.openSite) === selectedSiteId);
+    const currentSiteButton = [...($("#sites-list")?.querySelectorAll(".site-star-node") || [])].find((button) => Number(button.dataset.openSite) === selectedSiteId)
+      || $$("[data-open-site]").find((button) => Number(button.dataset.openSite) === selectedSiteId);
+    requestAnimationFrame(() => focusSiteNode(selectedSiteId));
     openSiteInspector(currentSiteButton);
     return;
   }

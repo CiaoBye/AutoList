@@ -113,8 +113,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.13.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.13.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.14.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.14.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -127,7 +127,10 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('id="settings-scene-mode"', html)
         self.assertIn('id="settings-reduced-motion"', html)
         self.assertIn('class="theme-copy theme-copy-archive"', html)
-        self.assertIn("线性目录用于精确登记", html)
+        self.assertIn("滚轮或双指缩放", html)
+        self.assertIn('data-site-map-zoom="in"', (static_dir / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("siteMapViewportStorageKey", (static_dir / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("site-map-canvas", (static_dir / "app.js").read_text(encoding="utf-8"))
         self.assertIn('id="reset-site-layout"', html)
         self.assertIn('id="toggle-site-orientation"', html)
         self.assertIn('siteMapOrientationStorageKey', (static_dir / "app.js").read_text(encoding="utf-8"))

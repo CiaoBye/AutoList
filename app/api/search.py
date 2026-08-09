@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from ..database import connect, json_value
 from ..schemas import TaskPayload
 from ..services.search import (
+    MAX_SEARCH_ITEMS,
     begin_search_task_slot,
     create_followup_search_task,
     run_search,
@@ -18,9 +19,10 @@ from ..services.search import (
     update_task,
 )
 from ..state import prune_raw_candidates, raw_candidates, running_tasks
-from ..util import resource_fingerprint, rows_to_dicts, utc_now, volume_factor_value
+from ..util import resource_fingerprint, rows_to_dicts, safe_detail_url, utc_now, volume_factor_value
 
 router = APIRouter()
+MAX_CANDIDATE_RESPONSE = 5000
 
 @router.post("/api/search-tasks")
 async def create_task(payload: TaskPayload) -> dict[str, Any]:
@@ -29,6 +31,8 @@ async def create_task(payload: TaskPayload) -> dict[str, Any]:
     item_ids: list[int] = []
     if payload.scope == "pending":
         queue = await searchable_playlist_items(payload.playlist_id, payload.count)
+        if queue.get("download_state") == "unknown":
+            raise HTTPException(503, "无法确认 Transmission 当前下载任务，已暂停创建搜索任务")
         item_ids = [int(item["id"]) for item in queue["items"]]
         if not item_ids:
             raise HTTPException(422, "当前片单没有可搜索的未入库影片")
@@ -45,6 +49,8 @@ async def create_task(payload: TaskPayload) -> dict[str, Any]:
         total = len(selected_items)
         if not total:
             raise HTTPException(422, "所选范围没有影片")
+        if total > MAX_SEARCH_ITEMS:
+            raise HTTPException(413, f"单次搜索最多处理 {MAX_SEARCH_ITEMS} 部影片")
         site_ids = [
             int(row["id"]) for row in conn.execute(
                 "SELECT id FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id",
@@ -177,8 +183,9 @@ async def task_logs(task_id: int, limit: int = 200) -> list[dict[str, Any]]:
     return list(reversed(rows_to_dicts(rows)))
 
 @router.get("/api/candidates")
-async def candidates(task_id: int) -> list[dict[str, Any]]:
+async def candidates(task_id: int, limit: int = MAX_CANDIDATE_RESPONSE) -> list[dict[str, Any]]:
     prune_raw_candidates()
+    safe_limit = max(1, min(int(limit), MAX_CANDIDATE_RESPONSE))
     with connect() as conn:
         task = conn.execute("SELECT id,parent_task_id FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         if not task:
@@ -198,13 +205,16 @@ async def candidates(task_id: int) -> list[dict[str, Any]]:
                       CASE WHEN cart.candidate_id IS NULL THEN 0 ELSE 1 END AS in_cart
                FROM candidates c JOIN playlist_items p ON p.id=c.playlist_item_id
                LEFT JOIN cart_items cart ON cart.candidate_id=c.id
-               WHERE c.task_id IN ({placeholders}) ORDER BY p.rank_no, c.ranking""",  # nosec B608
-            task_ids,
+               WHERE c.task_id IN ({placeholders}) ORDER BY p.rank_no, c.ranking LIMIT ?""",  # nosec B608
+            (*task_ids, safe_limit),
         ).fetchall()
         site_rows = conn.execute("SELECT name,priority,icon_url FROM pt_sites").fetchall()
     site_profiles = {str(row["name"]).lower(): dict(row) for row in site_rows}
     result = rows_to_dicts(rows)
     for item in result:
+        # Existing databases may contain pre-hardening raw URLs; sanitize on
+        # read as well as at insert time so old rows cannot bypass the boundary.
+        item["detail_url"] = safe_detail_url(item.get("detail_url"))
         item["context_available"] = item["id"] in raw_candidates
         try:
             item["metadata"] = json.loads(item.pop("metadata_json"))
@@ -240,7 +250,7 @@ async def candidates(task_id: int) -> list[dict[str, Any]]:
             "size": option.get("size"), "is_free": option["is_free"], "site_priority": option["site_priority"],
             "volume_factor": option["volume_factor"], "labels": option["metadata"].get("labels", []),
             "in_cart": option.get("in_cart", 0), "context_available": option["context_available"],
-            "detail_url": option.get("detail_url"), "publish_time": option["metadata"].get("publish_time"),
+            "detail_url": safe_detail_url(option.get("detail_url")), "publish_time": option["metadata"].get("publish_time"),
         } for option in options]
         factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
         primary["site_selection_reason"] = (

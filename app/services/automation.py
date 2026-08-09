@@ -191,7 +191,24 @@ async def run_playlist_automation(run_id: int) -> None:
         running_automation_tasks.pop(run_id, None)
 
 
+_playlist_sync_locks: dict[int, asyncio.Lock] = {}
+
+
 async def sync_playlist_incremental(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
+    """Serialize source fetch and rank allocation per playlist.
+
+    The network fetch intentionally happens while holding this lock: otherwise
+    a manual request and the scheduler can both read the same ``max(rank_no)``
+    and race on the playlist's unique rank constraint.
+    """
+    lock = _playlist_sync_locks.setdefault(int(playlist_id), asyncio.Lock())
+    if lock.locked():
+        raise HTTPException(409, "该片单已有同步任务运行，请等待完成")
+    async with lock:
+        return await _sync_playlist_incremental(playlist_id, trigger)
+
+
+async def _sync_playlist_incremental(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
     with connect() as conn:
         playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
     if not playlist:

@@ -19,7 +19,14 @@ from fastapi.responses import FileResponse, Response
 
 from ..candidate_policy import normalized_policy, release_group_catalog
 from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
-from ..config import access_token_required, save_runtime_settings, settings
+from ..config import (
+    APP_VERSION,
+    access_token_required,
+    access_token_strength,
+    access_token_strength_enforced,
+    save_runtime_settings,
+    settings,
+)
 from ..cookiecloud import cookie_groups, decrypt_cookiecloud
 from ..database import config_values, json_value, save_config
 from ..schemas import (
@@ -120,14 +127,14 @@ def validated_base_url(value: str, label: str, required: bool, allow_private: bo
 
 
 # Populated by app.main after router registration.
-APP_VERSION = "1.01"
-
 @router.get("/api/health")
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "version": APP_VERSION,
         "access_token_required": access_token_required(),
+        "access_token_strength": access_token_strength(),
+        "access_token_strength_enforced": access_token_strength_enforced(),
     }
 
 @router.get("/cookiecloud")

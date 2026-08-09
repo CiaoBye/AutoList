@@ -16,8 +16,11 @@ from ..util import rows_to_dicts, utc_now
 async def library_details(
     emby: EmbyClient, title: str, year: int | None, tmdb_id: int | None = None, imdb_id: str | None = None,
 ) -> tuple[str, str | None, str | None]:
+    """Return ``unknown`` on lookup failure; only an explicit empty match is ``not_found``."""
     try:
         state, item = await emby.library_match(title, year, tmdb_id, imdb_id)
+        if state not in {"in_library", "strm", "not_found", "unknown"}:
+            return "unknown", None, None
         item_id = str(item.get("Id") or "") or None if item else None
         image_tag = str((item.get("ImageTags") or {}).get("Primary") or "") or None if item else None
         return state, item_id, image_tag
@@ -81,4 +84,3 @@ async def run_library_scan(task_id: int) -> None:
         update_library_task(task_id, status="failed", error_message=safe_error(exc))
     finally:
         running_library_tasks.pop(task_id, None)
-

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+MAX_SEARCH_ITEMS = 2000
+MAX_SEARCH_RANGE_END = 200_000
+MAX_IMPORT_JSON_BYTES = 10 * 1024 * 1024
+MAX_IMPORT_ROWS = 200_000
 
 
 class ImportPayload(BaseModel):
@@ -15,13 +21,33 @@ class ImportPayload(BaseModel):
     source_url: str | None = Field(default=None, max_length=2048)
     limit: int = Field(default=5000, ge=1, le=10000)
 
+    @field_validator("json_data")
+    @classmethod
+    def validate_json_data_limits(cls, value: dict[str, Any] | list[dict[str, Any]] | None) -> dict[str, Any] | list[dict[str, Any]] | None:
+        if value is None:
+            return None
+        import json
+
+        if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > MAX_IMPORT_JSON_BYTES:
+            raise ValueError("JSON 片单数据过大")
+        entries = value if isinstance(value, list) else value.get("films") or value.get("items") or []
+        if isinstance(entries, list) and len(entries) > MAX_IMPORT_ROWS:
+            raise ValueError(f"JSON 条目数超过上限（{MAX_IMPORT_ROWS} 条）")
+        return value
+
 
 class TaskPayload(BaseModel):
     playlist_id: int
     scope: str = Field(default="range", pattern="^(range|pending)$")
-    count: int = Field(default=50, ge=1, le=10000)
-    range_start: int = Field(default=1, ge=1)
-    range_end: int = Field(default=1, ge=1)
+    count: int = Field(default=50, ge=1, le=MAX_SEARCH_ITEMS)
+    range_start: int = Field(default=1, ge=1, le=MAX_SEARCH_RANGE_END)
+    range_end: int = Field(default=1, ge=1, le=MAX_SEARCH_RANGE_END)
+
+    @model_validator(mode="after")
+    def validate_search_range(self) -> "TaskPayload":
+        if self.scope == "range" and self.range_end - self.range_start + 1 > MAX_SEARCH_ITEMS:
+            raise ValueError(f"单次搜索最多处理 {MAX_SEARCH_ITEMS} 部影片")
+        return self
 
 
 class ConfigPayload(BaseModel):

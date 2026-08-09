@@ -43,6 +43,7 @@ from ..state import (
 from ..util import raster_image_media_type, resource_fingerprint, rows_to_dicts, utc_now
 
 router = APIRouter()
+MAX_LEGACY_PLAYLIST_ITEMS_RESPONSE = 5000
 
 async def hydrate_recent_emby_posters(items: list[dict[str, Any]]) -> None:
     """Backfill legacy Emby references for the small home-page shelf without a full rescan."""
@@ -403,7 +404,12 @@ async def playlist_items(
         if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
             raise HTTPException(404, "片单不存在")
         if page is None:
-            rows = conn.execute("SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,)).fetchall()
+            # Keep the legacy list-shaped response for existing callers, but
+            # never materialize an unbounded playlist into one JSON response.
+            rows = conn.execute(
+                "SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT ?",
+                (playlist_id, MAX_LEGACY_PLAYLIST_ITEMS_RESPONSE),
+            ).fetchall()
             return rows_to_dicts(rows)
         safe_page = max(1, page)
         safe_page_size = max(1, min(page_size, 200))

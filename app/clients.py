@@ -11,7 +11,8 @@ import httpx
 from datetime import datetime, timedelta
 from defusedxml import ElementTree
 
-from .config import settings
+from .config import APP_VERSION, settings
+from .util import safe_request
 
 
 class NexusTableParser(HTMLParser):
@@ -124,13 +125,13 @@ class MoviePilotClient:
         self.headers = {"X-API-KEY": settings.mp_api_key} if settings.mp_api_key else {}
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self.base_url, headers=self.headers, timeout=settings.mp_timeout_seconds)
+        return httpx.AsyncClient(base_url=self.base_url, timeout=settings.mp_timeout_seconds, follow_redirects=False)
 
     async def check(self) -> dict[str, Any]:
         if not self.base_url or not settings.mp_api_key:
             return {"ok": False, "configured": False, "message": "未配置 MoviePilot"}
         async with self._client() as client:
-            response = await client.get("/api/v1/download/clients")
+            response = await safe_request(client, "GET", "/api/v1/download/clients", headers=self.headers, label="MoviePilot 地址")
             response.raise_for_status()
             return {"ok": True, "configured": True, "downloaders": response.json()}
 
@@ -144,8 +145,8 @@ class MoviePilotClient:
             torrent_payload["pubdate"] = str(publish_time)
         torrent_payload.pop("detail_url", None)
         async with self._client() as client:
-            response = await client.post(
-                "/api/v1/download/",
+            response = await safe_request(
+                client, "POST", "/api/v1/download/", headers=self.headers,
                 json={"media_in": media_in, "torrent_in": torrent_payload, "downloader": downloader},
             )
             response.raise_for_status()
@@ -169,7 +170,7 @@ class TMDBClient:
             try:
                 async with httpx.AsyncClient(base_url=self.base_url, headers=headers, timeout=settings.mp_timeout_seconds,
                                              proxy=settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None) as client:
-                    response = await client.get(path, params=params)
+                    response = await safe_request(client, "GET", path, params=params, label="TMDB 地址")
                     response.raise_for_status()
                     return response
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -232,7 +233,7 @@ class AIRecognitionClient:
             "messages": [{"role": "user", "content": prompt}],
         }
         async with httpx.AsyncClient(base_url=settings.ai_base_url, headers=headers, timeout=settings.mp_timeout_seconds) as client:
-            response = await client.post("/chat/completions", json=payload)
+            response = await safe_request(client, "POST", "/chat/completions", headers=headers, json=payload, label="AI 地址")
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
         match = re.search(r"\{.*\}", content, re.S)
@@ -246,8 +247,8 @@ class EmbyClient:
     async def check(self) -> dict[str, Any]:
         if not settings.emby_base_url or not settings.emby_api_key:
             return {"ok": False, "configured": False, "message": "未配置 Emby"}
-        async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds) as client:
-            response = await client.get("/emby/System/Info", params=self._params())
+        async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
+            response = await safe_request(client, "GET", "/emby/System/Info", params=self._params(), label="Emby 地址")
             response.raise_for_status()
             data = response.json()
         return {"ok": True, "configured": True, "server_name": data.get("ServerName"), "version": data.get("Version")}
@@ -261,14 +262,14 @@ class EmbyClient:
             **self._params(), "IncludeItemTypes": "Movie", "Recursive": "true",
             "Fields": "Path,ProviderIds,ProductionYear,OriginalTitle,ImageTags", "Limit": 50,
         }
-        async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds) as client:
+        async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
             exact_matches: list[dict[str, Any]] = []
             for provider, provider_id in (("tmdb", tmdb_id), ("imdb", imdb_id)):
                 if not provider_id:
                     continue
-                response = await client.get(
-                    "/emby/Items",
-                    params={**base_params, "AnyProviderIdEquals": f"{provider}.{provider_id}"},
+                response = await safe_request(
+                    client, "GET", "/emby/Items", params={**base_params, "AnyProviderIdEquals": f"{provider}.{provider_id}"},
+                    label="Emby 地址",
                 )
                 response.raise_for_status()
                 exact_matches.extend(response.json().get("Items", []))
@@ -280,7 +281,7 @@ class EmbyClient:
                     (item for item in exact_matches if item.get("Path") and not str(item["Path"]).lower().endswith(".strm")),
                     exact_matches[0],
                 )
-            response = await client.get("/emby/Items", params={**base_params, "SearchTerm": title})
+            response = await safe_request(client, "GET", "/emby/Items", params={**base_params, "SearchTerm": title}, label="Emby 地址")
             response.raise_for_status()
             items = response.json().get("Items", [])
         normalized_title = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", title.lower())
@@ -315,10 +316,10 @@ class EmbyClient:
     async def poster(self, item_id: str) -> tuple[bytes, str]:
         if not settings.emby_base_url or not settings.emby_api_key:
             raise RuntimeError("未配置 Emby")
-        async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds) as client:
-            response = await client.get(
-                f"/emby/Items/{item_id}/Images/Primary",
-                params={**self._params(), "maxHeight": 720, "quality": 90},
+        async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
+            response = await safe_request(
+                client, "GET", f"/emby/Items/{item_id}/Images/Primary",
+                params={**self._params(), "maxHeight": 720, "quality": 90}, label="Emby 地址",
             )
             response.raise_for_status()
         return response.content, response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
@@ -340,14 +341,16 @@ class TransmissionClient:
         if not self.base_url:
             raise RuntimeError("未配置 Transmission 地址")
         headers = {"X-Transmission-Session-Id": self.session_id} if self.session_id else {}
-        async with httpx.AsyncClient(auth=self.auth, timeout=settings.mp_timeout_seconds) as client:
-            response = await client.post(self.base_url, headers=headers, json={"method": method, "arguments": arguments or {}})
+        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
+            response = await safe_request(
+                client, "POST", self.base_url, headers=headers, json={"method": method, "arguments": arguments or {}},
+                auth=self.auth, label="Transmission 地址",
+            )
             if response.status_code == 409:
                 self.session_id = response.headers.get("X-Transmission-Session-Id", "")
-                response = await client.post(
-                    self.base_url,
-                    headers={"X-Transmission-Session-Id": self.session_id},
-                    json={"method": method, "arguments": arguments or {}},
+                response = await safe_request(
+                    client, "POST", self.base_url, headers={"X-Transmission-Session-Id": self.session_id},
+                    json={"method": method, "arguments": arguments or {}}, auth=self.auth, label="Transmission 地址",
                 )
             response.raise_for_status()
             data = response.json()
@@ -362,6 +365,8 @@ class TransmissionClient:
         return {"ok": True, "configured": True, "version": data.get("version"), "rpc_version": data.get("rpc-version")}
 
     async def current_downloads(self) -> list[dict[str, Any]]:
+        if not self.base_url:
+            return []
         fields = ["id", "name", "hashString", "status", "percentDone", "totalSize", "labels", "downloadDir"]
         data = await self._rpc("torrent-get", {"fields": fields})
         return data.get("torrents", [])
@@ -374,8 +379,8 @@ class TorznabClient:
         params: dict[str, Any] = {"t": "movie", "q": title, "apikey": site.get("api_key", "")}
         if imdb_id:
             params["imdbid"] = imdb_id.removeprefix("tt")
-        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=True, proxy=site_proxy(site)) as client:
-            response = await client.get(site["base_url"], params=params)
+        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False, proxy=site_proxy(site)) as client:
+            response = await safe_request(client, "GET", site["base_url"], params=params, label=f"站点 {site.get('name', '')} 地址")
             response.raise_for_status()
         root = ElementTree.fromstring(response.content)
         results: list[dict[str, Any]] = []
@@ -414,9 +419,9 @@ class RSSClient:
         if site.get("cookie"):
             headers["Cookie"] = str(site["cookie"])
         async with httpx.AsyncClient(
-            timeout=int(site.get("timeout_seconds") or 30), follow_redirects=True, proxy=site_proxy(site),
+            timeout=int(site.get("timeout_seconds") or 30), follow_redirects=False, proxy=site_proxy(site),
         ) as client:
-            response = await client.get(feed_url, headers=headers)
+            response = await safe_request(client, "GET", feed_url, headers=headers, label=f"站点 {site.get('name', '')} RSS 地址")
             response.raise_for_status()
         root = ElementTree.fromstring(response.content)
         normalized_title = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
@@ -471,7 +476,7 @@ class MTeamClient:
         return {
             "x-api-key": str(site.get("api_key") or ""),
             "Origin": str(site.get("base_url") or "").rstrip("/"),
-            "User-Agent": str(site.get("user_agent") or "AutoList/0.65"),
+            "User-Agent": str(site.get("user_agent") or f"AutoList/{APP_VERSION}"),
         }
 
     @staticmethod
@@ -507,7 +512,7 @@ class MTeamClient:
             "site_name": site["name"], "size": int(row.get("size") or 0),
             "seeders": int(status.get("seeders") or 0), "leechers": int(status.get("leechers") or 0),
             "enclosure": f"[{encoded}]{self.api_base(site)}/api/torrent/genDlToken",
-            "labels": labels, "volume_factor": factor, "site_ua": site.get("user_agent") or "AutoList/0.65",
+            "labels": labels, "volume_factor": factor, "site_ua": site.get("user_agent") or f"AutoList/{APP_VERSION}",
             "publish_time": publish_time, "detail_url": detail_url,
         }
 
@@ -515,11 +520,14 @@ class MTeamClient:
         keyword = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else title
         timeout = int(site.get("timeout_seconds") or 30)
         rows: list[dict[str, Any]] = []
-        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site)) as client:
+        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site), follow_redirects=False) as client:
             # 分页拉取（最多 5 页 = 500 条），避免热门影片被硬截断到 100 条。
             for page in range(1, 6):
                 payload = {"pageNumber": page, "pageSize": 100, "mode": "normal", "keyword": keyword}
-                response = await client.post(f"{self.api_base(site)}/api/torrent/search", headers=self.headers(site), json=payload)
+                response = await safe_request(
+                    client, "POST", f"{self.api_base(site)}/api/torrent/search", headers=self.headers(site),
+                    json=payload, label=f"站点 {site.get('name', '')} API 地址",
+                )
                 response.raise_for_status()
                 body = response.json()
                 if str(body.get("code")) not in ("0", "None") and body.get("message") != "SUCCESS":
@@ -538,11 +546,10 @@ class MTeamClient:
 
     async def account_stats(self, site: dict[str, Any]) -> dict[str, Any]:
         timeout = int(site.get("timeout_seconds") or 30)
-        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site)) as client:
-            response = await client.post(
-                f"{self.api_base(site)}/api/member/profile",
-                headers=self.headers(site),
-                json={},
+        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site), follow_redirects=False) as client:
+            response = await safe_request(
+                client, "POST", f"{self.api_base(site)}/api/member/profile", headers=self.headers(site),
+                json={}, label=f"站点 {site.get('name', '')} API 地址",
             )
             response.raise_for_status()
             body = response.json()
@@ -650,9 +657,12 @@ class NexusPHPClient:
                 search_page = path
                 break
         params = {"search": imdb_id or title, "search_area": 0}
-        headers = {"Cookie": str(site.get("cookie") or ""), "User-Agent": str(site.get("user_agent") or "AutoList/0.65")}
-        async with httpx.AsyncClient(timeout=int(site.get("timeout_seconds") or 30), follow_redirects=True, proxy=site_proxy(site)) as client:
-            response = await client.get(urljoin(base, search_page), params=params, headers=headers)
+        headers = {"Cookie": str(site.get("cookie") or ""), "User-Agent": str(site.get("user_agent") or f"AutoList/{APP_VERSION}")}
+        async with httpx.AsyncClient(timeout=int(site.get("timeout_seconds") or 30), follow_redirects=False, proxy=site_proxy(site)) as client:
+            response = await safe_request(
+                client, "GET", urljoin(base, search_page), params=params, headers=headers,
+                label=f"站点 {site.get('name', '')} 地址",
+            )
             response.raise_for_status()
         results: list[dict[str, Any]] = []
         parser = NexusTableParser()
@@ -746,9 +756,9 @@ class NexusPHPClient:
         }
         timeout = int(site.get("timeout_seconds") or 30)
         async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=True, proxy=site_proxy(site),
+            timeout=timeout, follow_redirects=False, proxy=site_proxy(site),
         ) as client:
-            home = await client.get(base, headers=headers)
+            home = await safe_request(client, "GET", base, headers=headers, label=f"站点 {site.get('name', '')} 地址")
             home.raise_for_status()
             banner = self._banner_stats(home.text)
             if banner:
@@ -756,12 +766,12 @@ class NexusPHPClient:
             # TNode SPA（站点T等）：首页带 x-csrf-token，账户信息走 JSON API。
             csrf = re.search(r'<meta name="x-csrf-token" content="([^"]+)"', home.text)
             if csrf:
-                info = await client.get(
-                    urljoin(base, "api/user/getInfo"),
+                info = await safe_request(
+                    client, "GET", urljoin(base, "api/user/getInfo"),
                     headers={
                         **headers, "x-csrf-token": csrf.group(1),
                         "X-Requested-With": "XMLHttpRequest", "Referer": base,
-                    },
+                    }, label=f"站点 {site.get('name', '')} 地址",
                 )
                 info.raise_for_status()
                 try:
@@ -777,7 +787,7 @@ class NexusPHPClient:
                 re.I,
             )
             details_url = urljoin(base, html.unescape(user_link.group(1))) if user_link else urljoin(base, "userdetails.php")
-            details = await client.get(details_url, headers=headers)
+            details = await safe_request(client, "GET", details_url, headers=headers, label=f"站点 {site.get('name', '')} 地址")
             details.raise_for_status()
         parser = AccountTableParser()
         parser.feed(details.text)

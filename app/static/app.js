@@ -14,8 +14,10 @@ let currentPage = "dashboard";
 let taskTimer = null;
 let libraryScanTimer = null;
 let libraryScanFailures = 0;
+let libraryScanTaskId = null;
 let recognitionTimer = null;
 let recognitionPollFailures = 0;
+let recognitionTaskId = null;
 let activeTaskState = null;
 let booting = true;
 let selectedPlaylistId = null;
@@ -34,6 +36,46 @@ function safeSessionStorageGet(key) {
 function safeSessionStorageSet(key, value) {
   try { window.sessionStorage.setItem(key, value); } catch (_error) { /* 浏览器禁用会话存储时保留内存值 */ }
 }
+
+function setProgressValue(selector, value) {
+  const percent = Math.max(0, Math.min(100, Number(value) || 0));
+  const bar = $(selector);
+  if (!bar) return percent;
+  bar.style.width = `${percent}%`;
+  bar.setAttribute("aria-valuenow", String(percent));
+  return percent;
+}
+
+function setTaskPollError(message) {
+  const box = $("#task-poll-error");
+  const text = $("#task-poll-error-text");
+  if (!box || !text) return;
+  text.textContent = message;
+  box.hidden = false;
+}
+
+function clearTaskPollError() {
+  const box = $("#task-poll-error");
+  if (box) box.hidden = true;
+}
+
+function setPlaylistPollError(message, retry) {
+  const box = $("#playlist-task-error");
+  const text = $("#playlist-task-error-text");
+  const button = $("#retry-playlist-task");
+  if (!box || !text) return;
+  playlistPollRetry = typeof retry === "function" ? retry : null;
+  text.textContent = message;
+  if (button) button.hidden = !playlistPollRetry;
+  box.hidden = false;
+}
+
+function clearPlaylistPollError() {
+  const box = $("#playlist-task-error");
+  if (box) box.hidden = true;
+  playlistPollRetry = null;
+}
+
 const storedPlaylistPageSize = safeStorageGet("autolist-playlist-page-size");
 let playlistPageSize = ["20", "50", "100", "200"].includes(storedPlaylistPageSize) ? storedPlaylistPageSize : "50";
 let playlistItemTotal = 0;
@@ -48,9 +90,32 @@ let selectedSiteId = null;
 let siteFilter = "all";
 let importMode = "url";
 let dashboardShelfSignature = "";
+let candidateRenderSignature = "";
+let playlistPollRetry = null;
 const routeScrollPositions = new Map();
 let pendingHashNavigation = false;
 if (window.history && "scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+
+const dialogReturnFocus = new WeakMap();
+function focusDialogControl(dialog) {
+  const target = dialog.querySelector("input:not([type='hidden']), select, textarea, button:not([value='cancel'])");
+  if (target && document.activeElement !== target) target.focus();
+}
+function showDialog(dialog, trigger = document.activeElement) {
+  if (!dialog) return;
+  dialogReturnFocus.set(dialog, trigger instanceof HTMLElement ? trigger : null);
+  dialog.showModal();
+  requestAnimationFrame(() => focusDialogControl(dialog));
+  setTimeout(() => focusDialogControl(dialog), 0);
+}
+document.querySelectorAll("dialog").forEach((dialog) => {
+  dialog.addEventListener("close", () => {
+    const target = dialogReturnFocus.get(dialog);
+    dialogReturnFocus.delete(dialog);
+    if (target?.isConnected && !target.disabled) requestAnimationFrame(() => target.focus({preventScroll: true}));
+  });
+});
+
 const routeScrollStorageKey = (page) => `autolist-route-scroll:${page}`;
 function getHistoryRouteScroll(page) {
   const value = window.history?.state?.autolistRouteScroll?.[page];
@@ -226,6 +291,7 @@ async function loadConnection() {
     sidebarDot.className = "status-dot error";
     $("#top-service-label").textContent = "服务连接异常";
     $("#top-service-detail").textContent = "点击重新检测";
+    $("#service-status")?.setAttribute("data-short-label", "异常");
     $("#service-status")?.setAttribute("aria-label", "服务状态：连接异常，点击重新检测查看详情");
     $("#sidebar-status-label").textContent = "服务连接异常";
     ["#rail-tmdb-status", "#rail-tr-status", "#rail-emby-status", "#rail-mp-status"].forEach((selector) => { const node = $(selector); if (node) node.textContent = "连接失败"; });
@@ -239,7 +305,8 @@ function updateDashboardTask(task) {
     pill.className = "pill pill-neutral";
     $("#dashboard-task-title").textContent = "还没有搜索记录";
     $("#dashboard-task-copy").textContent = "导入片单后，可以按序号范围批量搜索资源。";
-    $("#dashboard-task-bar").style.width = "0%";
+    setProgressValue("#dashboard-task-bar", 0);
+    $(".dashboard-progress")?.setAttribute("aria-valuenow", "0");
     return;
   }
   const percent = task.total ? Math.round(task.completed / task.total * 100) : 0;
@@ -247,7 +314,8 @@ function updateDashboardTask(task) {
   pill.className = `pill ${taskPillClass(task.status)}`;
   $("#dashboard-task-title").textContent = `序号 ${task.range_start}–${task.range_end}`;
   $("#dashboard-task-copy").textContent = `${task.completed}/${task.total} 部已处理 · ${task.matched || 0} 个候选资源`;
-  $("#dashboard-task-bar").style.width = `${percent}%`;
+  setProgressValue("#dashboard-task-bar", percent);
+  $(".dashboard-progress")?.setAttribute("aria-valuenow", String(percent));
 }
 
 async function loadOverview() {
@@ -260,7 +328,8 @@ async function loadOverview() {
   $("#dashboard-new-count").textContent = `${Number(overview.in_library_count || 0).toLocaleString("zh-CN")} 部电影`;
   $("#dashboard-history-count").textContent = Number(overview.history_count || 0).toLocaleString("zh-CN");
   const libraryPercent = Number(overview.item_count) ? Math.round(Number(overview.in_library_count || 0) / Number(overview.item_count) * 100) : 0;
-  $("#dashboard-library-bar").style.width = `${Math.min(100, libraryPercent)}%`;
+  setProgressValue("#dashboard-library-bar", libraryPercent);
+  $(".collection-progress-bar")?.setAttribute("aria-valuenow", String(Math.min(100, libraryPercent)));
   const patterns = ["circle", "frame", "line", "circle", "line", "frame"];
   const accents = ["#c18b32", "#7898a4", "#bfd5cf", "#c9a36c", "#c7d7db", "#c3b27d"];
   const items = Array.isArray(overview.recent_items) ? overview.recent_items : [];
@@ -311,7 +380,7 @@ async function loadPlaylists(showDetails = false) {
   // 片单默认保持折叠，只有用户主动点击卡片时才展开详情。
   $("#playlist-cards").innerHTML = lists.length
     ? lists.map((item, index) => `<article class="playlist-card ${item.id === expandedPlaylistId ? "active" : ""}">
-        <button class="playlist-card-main" data-playlist-id="${item.id}" aria-expanded="${item.id === expandedPlaylistId}"><span>${escapeHtml(item.source_type || "片单")}</span><strong>${escapeHtml(item.name)}</strong><small>${Number(item.recognized_count || 0)}/${Number(item.item_count)} 已识别 · ${item.source_url ? `同步于 ${formatTime(item.last_synced_at)}` : `创建于 ${formatTime(item.created_at)}`}</small><i>${item.id === expandedPlaylistId ? "收起明细 ↑" : "展开明细 ↓"}</i></button>
+        <button class="playlist-card-main" data-playlist-id="${item.id}" aria-expanded="${item.id === expandedPlaylistId}" aria-controls="playlist-detail-panel"><span>${escapeHtml(item.source_type || "片单")}</span><strong>${escapeHtml(item.name)}</strong><small>${Number(item.recognized_count || 0)}/${Number(item.item_count)} 已识别 · ${item.source_url ? `同步于 ${formatTime(item.last_synced_at)}` : `创建于 ${formatTime(item.created_at)}`}</small><i>${item.id === expandedPlaylistId ? "收起明细 ↑" : "展开明细 ↓"}</i></button>
         <div class="playlist-card-actions">${item.source_url ? `<button data-sync-playlist="${item.id}">增量同步</button><button data-toggle-sync="${item.id}">${item.sync_enabled ? "停用定时" : "启用定时"}</button>` : ""}<button data-rename-playlist="${item.id}">改名</button><button data-order-playlist="${item.id}" data-direction="up" ${index === 0 ? "disabled" : ""}>上移</button><button data-order-playlist="${item.id}" data-direction="down" ${index === lists.length - 1 ? "disabled" : ""}>下移</button></div>
       </article>`).join("")
     : "<div class='empty-state'><strong>还没有片单</strong><p>导入文件或常见电影网站片单开始使用。</p></div>";
@@ -514,7 +583,35 @@ function torrentLinkHtml(url, title) {
   return href === "#" ? label : `<a class="torrent-link" href="${href}" target="_blank" rel="noopener noreferrer" title="${label}">${label} ↗</a>`;
 }
 
+function captureCandidateViewState(container) {
+  const expanded = new Map([...container.querySelectorAll("[data-candidate-details]")].map((details) => [details.dataset.candidateDetails, details.open]));
+  const active = document.activeElement;
+  const button = active?.closest("[data-candidate]");
+  const details = active?.closest("[data-candidate-details]");
+  return {
+    expanded,
+    scrollY: window.scrollY,
+    focus: button ? {type: "button", id: button.dataset.candidate} : details ? {type: "details", id: details.dataset.candidateDetails} : null,
+  };
+}
+
+function restoreCandidateViewState(container, state) {
+  container.querySelectorAll("[data-candidate-details]").forEach((details) => {
+    const key = details.dataset.candidateDetails;
+    if (state.expanded.has(key)) details.open = state.expanded.get(key);
+  });
+  const focus = state.focus;
+  if (focus) {
+    const target = focus.type === "button"
+      ? [...container.querySelectorAll("[data-candidate]")].find((button) => button.dataset.candidate === focus.id)
+      : [...container.querySelectorAll("[data-candidate-details]")].find((details) => details.dataset.candidateDetails === focus.id)?.querySelector("summary");
+    if (target && !target.disabled) requestAnimationFrame(() => target.focus({preventScroll: true}));
+  }
+  if (Number.isFinite(state.scrollY)) window.scrollTo(0, state.scrollY);
+}
+
 function renderCandidates() {
+  const container = $("#candidates");
   const filtered = candidateCache.filter((item) => {
     if (currentFilter === "all") return item.eligibility !== "excluded";
     if (currentFilter === "preferred") return item.recommendation === "preferred";
@@ -526,13 +623,24 @@ function renderCandidates() {
   });
   const eligibleCount = candidateCache.filter((item) => item.eligibility !== "excluded").length;
   $("#metric-candidates").textContent = eligibleCount;
+  const signature = JSON.stringify({
+    filter: currentFilter,
+    task: activeTaskState?.status || "",
+    failed: Number(activeTaskState?.attempt_summary?.failed || 0),
+    items: filtered.map((item) => [item.id, item.in_cart, item.context_available, item.eligibility, item.recommendation, item.score, item.site_count, Array.isArray(item.site_options) ? item.site_options.length : 0]),
+  });
+  if (signature === candidateRenderSignature && container.childElementCount) return;
+  const viewState = captureCandidateViewState(container);
+  candidateRenderSignature = signature;
+  container.setAttribute("aria-busy", "true");
   if (!filtered.length) {
     const {heading, copy, actions} = candidateEmptyState({candidateCache, activeTaskState, currentFilter});
-    $("#candidates").innerHTML = `<div class="empty-state"><span aria-hidden="true">⌕</span><strong>${heading}</strong><p>${copy}</p>${actions}</div>`;
+    container.innerHTML = `<div class="empty-state"><span aria-hidden="true">⌕</span><strong>${heading}</strong><p>${copy}</p>${actions}</div>`;
+    container.setAttribute("aria-busy", "false");
     return;
   }
   let previousMovieId = null;
-  $("#candidates").innerHTML = filtered.map((item) => {
+  container.innerHTML = filtered.map((item) => {
     const [stateLabel, stateClass] = candidateState(item);
     const movieStart = previousMovieId !== null && item.playlist_item_id !== previousMovieId;
     previousMovieId = item.playlist_item_id;
@@ -541,14 +649,18 @@ function renderCandidates() {
     const labels = Array.isArray(item.metadata?.labels) ? item.metadata.labels.slice(0, 2) : [];
     const breakdown = Array.isArray(item.score_breakdown) ? item.score_breakdown.slice(0, 3) : [];
     const movieTitle = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title;
+    const siteOptions = Array.isArray(item.site_options) ? item.site_options : [];
+    const hasSiteOptions = Number(item.site_count || siteOptions.length) > 1 && siteOptions.length > 1;
     return `<article class="candidate-row ${movieStart ? "movie-start " : ""}${item.recommendation === "preferred" ? "is-best" : ""} ${excluded ? "is-excluded" : ""}">
       <div class="candidate-title"><strong>${escapeHtml(movieTitle)} <span class="candidate-meta">#${escapeHtml(item.rank_no)} · ${escapeHtml(item.tmdb_year || item.year || "")}</span></strong><small title="${escapeHtml(item.title)}">${torrentLinkHtml(item.detail_url, item.title)}</small></div>
       <div class="recommendation-cell"><span class="recommendation-badge ${escapeHtml(item.recommendation)}">${recommendation}</span><small>${escapeHtml(item.recommendation_reason || "等待规则分析")}</small></div>
-      <div class="candidate-source"><strong>${escapeHtml(item.site_name || "未知站点")} ${formatPublishDate(item.metadata?.publish_time) ? `<span class="publish-date">${formatPublishDate(item.metadata?.publish_time)}</span>` : ""} ${item.is_free ? '<em class="free-mark">FREE</em>' : ""}</strong><small class="site-selection-reason">${escapeHtml(item.site_selection_reason || "")}</small><div class="spec-stack"><span class="tag tag-accent">${escapeHtml(item.resolution || "其他")}</span><span class="tag">${escapeHtml(item.codec || "其他")}</span><span class="tag">${escapeHtml(item.group_name || "未知组")}</span><span class="tag">${Number(item.seeders || 0)} 做种</span><span class="tag">${formatSize(item.size)}</span><span class="tag ${stateClass}">${stateLabel}</span>${labels.map((label) => `<span class="tag tag-promo">${escapeHtml(label)}</span>`).join("")}</div>${item.site_count > 1 ? `<details class="site-options"><summary>另 ${item.site_count - 1} 个站点</summary>${item.site_options.slice(1).map((option) => `<div><strong>${torrentLinkHtml(option.detail_url, option.site_name || "未知")}</strong><span>${formatPublishDate(option.publish_time)}${formatPublishDate(option.publish_time) ? " · " : ""}优先级 ${Number(option.site_priority)} · ${option.volume_factor === 0 ? "FREE · " : option.volume_factor < 1 ? `下载 ${Math.round(option.volume_factor * 100)}% · ` : ""}${Number(option.seeders || 0)} 做种</span></div>`).join("")}</details>` : ""}</div>
+      <div class="candidate-source"><strong>${escapeHtml(item.site_name || "未知站点")} ${formatPublishDate(item.metadata?.publish_time) ? `<span class="publish-date">${formatPublishDate(item.metadata?.publish_time)}</span>` : ""} ${item.is_free ? '<em class="free-mark">FREE</em>' : ""}</strong><small class="site-selection-reason">${escapeHtml(item.site_selection_reason || "")}</small><div class="spec-stack"><span class="tag tag-accent">${escapeHtml(item.resolution || "其他")}</span><span class="tag">${escapeHtml(item.codec || "其他")}</span><span class="tag">${escapeHtml(item.group_name || "未知组")}</span><span class="tag">${Number(item.seeders || 0)} 做种</span><span class="tag">${formatSize(item.size)}</span><span class="tag ${stateClass}">${stateLabel}</span>${labels.map((label) => `<span class="tag tag-promo">${escapeHtml(label)}</span>`).join("")}</div>${hasSiteOptions ? `<details class="site-options" data-candidate-details="${escapeHtml(item.id)}"><summary>另 ${siteOptions.length - 1} 个站点</summary>${siteOptions.slice(1).map((option) => `<div><strong>${torrentLinkHtml(option.detail_url, option.site_name || "未知")}</strong><span>${formatPublishDate(option.publish_time)}${formatPublishDate(option.publish_time) ? " · " : ""}优先级 ${Number(option.site_priority)} · ${option.volume_factor === 0 ? "FREE · " : option.volume_factor < 1 ? `下载 ${Math.round(option.volume_factor * 100)}% · ` : ""}${Number(option.seeders || 0)} 做种</span></div>`).join("")}</details>` : ""}</div>
       <div class="candidate-score"><strong>${excluded ? "—" : Number(item.score || 0)}</strong><small>${excluded ? escapeHtml(item.exclusion_reason || "不符合允许组合") : (breakdown.map((part) => `${escapeHtml(part.label)}${Number(part.score || 0) ? ` +${Number(part.score)}` : ""}`).join(" · ") || "策略匹配")}</small></div>
       ${excluded ? '<span class="candidate-blocked">不可加入</span>' : `<button class="candidate-action ${item.in_cart ? "selected" : ""}" data-candidate="${escapeHtml(item.id)}" ${!item.context_available && !item.in_cart ? "disabled" : ""}>${item.in_cart ? "移出下载列表" : item.context_available ? "加入下载列表" : "需重新搜索"}</button>`}
     </article>`;
   }).join("");
+  container.setAttribute("aria-busy", "false");
+  restoreCandidateViewState(container, viewState);
 }
 
 function setTaskState(task) {
@@ -567,7 +679,8 @@ function setTaskState(task) {
   progress.hidden = false;
   $("#task-text").textContent = `${task.completed}/${task.total} 部 · ${task.matched} 个候选`;
   $("#task-percent").textContent = `${percent}%`;
-  $("#task-bar").style.width = `${percent}%`;
+  setProgressValue("#task-bar", percent);
+  $("#task-progress-bar")?.setAttribute("aria-valuenow", String(percent));
   $("#cancel-task").hidden = !["queued", "running"].includes(task.status);
   $("#retry-task").hidden = !["partial", "failed", "completed"].includes(task.status) || !Number(task.attempt_summary?.failed || 0);
   $("#restart-task").hidden = !["partial", "interrupted", "cancelled", "failed"].includes(task.status);
@@ -593,40 +706,49 @@ async function refreshTaskLogs() {
 let candidatePollFailures = 0;
 async function refreshCandidates(schedule = true) {
   if (!activeTask) return;
+  const container = $("#candidates");
+  if (container) container.setAttribute("aria-busy", "true");
   let task;
   try {
     task = await api(`/api/search-tasks/${activeTask}`);
     candidatePollFailures = 0;
+    clearTaskPollError();
   } catch (error) {
-    // 瞬时失败不终止轮询：退避重试，连续 10 次失败后停止避免刷屏。
     candidatePollFailures += 1;
-    if (candidatePollFailures >= 10) return;
+    setTaskPollError(`搜索状态读取失败（第 ${candidatePollFailures} 次）：${error.message}`);
     clearTimeout(taskTimer);
-    if (schedule) taskTimer = setTimeout(() => refreshCandidates(true), 3000);
+    if (schedule && candidatePollFailures < 10) taskTimer = setTimeout(() => refreshCandidates(true).catch((pollError) => setTaskPollError(pollError.message)), 3000);
+    if (container) container.setAttribute("aria-busy", "false");
     return;
   }
   setTaskState(task);
+  let pollError = false;
   try {
     candidateCache = await api(`/api/candidates?task_id=${activeTask}`);
   } catch (error) {
-    showToast(`候选读取失败：${error.message}`);
+    pollError = true;
+    setTaskPollError(`候选结果读取失败：${error.message}`);
   }
   try {
     await refreshTaskLogs();
   } catch (error) {
-    showToast(`任务日志读取失败：${error.message}`);
+    pollError = true;
+    setTaskPollError(`任务日志读取失败：${error.message}`);
   }
   renderCandidates();
+  if (!pollError && ["completed", "partial", "failed", "cancelled", "interrupted"].includes(task.status)) clearTaskPollError();
   clearTimeout(taskTimer);
   if (schedule && ["queued", "running"].includes(task.status)) {
     taskTimer = setTimeout(() => refreshCandidates(true).catch((error) => showToast(error.message)), 1400);
   }
+  if (container) container.setAttribute("aria-busy", "false");
 }
 
 async function recoverLatestTask() {
   const tasks = await api("/api/search-tasks?limit=1");
   if (!tasks.length) return;
   activeTask = tasks[0].id;
+  candidateRenderSignature = "";
   await refreshCandidates(true);
 }
 
@@ -818,7 +940,12 @@ async function loadSites() {
   renderSites();
   renderSiteInspector(list.find((site) => site.id === selectedSiteId));
   syncSiteInspectorMode();
-  if (selectedSiteId) loadSiteHealth(selectedSiteId).catch(() => {});
+  if (selectedSiteId) {
+    const siteId = selectedSiteId;
+    loadSiteHealth(siteId).catch((error) => {
+      if (selectedSiteId === siteId && $("#site-health-summary")) $("#site-health-summary").textContent = `统计读取失败：${error.message}`;
+    });
+  }
 }
 
 function siteConnectionState(site) {
@@ -954,7 +1081,7 @@ function openSiteDialog(site = null) {
   $("#site-clear-cookie").checked = false;
   $("#site-clear-rss-url").checked = false;
   $("#site-result").textContent = site ? `${site.api_key_configured ? "API 已配置" : "API 未配置"} · ${site.cookie_configured ? "Cookie 已配置" : "Cookie 未配置"}` : "";
-  $("#site-dialog").showModal();
+  showDialog($("#site-dialog"));
 }
 
 function activateImportMode(button, focus = false) {
@@ -984,7 +1111,7 @@ $$("[data-import-mode]").forEach((button) => {
   });
 });
 
-document.addEventListener("click", async (event) => {
+async function handleDocumentClick(event) {
   const importModeButton = event.target.closest("[data-import-mode]");
   if (importModeButton) {
     activateImportMode(importModeButton);
@@ -998,7 +1125,7 @@ document.addEventListener("click", async (event) => {
   }
   const importTarget = event.target.closest("[data-open-import]");
   if (importTarget) {
-    $("#import-dialog").showModal();
+    showDialog($("#import-dialog"), importTarget);
     return;
   }
   const renamePlaylist = event.target.closest("[data-rename-playlist]");
@@ -1006,37 +1133,52 @@ document.addEventListener("click", async (event) => {
     const playlist = playlistCache.find((item) => item.id === Number(renamePlaylist.dataset.renamePlaylist));
     const name = window.prompt("输入新的片单名称", playlist?.name || "");
     if (!name?.trim()) return;
-    await api(`/api/playlists/${renamePlaylist.dataset.renamePlaylist}`, {method: "PUT", body: JSON.stringify({name: name.trim()})});
-    await Promise.all([loadPlaylists(currentPage === "playlists"), loadOverview()]);
-    showToast("片单名称已更新");
+    setButtonLoading(renamePlaylist, true, "保存中…");
+    try {
+      await api(`/api/playlists/${renamePlaylist.dataset.renamePlaylist}`, {method: "PUT", body: JSON.stringify({name: name.trim()})});
+      await Promise.all([loadPlaylists(currentPage === "playlists"), loadOverview()]);
+      showToast("片单名称已更新");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setButtonLoading(renamePlaylist, false);
+    }
     return;
   }
   const refreshPlaylistSource = event.target.closest("[data-refresh-playlist-source]");
   if (refreshPlaylistSource) {
-    refreshPlaylistSource.disabled = true;
+    setButtonLoading(refreshPlaylistSource, true, "刷新中…");
     try {
       const result = await api(`/api/playlists/${refreshPlaylistSource.dataset.refreshPlaylistSource}/refresh-source`, {method: "POST"});
       await Promise.all([loadPlaylists(currentPage === "playlists"), loadOverview()]);
       showToast(result.message);
-    } catch (error) { showToast(error.message); } finally { refreshPlaylistSource.disabled = false; }
+    } catch (error) { showToast(error.message); } finally { setButtonLoading(refreshPlaylistSource, false); }
     return;
   }
   const syncPlaylist = event.target.closest("[data-sync-playlist]");
   if (syncPlaylist) {
-    syncPlaylist.disabled = true;
+    setButtonLoading(syncPlaylist, true, "同步中…");
     try {
       const result = await api(`/api/playlists/${syncPlaylist.dataset.syncPlaylist}/sync-now`, {method: "POST"});
       await Promise.all([loadPlaylists(currentPage === "playlists"), loadOverview()]);
       showToast(result.message);
-    } catch (error) { showToast(error.message); } finally { syncPlaylist.disabled = false; }
+    } catch (error) { showToast(error.message); } finally { setButtonLoading(syncPlaylist, false); }
     return;
   }
   const toggleSync = event.target.closest("[data-toggle-sync]");
   if (toggleSync) {
     const playlist = playlistCache.find((item) => item.id === Number(toggleSync.dataset.toggleSync));
-    await api(`/api/playlists/${playlist.id}/sync-settings`, {method: "PUT", body: JSON.stringify({enabled: !playlist.sync_enabled, interval_hours: Number(playlist.sync_interval_hours || 24)})});
-    await loadPlaylists(currentPage === "playlists");
-    showToast(playlist.sync_enabled ? "已停用定时同步" : "已启用每 24 小时增量同步");
+    if (!playlist) return;
+    setButtonLoading(toggleSync, true, "保存中…");
+    try {
+      await api(`/api/playlists/${playlist.id}/sync-settings`, {method: "PUT", body: JSON.stringify({enabled: !playlist.sync_enabled, interval_hours: Number(playlist.sync_interval_hours || 24)})});
+      await loadPlaylists(currentPage === "playlists");
+      showToast(playlist.sync_enabled ? "已停用定时同步" : "已启用每 24 小时增量同步");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setButtonLoading(toggleSync, false);
+    }
     return;
   }
   const orderPlaylist = event.target.closest("[data-order-playlist]");
@@ -1046,9 +1188,16 @@ document.addEventListener("click", async (event) => {
     const target = orderPlaylist.dataset.direction === "up" ? index - 1 : index + 1;
     if (index < 0 || target < 0 || target >= ids.length) return;
     [ids[index], ids[target]] = [ids[target], ids[index]];
-    await api("/api/playlists/reorder", {method: "POST", body: JSON.stringify({ids})});
-    await loadPlaylists(currentPage === "playlists");
-    showToast("片单顺序已更新");
+    setButtonLoading(orderPlaylist, true, "保存中…");
+    try {
+      await api("/api/playlists/reorder", {method: "POST", body: JSON.stringify({ids})});
+      await loadPlaylists(currentPage === "playlists");
+      showToast("片单顺序已更新");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setButtonLoading(orderPlaylist, false);
+    }
     return;
   }
   const playlistCard = event.target.closest("[data-playlist-id]");
@@ -1078,7 +1227,9 @@ document.addEventListener("click", async (event) => {
     selectedSiteId = Number(siteCard.dataset.openSite);
     renderSites();
     renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
-    loadSiteHealth(selectedSiteId).catch(() => {});
+    loadSiteHealth(selectedSiteId).catch((error) => {
+      if ($("#site-health-summary")) $("#site-health-summary").textContent = `统计读取失败：${error.message}`;
+    });
     const currentSiteButton = $$("[data-open-site]").find((button) => Number(button.dataset.openSite) === selectedSiteId);
     openSiteInspector(currentSiteButton);
     return;
@@ -1089,63 +1240,70 @@ document.addEventListener("click", async (event) => {
   }
   const refreshSiteCookie = event.target.closest("[data-refresh-site-cookie]");
   if (refreshSiteCookie) {
-    refreshSiteCookie.disabled = true;
+    setButtonLoading(refreshSiteCookie, true, "刷新中…");
     try {
       const result = await api(`/api/sites/${refreshSiteCookie.dataset.refreshSiteCookie}/refresh-cookie`, {method: "POST"});
       showToast(result.message);
       await loadSites();
     } catch (error) { showToast(error.message); }
-    finally { refreshSiteCookie.disabled = false; }
+    finally { setButtonLoading(refreshSiteCookie, false); }
     return;
   }
   const testSiteButton = event.target.closest("[data-test-site]");
   if (testSiteButton) {
-    testSiteButton.disabled = true;
+    setButtonLoading(testSiteButton, true, "检测中…");
     try {
       const result = await api(`/api/sites/${testSiteButton.dataset.testSite}/test`, {method: "POST"});
       showToast(result.message || (result.ok ? "站点连接正常" : "站点连接失败"));
       await loadSites();
     } catch (error) { showToast(error.message); }
     finally {
-      testSiteButton.disabled = false;
+      setButtonLoading(testSiteButton, false);
     }
     return;
   }
   if (deleteSiteButton) {
     if (!window.confirm("确认删除这个站点配置？")) return;
-    await api(`/api/sites/${deleteSiteButton.dataset.deleteSite}`, {method: "DELETE"});
-    closeSiteInspector(false);
-    await loadSites();
-    showToast("站点已删除");
+    setButtonLoading(deleteSiteButton, true, "删除中…");
+    try {
+      await api(`/api/sites/${deleteSiteButton.dataset.deleteSite}`, {method: "DELETE"});
+      closeSiteInspector(false);
+      await loadSites();
+      showToast("站点已删除");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setButtonLoading(deleteSiteButton, false);
+    }
     return;
   }
   const candidateButton = event.target.closest("[data-candidate]");
   if (candidateButton) {
-    candidateButton.disabled = true;
+    setButtonLoading(candidateButton, true, "处理中…");
     try {
       await api(`/api/cart/items/${encodeURIComponent(candidateButton.dataset.candidate)}`, {method: "POST"});
       await Promise.all([refreshCandidates(false), refreshCart()]);
     } catch (error) {
       showToast(error.message);
     } finally {
-      candidateButton.disabled = false;
+      setButtonLoading(candidateButton, false);
     }
     return;
   }
   const taskAction = event.target.closest("[data-task-action]");
   if (taskAction) {
-    taskAction.disabled = true;
+    setButtonLoading(taskAction, true, "启动中…");
     const action = taskAction.dataset.taskAction;
     try {
       await followupSearch(action, action === "retry" ? "重试" : "重新搜索整项");
     } finally {
-      taskAction.disabled = false;
+      setButtonLoading(taskAction, false);
     }
     return;
   }
   const removeButton = event.target.closest("[data-cart-remove]");
   if (removeButton) {
-    removeButton.disabled = true;
+    setButtonLoading(removeButton, true, "移除中…");
     try {
       await api(`/api/cart/items/${encodeURIComponent(removeButton.dataset.cartRemove)}`, {method: "POST"});
       await refreshCart();
@@ -1154,9 +1312,13 @@ document.addEventListener("click", async (event) => {
     } catch (error) {
       showToast(error.message);
     } finally {
-      removeButton.disabled = false;
+      setButtonLoading(removeButton, false);
     }
   }
+}
+
+document.addEventListener("click", (event) => {
+  handleDocumentClick(event).catch((error) => showToast(error.message || "操作失败，请稍后重试"));
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1220,7 +1382,9 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("hashchange", () => {
-  const target = window.location.hash.slice(1);
+  const requested = window.location.hash.slice(1);
+  const target = pageMeta[requested] ? requested : "dashboard";
+  if (requested !== target) history.replaceState(history.state, "", "#dashboard");
   const restoreScroll = !pendingHashNavigation && Number.isFinite(getRouteScroll(target));
   pendingHashNavigation = false;
   navigate(target, false, restoreScroll);
@@ -1256,11 +1420,13 @@ $$("[data-settings-tab]").forEach((tab) => {
   });
 });
 
-$("#open-settings").addEventListener("click", async () => {
+$("#open-settings").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
   const dialog = $("#settings-dialog");
   const output = $("#settings-result");
+  setButtonLoading(button, true, "读取中…");
   activateSettingsTab("recognition");
-  dialog.showModal();
+  showDialog(dialog, button);
   output.textContent = "正在读取设置…";
   output.className = "inline-message";
   try {
@@ -1269,15 +1435,22 @@ $("#open-settings").addEventListener("click", async () => {
   } catch (error) {
     output.textContent = error.message;
     output.className = "inline-message error";
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 
 $("#service-status").addEventListener("click", async () => {
+  const button = $("#service-status");
+  setButtonLoading(button, true, "检测中…");
   try {
     await loadConnection();
     showToast("服务状态已刷新");
   } catch (error) {
     showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+    renderPlaylistItems();
   }
 });
 
@@ -1342,26 +1515,34 @@ $("#save-settings").addEventListener("click", async () => {
   }
 });
 
-$("#settings-access-token-save")?.addEventListener("click", async () => {
-  setAccessToken($("#settings-access-token").value);
-  showToast(getAccessToken() ? "本机访问令牌已保存" : "本机访问令牌已清空");
+$("#settings-access-token-save")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "保存中…");
   try {
+    setAccessToken($("#settings-access-token").value);
+    showToast(getAccessToken() ? "本机访问令牌已保存" : "本机访问令牌已清空");
     await loadSettings();
   } catch (error) {
     showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 
-$("#settings-access-token-clear")?.addEventListener("click", async () => {
-  setAccessToken("");
-  $("#settings-access-token").value = "";
-  showToast("本机访问令牌已清除");
+$("#settings-access-token-clear")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "清除中…");
   try {
+    setAccessToken("");
+    $("#settings-access-token").value = "";
+    showToast("本机访问令牌已清除");
     await loadSettings();
   } catch (error) {
     /* server may require token again */
     $("#settings-access-token-status").textContent = "本机已清除";
     $("#settings-access-token-status").className = "";
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 
@@ -1381,12 +1562,16 @@ $("#save-rules").addEventListener("click", async () => {
 
 $("#run-score-preview").addEventListener("click", async () => {
   const output = $("#score-preview-result");
+  const button = $("#run-score-preview");
+  setButtonLoading(button, true, "解析中…");
   output.textContent = "正在解析…";
   try {
     const result = await api("/api/config/score-preview", {method: "POST", body: JSON.stringify({title: $("#rules-preview-title").value.trim(), seeders: Number($("#rules-preview-seeders").value || 0), candidate_policy: collectCandidatePolicy()})});
     const state = {preferred: "首选", fallback: "保底", excluded: "已排除"}[result.recommendation] || result.recommendation;
+    output.className = "score-preview-result";
     output.innerHTML = `<strong>${escapeHtml(state)}${result.score ? ` · ${Number(result.score)} 匹配度` : ""}</strong><span>${escapeHtml(result.resolution)} · ${escapeHtml(result.codec)} · ${escapeHtml(result.group || "未知制作组")}</span><div>${(result.breakdown || []).map((item) => `<i>${escapeHtml(item.label)}</i>`).join("")}</div>${result.exclusion_reason ? `<small class="preview-exclusion">${escapeHtml(result.exclusion_reason)}</small>` : ""}`;
-  } catch (error) { output.textContent = error.message; }
+  } catch (error) { output.textContent = error.message; output.className = "score-preview-result error"; }
+  finally { setButtonLoading(button, false); }
 });
 
 $("#open-site-dialog").addEventListener("click", () => openSiteDialog());
@@ -1407,6 +1592,7 @@ function activateSiteFilter(button, focus = false) {
     item.setAttribute("aria-selected", String(active));
     item.tabIndex = active ? 0 : -1;
   });
+  $("#sites-list")?.setAttribute("aria-labelledby", button.id || "site-filter-all");
   renderSites();
   if (focus) button.focus();
 }
@@ -1425,6 +1611,8 @@ $$('[data-site-filter]').forEach((button) => {
 });
 $("#save-site").addEventListener("click", async () => {
   const output = $("#site-result");
+  const button = $("#save-site");
+  setButtonLoading(button, true, "保存中…");
   try {
     const siteId = $("#site-id").value;
     const existing = siteCache.find((site) => site.id === Number(siteId));
@@ -1447,6 +1635,8 @@ $("#save-site").addEventListener("click", async () => {
   } catch (error) {
     output.textContent = error.message;
     output.className = "inline-message error";
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 
@@ -1458,83 +1648,111 @@ $("#playlist-item-query").addEventListener("input", () => {
 $("#playlist-library-filter").addEventListener("change", async () => {
   playlistLibraryFilter = $("#playlist-library-filter").value;
   playlistPage = 1;
-  if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId);
+  try {
+    if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId);
+  } catch (error) {
+    showToast(error.message);
+  }
 });
 async function pollLibraryScan(taskId) {
+  libraryScanTaskId = taskId;
   let task;
   try {
     task = await api(`/api/library-scan-tasks/${taskId}`);
   } catch (error) {
-    // 瞬时失败不终止轮询：退避重试，连续 10 次失败后停止。
     libraryScanFailures += 1;
-    if (libraryScanFailures >= 10) {
-      const button = $("#refresh-library");
-      if (button) button.disabled = !expandedPlaylistId;
-      return;
-    }
+    setPlaylistPollError(`Emby 状态读取失败（第 ${libraryScanFailures} 次）：${error.message}`, () => pollLibraryScan(taskId));
+    const button = $("#refresh-library");
+    if (button) button.disabled = libraryScanFailures < 10;
+    if (libraryScanFailures >= 10) button?.removeAttribute("aria-busy");
     clearTimeout(libraryScanTimer);
-    libraryScanTimer = setTimeout(() => pollLibraryScan(taskId).catch(() => {}), 3000);
+    if (libraryScanFailures < 10) libraryScanTimer = setTimeout(() => pollLibraryScan(taskId).catch((pollError) => setPlaylistPollError(`Emby 状态读取失败：${pollError.message}`, () => pollLibraryScan(taskId))), 3000);
     return;
   }
   libraryScanFailures = 0;
+  clearPlaylistPollError();
   const button = $("#refresh-library");
   button.textContent = ["queued", "running"].includes(task.status) ? `刷新中 ${task.completed}/${task.total}` : "刷新 Emby 状态";
   if (["queued", "running"].includes(task.status)) {
     button.disabled = true;
     clearTimeout(libraryScanTimer);
-    libraryScanTimer = setTimeout(() => pollLibraryScan(taskId).catch((error) => showToast(error.message)), 1000);
+    libraryScanTimer = setTimeout(() => pollLibraryScan(taskId).catch((pollError) => setPlaylistPollError(`Emby 状态读取失败：${pollError.message}`, () => pollLibraryScan(taskId))), 1000);
     return;
   }
+  libraryScanTaskId = null;
   button.disabled = !expandedPlaylistId;
-  if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId, $("#playlist-item-query").value);
+  button.removeAttribute("aria-busy");
+  try {
+    if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId, $("#playlist-item-query").value);
+  } catch (error) {
+    setPlaylistPollError(`Emby 状态已完成，但明细读取失败：${error.message}`, () => loadPlaylistItems(expandedPlaylistId, $("#playlist-item-query").value));
+    return;
+  }
   showToast(task.status === "completed" ? `Emby 状态已刷新：已入库 ${task.in_library} · 待入库 ${Math.max(0, Number(task.total) - Number(task.in_library))}` : "Emby 状态刷新未完成");
 }
 $("#refresh-library").addEventListener("click", async () => {
-  if (!expandedPlaylistId) return;
+  if (!expandedPlaylistId || libraryScanTaskId) return;
   const button = $("#refresh-library");
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  libraryScanFailures = 0;
+  clearPlaylistPollError();
   try {
     const task = await api(`/api/playlists/${expandedPlaylistId}/library-scan`, {method: "POST"});
+    libraryScanTaskId = task.id;
     showToast(task.message);
     await pollLibraryScan(task.id);
-  } catch (error) { button.disabled = false; showToast(error.message); }
+  } catch (error) {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    showToast(error.message);
+  }
 });
 async function pollRecognition(taskId) {
   if (!taskId) {
+    recognitionTaskId = null;
+    setButtonLoading($("#recognize-playlist"), false);
     $("#recognition-progress").hidden = true;
     await loadPlaylists(true);
     return;
   }
+  recognitionTaskId = taskId;
   let task;
   try {
     task = await api(`/api/recognition-tasks/${taskId}`);
   } catch (error) {
     recognitionPollFailures += 1;
-    if (recognitionPollFailures >= 10) {
-      $("#recognition-progress").hidden = true;
-      return;
-    }
+    setPlaylistPollError(`TMDB 识别状态读取失败（第 ${recognitionPollFailures} 次）：${error.message}`, () => pollRecognition(taskId));
     clearTimeout(recognitionTimer);
-    recognitionTimer = setTimeout(() => pollRecognition(taskId).catch(() => {}), 3000);
+    if (recognitionPollFailures < 10) recognitionTimer = setTimeout(() => pollRecognition(taskId).catch((pollError) => setPlaylistPollError(`TMDB 识别状态读取失败：${pollError.message}`, () => pollRecognition(taskId))), 3000);
     return;
   }
   recognitionPollFailures = 0;
+  clearPlaylistPollError();
   const percent = task.total ? Math.round(task.completed / task.total * 100) : 100;
   $("#recognition-progress").hidden = false;
   $("#recognition-text").textContent = `TMDB 识别 ${task.completed}/${task.total} · 成功 ${task.matched}`;
-  $("#recognition-bar").style.width = `${percent}%`;
+  setProgressValue("#recognition-bar", percent);
+  $("#recognition-progress-bar")?.setAttribute("aria-valuenow", String(percent));
   clearTimeout(recognitionTimer);
   if (["queued", "running"].includes(task.status)) {
-    recognitionTimer = setTimeout(() => pollRecognition(taskId).catch((error) => showToast(error.message)), 1200);
+    recognitionTimer = setTimeout(() => pollRecognition(taskId).catch((pollError) => setPlaylistPollError(`TMDB 识别状态读取失败：${pollError.message}`, () => pollRecognition(taskId))), 1200);
   } else {
-    await loadPlaylists(true);
+    recognitionTaskId = null;
+    try {
+      await loadPlaylists(true);
+    } catch (error) {
+      setPlaylistPollError(`TMDB 识别已结束，但片单刷新失败：${error.message}`, () => loadPlaylists(true));
+      return;
+    }
+    setButtonLoading($("#recognize-playlist"), false);
     showToast(task.status === "completed" ? "TMDB 识别完成" : `TMDB 识别${task.status === "partial" ? "部分完成" : "失败"}`);
   }
 }
 $("#recognize-playlist").addEventListener("click", async () => {
-  if (!expandedPlaylistId) return;
+  if (!expandedPlaylistId || recognitionTaskId) return;
   const button = $("#recognize-playlist");
-  button.disabled = true;
+  setButtonLoading(button, true, "识别中…");
   try {
     const result = await api(`/api/playlists/${expandedPlaylistId}/recognize`, {method: "POST"});
     if (!result.id) {
@@ -1545,20 +1763,69 @@ $("#recognize-playlist").addEventListener("click", async () => {
   } catch (error) {
     showToast(error.message);
   } finally {
-    button.disabled = false;
+    if (recognitionTaskId) {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    } else {
+      setButtonLoading(button, false);
+    }
+  }
+});
+$("#retry-playlist-task")?.addEventListener("click", async (event) => {
+  const retry = playlistPollRetry;
+  if (!retry) return;
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "读取中…");
+  try {
+    clearPlaylistPollError();
+    await retry();
+  } catch (error) {
+    setPlaylistPollError(`状态读取失败：${error.message}`, retry);
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 $("#playlist-page-size").addEventListener("change", async () => {
   playlistPageSize = $("#playlist-page-size").value;
   safeStorageSet("autolist-playlist-page-size", playlistPageSize);
   playlistPage = 1;
-  if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId);
+  try {
+    if (expandedPlaylistId) await loadPlaylistItems(expandedPlaylistId);
+  } catch (error) {
+    showToast(error.message);
+  }
 });
-$("#playlist-page-prev").addEventListener("click", async () => { playlistPage = Math.max(1, playlistPage - 1); await loadPlaylistItems(expandedPlaylistId); });
-$("#playlist-page-next").addEventListener("click", async () => { playlistPage = Math.min(playlistPageCount, playlistPage + 1); await loadPlaylistItems(expandedPlaylistId); });
+$("#playlist-page-prev").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "读取中…");
+  try {
+    playlistPage = Math.max(1, playlistPage - 1);
+    await loadPlaylistItems(expandedPlaylistId);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+    renderPlaylistItems();
+  }
+});
+$("#playlist-page-next").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "读取中…");
+  try {
+    playlistPage = Math.min(playlistPageCount, playlistPage + 1);
+    await loadPlaylistItems(expandedPlaylistId);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+    renderPlaylistItems();
+  }
+});
 
 $("#delete-playlist").addEventListener("click", async () => {
   if (!selectedPlaylistId || !window.confirm("删除片单会同时删除它的搜索任务和候选，确认继续？")) return;
+  const button = $("#delete-playlist");
+  setButtonLoading(button, true, "删除中…");
   try {
     await api(`/api/playlists/${selectedPlaylistId}`, {method: "DELETE"});
     selectedPlaylistId = null;
@@ -1568,10 +1835,12 @@ $("#delete-playlist").addEventListener("click", async () => {
     showToast("片单已删除");
   } catch (error) {
     showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 
-$("#open-import").addEventListener("click", () => $("#import-dialog").showModal());
+$("#open-import").addEventListener("click", (event) => showDialog($("#import-dialog"), event.currentTarget));
 $("#file").addEventListener("change", () => {
   $("#file-label").textContent = $("#file").files[0]?.name || "选择片单文件";
 });
@@ -1651,13 +1920,15 @@ $("#toggle-playlist-auto").addEventListener("click", async () => {
   if (!currentSearchPlaylistId) return;
   const playlist = playlistCache.find((item) => item.id === currentSearchPlaylistId);
   if (!playlist) return;
+  const button = $("#toggle-playlist-auto");
+  setButtonLoading(button, true, "保存中…");
   try {
     await api(`/api/playlists/${currentSearchPlaylistId}/automation`, {method: "PUT", body: JSON.stringify({
       enabled: !playlist.automation_enabled, auto_cart: false, batch_size: Number(playlist.automation_batch_size || 50),
     })});
     await loadPlaylists();
     showToast(playlist.automation_enabled ? "已关闭新片自动搜索" : "已开启新片自动搜索");
-  } catch (error) { showToast(error.message); }
+  } catch (error) { showToast(error.message); } finally { setButtonLoading(button, false); }
 });
 
 $("#search").addEventListener("click", async () => {
@@ -1673,6 +1944,7 @@ $("#search").addEventListener("click", async () => {
     })});
     activeTask = task.id;
     candidateCache = [];
+    candidateRenderSignature = "";
     renderCandidates();
     await refreshCandidates(true);
     showToast(`搜索任务 #${task.id} 已开始`);
@@ -1686,30 +1958,53 @@ $("#search").addEventListener("click", async () => {
 updateSearchScope();
 
 $("#cancel-task").addEventListener("click", async () => {
-  if (!activeTask) return;
+  if (!activeTask || !["queued", "running"].includes(activeTaskState?.status)) return;
+  const button = $("#cancel-task");
+  setButtonLoading(button, true, "取消中…");
   try {
     await api(`/api/search-tasks/${activeTask}/cancel`, {method: "POST"});
     await refreshCandidates(false);
     showToast("搜索任务已取消");
   } catch (error) {
     showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
   }
 });
 
-async function followupSearch(action, label) {
+async function followupSearch(action, label, button = null) {
   if (!activeTask) return;
+  if (button) setButtonLoading(button, true, "启动中…");
   try {
     const task = await api(`/api/search-tasks/${activeTask}/${action}`, {method: "POST"});
     activeTask = task.id;
+    candidateCache = [];
+    candidateRenderSignature = "";
     await refreshCandidates(true);
     showToast(`${label}任务 #${task.id} 已开始`);
   } catch (error) {
     showToast(error.message);
+  } finally {
+    if (button) setButtonLoading(button, false);
   }
 }
 
-$("#retry-task").addEventListener("click", () => followupSearch("retry", "重试"));
-$("#restart-task").addEventListener("click", () => followupSearch("restart", "重新搜索整项"));
+$("#retry-task").addEventListener("click", (event) => followupSearch("retry", "重试", event.currentTarget));
+$("#restart-task").addEventListener("click", (event) => followupSearch("restart", "重新搜索整项", event.currentTarget));
+$("#retry-task-poll")?.addEventListener("click", async (event) => {
+  if (!activeTask) return;
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "读取中…");
+  try {
+    candidatePollFailures = 0;
+    clearTaskPollError();
+    await refreshCandidates(true);
+  } catch (error) {
+    setTaskPollError(`搜索状态读取失败：${error.message}`);
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
 
 $$(".filter-chip").forEach((button) => button.addEventListener("click", () => {
   currentFilter = button.dataset.filter;
@@ -1721,7 +2016,18 @@ $$(".filter-chip").forEach((button) => button.addEventListener("click", () => {
   renderCandidates();
 }));
 
-$("#refresh-history").addEventListener("click", () => refreshHistory().then(() => showToast("历史已刷新")).catch((error) => showToast(error.message)));
+$("#refresh-history").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "刷新中…");
+  try {
+    await refreshHistory();
+    showToast("历史已刷新");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
 $("#clear-history")?.addEventListener("click", async () => {
   const select = $("#history-status-filter");
   const status = select?.value || "all";
@@ -1744,7 +2050,17 @@ $("#history-status-filter")?.addEventListener("change", (event) => {
   renderHistoryTable();
 });
 
-$("#refresh-logs")?.addEventListener("click", () => loadLogEvents().catch((error) => showToast(error.message)));
+$("#refresh-logs")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "刷新中…");
+  try {
+    await loadLogEvents();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
 $("#clear-logs")?.addEventListener("click", async (event) => {
   if (!window.confirm("确定清空全部事件日志？此操作不可恢复。")) return;
   const button = event.currentTarget;
@@ -1765,12 +2081,12 @@ $("#logs-query")?.addEventListener("keydown", (event) => {
 });
 
 
-$("#download").addEventListener("click", () => {
+$("#download").addEventListener("click", (event) => {
   const available = cartCache.filter((item) => item.context_available);
   const total = available.reduce((sum, item) => sum + Number(item.size || 0), 0);
   const expired = cartCache.length - available.length;
   $("#confirm-copy").textContent = `${available.length} 个有效资源，预计 ${formatSize(total)}${expired ? `；另有 ${expired} 个资源需要重新搜索` : ""}。确认后将按现有分类规则开始下载。`;
-  $("#confirm-dialog").showModal();
+  showDialog($("#confirm-dialog"), event.currentTarget);
 });
 
 $("#confirm-download").addEventListener("click", async (event) => {
@@ -1819,6 +2135,7 @@ $("#confirm-download").addEventListener("click", async (event) => {
   });
   const initialPage = window.location.hash.slice(1);
   const initialTarget = pageMeta[initialPage] ? initialPage : "dashboard";
+  if (initialPage !== initialTarget) history.replaceState(history.state, "", "#dashboard");
   const initialScroll = getRouteScroll(initialTarget);
   navigate(initialTarget, false, Number.isFinite(initialScroll));
   try {
@@ -1832,6 +2149,6 @@ $("#confirm-download").addEventListener("click", async (event) => {
   } finally {
     booting = false;
     if (Number.isFinite(initialScroll)) requestAnimationFrame(() => window.scrollTo(0, initialScroll));
-    if (!pageMeta[initialPage]) history.replaceState(null, "", "#dashboard");
+    if (!pageMeta[initialPage]) history.replaceState(history.state, "", "#dashboard");
   }
 })();

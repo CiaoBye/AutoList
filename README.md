@@ -2,7 +2,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.01`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
+当前版本：`1.02`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
 
 外部片单先在导入弹窗预览再写入。TMDB 使用官方 API；Letterboxd 公开片单使用其官方嵌入页面，避免普通网页的 Cloudflare 校验；IMDb 公开 List 使用当前 GraphQL 列表接口；MDBList 公开片单使用其 JSON 接口。私有片单仍需使用站点导出文件，AutoList 不绕过验证码或登录限制。
 
@@ -38,7 +38,41 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ### Unraid 7.3.2
 
-将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。镜像会把 PNG 图标内置到 `/app/app/static/autolist-icon.png`，Web 端可从 `/assets/autolist-icon.png` 访问；模板和 Compose label 使用项目仓库图标 URL，因此联网安装不再依赖宿主机预先放置图标。离线安装时，再将 `unraid/autolist-icon.png` 复制到 `/mnt/user/appdata/Autolist/` 并把模板/label 的图标地址改为 `file:///mnt/user/appdata/Autolist/autolist-icon.png`。
+将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.02`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
+
+```bash
+docker build \
+  --build-arg PYTHON_IMAGE=python:3.12-slim \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  -t autolist:1.02 .
+```
+
+首次创建容器前，先只读检查持久化目录权限。镜像以非 root UID `10001` 运行，目录必须允许该 UID 读写：
+
+```bash
+DATA_DIR=/mnt/user/appdata/Autolist/data
+mkdir -p "$DATA_DIR"
+stat -c '%u:%g %a' "$DATA_DIR"
+docker run --rm --user 10001:10001 \
+  -v "$DATA_DIR:/data:rw" autolist:1.02 \
+  python -c 'import os; assert os.access("/data", os.W_OK | os.X_OK)'
+```
+
+如果预检失败，先停止容器并完成备份，再由 Unraid 管理员执行 `chown -R 10001:10001 /mnt/user/appdata/Autolist/data`，不要在未备份时递归修改生产目录。模板已提供访问令牌、TMDB/MDBList、CookieCloud、MoviePilot、Emby、Transmission、代理和 AI 的完整启动变量；密钥字段保持隐藏，未填写的可选服务不会影响本地 healthcheck。
+
+容器内置 `/app/app/static/logo.svg`、`/app/app/static/favicon.svg` 和 `/app/app/static/autolist-icon.png`，Web 端分别通过 `/assets/logo.svg`、`/assets/favicon.svg` 和 `/assets/autolist-icon.png` 提供。Docker label、Compose label 和模板 `<Icon>` 使用固定 commit 的 PNG 资源，避免 `main` 分支变更导致图标漂移；离线安装时可将 `unraid/autolist-icon.png` 复制到 `/mnt/user/appdata/Autolist/`，再把模板/label 的图标地址改为 `file:///mnt/user/appdata/Autolist/autolist-icon.png`。
+
+镜像和 Compose 都配置了轻量 healthcheck：它只请求 `http://127.0.0.1:8080/api/health`，并以只读方式执行 SQLite `quick_check(1)` 和核心表检查，不检测 TMDB、PT、Emby、Transmission 或 MoviePilot，所以下游临时故障不会触发容器重启。可用以下命令查看状态：
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' Autolist
+```
+
+升级前后的 SQLite 备份、WAL 处理、完整性检查和恢复流程见 [`docs/backup-restore.md`](docs/backup-restore.md)。
+
+### Docker 构建策略
+
+默认使用 `python:3.12-slim`，Compose 支持通过 `AUTOLIST_PYTHON_IMAGE` 覆盖为经过审核的 digest，例如 `python:3.12-slim@sha256:<approved-digest>`；依赖版本继续由 `requirements.txt` 中的精确版本约束，PyPI 源可通过 `AUTOLIST_PIP_INDEX_URL` 或 Docker `PIP_INDEX_URL` build arg 覆盖。构建上下文不会包含 `.venv`、`.scratch`、`docs`、`tests`、日志、数据库、备份或 `.env`。
 
 ## 代码结构
 
@@ -53,11 +87,12 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ## 安全边界
 
-- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源、`/api/health` 与 `/cookiecloud/*` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不进 `runtime-settings.json`。启用令牌后，站点、RSS、图标等出站地址拒绝内网 IP 字面量与仅解析到内网的域名（Prowlarr 等内网部署可用 `AUTOLIST_ALLOW_PRIVATE_HOSTS` 按域名后缀放行）。
+- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源、`/api/health` 与 `/cookiecloud/*` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不进 `runtime-settings.json`；配置令牌后默认强制至少 32 个字符且具备足够字符多样性，可信内网迁移旧令牌时才显式设置 `AUTOLIST_REQUIRE_STRONG_TOKEN=false`。启用令牌后，站点、RSS、图标等出站地址拒绝内网 IP 字面量与仅解析到内网的域名（Prowlarr 等内网部署可用 `AUTOLIST_ALLOW_PRIVATE_HOSTS` 按域名后缀放行）。
 - Swagger / OpenAPI 文档默认关闭（`AUTOLIST_ENABLE_DOCS=1` 开启）；所有响应附带 CSP、X-Frame-Options、nosniff 与 Referrer-Policy 安全头。
 - 内网模式可直接编辑连接信息；API Key、密码、Cookie 与 Token 只在前端显示“已配置”状态，既有值不会返回浏览器。
 - 页面保存的运行设置写入 `/data/runtime-settings.json`，文件权限为 `0600`；`.env` 仍作为首次启动和未保存设置时的默认值。
 - 站点下载 URL 和授权字段只保留在当前进程的短暂下载上下文中；不会写入数据库或日志。容器重启后需重新搜索再下载。
+- 站点默认 User-Agent 统一由 `app/config.py` 的应用版本常量生成；自定义站点 User-Agent 仍优先使用站点配置。
 - AutoList 将媒体与种子提交给 MoviePilot，并指定其 Transmission 下载器；MP 负责应用自身的下载目录、媒体二级分类、`MOVIEPILOT` 与站点标签和后续整理规则。AutoList 不提供直连下载模式或独立目录映射。
 - TMDB 优先使用片单 IMDb ID 查找，未命中再以标题和年份搜索；识别后的 TMDB 中文名、原名、年份和 IMDb ID 会持久化并作为片单显示、Emby 查询和站点检索的权威元数据。站点 API Key 与代理认证不返回浏览器。
 - 代理地址按用户的内网显示偏好返回设置页，可分别启用 TMDB 与 PT 站点分流；代理认证信息不得写入地址。

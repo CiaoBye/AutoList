@@ -24,3 +24,66 @@ jobs:
         run: node --check app/static/app.js
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+      - name: Validate Compose, Dockerfile, and Unraid XML
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env' EXIT
+          cp .env.example .env
+          docker compose config --quiet
+          python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          root = ElementTree.parse("unraid/my-Autolist.xml").getroot()
+          assert root.findtext("Repository") == "autolist:1.02"
+          assert root.findtext("Icon", "").endswith("/unraid/autolist-icon.png")
+          assert "10001" in root.findtext("Requires", "")
+          assert root.find("./Config[@Target='/data']") is not None
+          assert root.find("./Config[@Target='AUTOLIST_ACCESS_TOKEN']") is not None
+          assert root.find("./Config[@Target='AUTOLIST_REQUIRE_STRONG_TOKEN']") is not None
+          assert root.find("./Config[@Target='MP_BASE_URL']") is not None
+          assert root.find("./Config[@Target='TMDB_API_KEY']") is not None
+
+          dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+          assert "HEALTHCHECK" in dockerfile
+          assert "AUTOLIST_ICON_URL" in dockerfile
+
+          dockerignore = Path(".dockerignore").read_text(encoding="utf-8")
+          for pattern in (".venv/", ".scratch/", "docs/", "tests/", "*.log", "*.db"):
+              assert pattern in dockerignore, pattern
+          PY
+      - name: Build Docker image smoke test
+        run: docker build --tag autolist:ci --build-arg PIP_INDEX_URL=https://pypi.org/simple .
+      - name: Run Docker health smoke test
+        run: |
+          set -euo pipefail
+          docker volume create autolist-ci-data
+          docker run --rm --user 0:0 -v autolist-ci-data:/data autolist:ci sh -c 'chown 10001:10001 /data'
+          docker run --detach --name autolist-ci --publish 18085:8080 \
+            --env AUTOLIST_ACCESS_TOKEN=ci-only-token \
+            --env DATA_DIR=/data \
+            --volume autolist-ci-data:/data \
+            autolist:ci
+          for _ in $(seq 1 45); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' autolist-ci 2>/dev/null || true)"
+            if [ "$status" = "healthy" ]; then
+              break
+            fi
+            if [ "$status" = "unhealthy" ]; then
+              docker logs autolist-ci
+              exit 1
+            fi
+            sleep 2
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' autolist-ci)" = "healthy"
+          curl --fail --silent --show-error http://127.0.0.1:18085/api/health
+          curl --fail --silent --show-error http://127.0.0.1:18085/assets/autolist-icon.png \
+            | python -c 'import sys; data=sys.stdin.buffer.read(); assert data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) > 1000'
+          docker exec autolist-ci python -c 'import sqlite3; db=sqlite3.connect("/data/playlist-autodown.db"); result=db.execute("PRAGMA integrity_check").fetchall(); assert result == [("ok",)], result; assert not db.execute("PRAGMA foreign_key_check").fetchall()'
+      - name: Cleanup Docker smoke test
+        if: always()
+        run: |
+          docker logs --tail 100 autolist-ci 2>/dev/null || true
+          docker rm --force autolist-ci 2>/dev/null || true
+          docker volume rm autolist-ci-data 2>/dev/null || true
+          docker image rm autolist:ci 2>/dev/null || true

@@ -32,9 +32,11 @@ from ..state import (
     remember_raw_candidate,
     running_tasks,
 )
-from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, utc_now
+from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, secret_free, utc_now
 from .library import library_details
 from .recognition import analyze_candidate, persist_tmdb_item, recognize_movie
+
+MAX_SEARCH_ITEMS = 2000
 
 
 async def searchable_playlist_items(playlist_id: int, limit: int | None = None) -> dict[str, Any]:
@@ -65,10 +67,22 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
                JOIN playlist_items p ON p.id=c.playlist_item_id
                WHERE p.playlist_id=?""", (playlist_id,),
         ).fetchall()
+    transmission = TransmissionClient()
+    transmission_state = "known_empty"
     try:
-        torrents = await asyncio.wait_for(TransmissionClient().current_downloads(), timeout=6)
+        torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
+        transmission_state = "known_present" if torrents else "known_empty"
     except Exception:
+        # A configured but unavailable Transmission must not look like an
+        # empty list; callers should avoid selecting items for download.
         torrents = []
+        transmission_state = "unknown"
+    if transmission_state == "unknown":
+        return {
+            "playlist_id": playlist_id, "playlist_name": playlist["name"],
+            "total_count": int(stats["total"] or 0), "in_library_count": int(stats["in_library"] or 0),
+            "downloading_count": None, "download_state": "unknown", "pending_count": 0, "items": [],
+        }
     downloading = [torrent for torrent in torrents if is_transmission_downloading(torrent)]
     download_names = {normalized_download_name(first_value(torrent, ("name", "torrent_name"), "")) for torrent in downloading}
     related_names: dict[str, int] = {}
@@ -88,11 +102,12 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
             if int(item["id"]) not in downloading_ids and torrent_matches_item(item, torrent_title):
                 downloading_ids.add(int(item["id"]))
     queue = [item for item in rows if int(item["id"]) not in downloading_ids]
-    selected = queue[:limit] if limit is not None else queue
+    safe_limit = min(max(1, int(limit)), MAX_SEARCH_ITEMS) if limit is not None else MAX_SEARCH_ITEMS
+    selected = queue[:safe_limit]
     return {
         "playlist_id": playlist_id, "playlist_name": playlist["name"],
         "total_count": int(stats["total"] or 0), "in_library_count": int(stats["in_library"] or 0),
-        "downloading_count": len(downloading),
+        "downloading_count": len(downloading), "download_state": transmission_state,
         "pending_count": len(queue), "items": rows_to_dicts(selected),
     }
 
@@ -475,7 +490,7 @@ async def run_search(task_id: int) -> None:
                              analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
                              analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
                              int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
-                             analyzed.get("exclusion_reason"), analyzed.get("profile_id"), first_value(torrent, ("detail_url",)), json_value(metadata), utc_now()),
+                             analyzed.get("exclusion_reason"), analyzed.get("profile_id"), safe_detail_url(first_value(torrent, ("detail_url",))), json_value(metadata), utc_now()),
                         )
                     remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
                 matched += len(eligible_keys)

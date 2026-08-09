@@ -89,7 +89,6 @@ let siteCache = [];
 let selectedSiteId = null;
 let siteFilter = "all";
 let importMode = "url";
-let dashboardShelfSignature = "";
 let candidateRenderSignature = "";
 let playlistPollRetry = null;
 const routeScrollPositions = new Map();
@@ -333,27 +332,6 @@ async function loadOverview() {
   const libraryPercent = Number(overview.item_count) ? Math.round(Number(overview.in_library_count || 0) / Number(overview.item_count) * 100) : 0;
   setProgressValue("#dashboard-library-bar", libraryPercent);
   $(".collection-progress-bar")?.setAttribute("aria-valuenow", String(Math.min(100, libraryPercent)));
-  const patterns = ["circle", "frame", "line", "circle", "line", "frame"];
-  const accents = ["#c18b32", "#7898a4", "#bfd5cf", "#c9a36c", "#c7d7db", "#c3b27d"];
-  const items = Array.isArray(overview.recent_items) ? overview.recent_items : [];
-  const shelfSignature = JSON.stringify(items.map((item) => [item.id, item.poster_url, item.library_state, item.tmdb_title, item.tmdb_original_title, item.tmdb_year]));
-  if (shelfSignature !== dashboardShelfSignature) {
-    dashboardShelfSignature = shelfSignature;
-    $("#dashboard-shelf").innerHTML = items.length ? items.map((item, index) => {
-      const title = item.tmdb_title || item.chinese_title || item.tmdb_original_title || item.original_title || "未命名影片";
-      const poster = item.poster_url
-        ? `<img class="shelf-poster-image" src="${escapeHtml(item.poster_url)}" alt="${escapeHtml(title)} 海报" width="360" height="540" decoding="async" loading="${index < 2 ? "eager" : "lazy"}">`
-        : "";
-      return `<article class="shelf-item" aria-label="${escapeHtml(title)}"><div class="shelf-poster ${poster ? "has-image" : ""}" data-pattern="${patterns[index % patterns.length]}" style="--poster-accent:${accents[index % accents.length]}">${poster}</div></article>`;
-    }).join("") : `<div class="empty-state compact"><strong>还没有影片</strong><p>导入影片后会在这里显示电影海报。</p></div>`;
-    $("#dashboard-shelf").querySelectorAll(".shelf-poster-image").forEach((image) => {
-      const frame = image.closest(".shelf-poster");
-      const ready = () => frame?.classList.add("poster-ready");
-      image.addEventListener("load", ready, {once: true});
-      image.addEventListener("error", () => { frame?.classList.remove("has-image", "poster-ready"); image.remove(); }, {once: true});
-      if (image.complete && image.naturalWidth) ready();
-    });
-  }
   if (overview.latest_task) {
     $("#metric-search").textContent = `${overview.latest_task.completed}/${overview.latest_task.total}`;
     $("#metric-search-state").textContent = taskLabels[overview.latest_task.status] || overview.latest_task.status;
@@ -778,9 +756,6 @@ function renderHistoryTable() {
 async function refreshHistory() {
   historyCache = await api("/api/history");
   renderHistoryTable();
-  $("#dashboard-history").innerHTML = historyCache.length
-    ? historyCache.slice(0, 2).map((item) => { const status = item.lifecycle_status || (item.success ? "submitted" : "failed"); const label = item.status_label || (item.success ? "已提交" : "失败"); return `<article class="activity-item"><span class="history-status ${lifecycleStatusClass(status)}" aria-label="${escapeHtml(label)}">${lifecycleStatusIcon(status)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.site_name || "未知站点")} · ${formatTime(item.created_at)} · ${escapeHtml(item.status_source || "状态检查")}</small></div><span class="activity-result">${escapeHtml(label)}</span></article>`; }).join("")
-    : "<div class='empty-state compact'><strong>暂无下载记录</strong><p>提交的资源会显示在这里。</p></div>";
 }
 
 const setServiceStatus = (selector, result, optional = false) => {
@@ -844,7 +819,6 @@ async function loadSettings() {
   $("#settings-tr-url").value = runtime.tr_base_url || "";
   $("#settings-tr-username").value = runtime.tr_username || "";
   $("#settings-tr-password").value = runtime.tr_password || "";
-  $("#settings-random-posters").checked = Boolean(runtime.dashboard_random_posters);
 }
 
 async function testSettings() {
@@ -881,7 +855,6 @@ async function saveSettings() {
     tr_base_url: $("#settings-tr-url").value.trim(),
     tr_username: $("#settings-tr-username").value.trim(),
     tr_password: secretValue("settings-tr-password"),
-    dashboard_random_posters: $("#settings-random-posters").checked,
   };
   await api("/api/settings", {method: "PUT", body: JSON.stringify(runtimePayload)});
   await loadSettings();

@@ -1,5 +1,7 @@
 # AutoList
 
+[![CI](https://github.com/CiaoBye/AutoList/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CiaoBye/AutoList/actions/workflows/ci.yml)
+
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
 当前版本：`1.03`。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
@@ -8,9 +10,36 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ## 实际运行效果
 
-以下截图来自 Unraid `192.0.2.10:8585` 上实际运行的 `autolist:1.03` 容器，展示工作台和真实片单数据。截图不包含设置页、访问令牌或其他敏感字段。
+以下截图来自 Unraid 上实际运行的 `autolist:1.03` 容器，展示真实片单数据、候选规则和响应式布局；公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
 
-![AutoList Unraid 生产运行界面](docs/screenshots/autolist-production-dashboard.jpg)
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/autolist-production-dashboard.jpg" alt="AutoList 工作台桌面版" width="100%">
+      <br><sub>工作台 · 桌面视图</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/autolist-production-playlists.jpg" alt="AutoList 片单页面" width="100%">
+      <br><sub>片单 · 分页与识别状态</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/autolist-production-search.jpg" alt="AutoList 资源搜索与候选" width="100%">
+      <br><sub>资源搜索 · 候选聚合与影片分组</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/autolist-production-rules.jpg" alt="AutoList 候选规则页面" width="100%">
+      <br><sub>候选规则 · 硬性排除与优先级</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <img src="docs/screenshots/autolist-production-mobile-dashboard.jpg" alt="AutoList 工作台移动端" width="390">
+      <br><sub>工作台 · 390px 移动视图与底部导航</sub>
+    </td>
+  </tr>
+</table>
 
 ## 页面结构
 
@@ -27,7 +56,7 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 侧栏使用页面路由，支持刷新恢复当前页面以及浏览器前进、后退。
 
-## 部署
+## 快速开始与部署
 
 > **安全警告**：AutoList 默认面向可信内网。未设置 `AUTOLIST_ACCESS_TOKEN` 且未加反向代理鉴权时，任何能访问 `8585` 的客户端都能改设置、同步 Cookie 并提交下载。**禁止将端口直接映射到公网**；访客 Wi‑Fi、远程映射或不可信网段必须启用访问令牌或反向代理 Basic Auth / SSO。
 

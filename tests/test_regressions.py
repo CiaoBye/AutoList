@@ -114,8 +114,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.16.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.16.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.17.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.17.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -127,7 +127,17 @@ class SecurityTests(unittest.TestCase):
                 self.assertIn(f'body[data-page="{page}"]', theme_css)
         self.assertIn('id="settings-scene-mode"', html)
         self.assertIn('id="settings-reduced-motion"', html)
-        self.assertIn('class="theme-copy theme-copy-archive"', html)
+        self.assertNotIn("theme-copy", html)
+        for palette_copy in ("浅色 · 纸白、青绿与琥珀", "深色 · 深青、冰蓝与琥珀", "纸张 · 米白、铁锈与深青"):
+            with self.subTest(palette_copy=palette_copy):
+                self.assertIn(palette_copy, html)
+        for stale_copy in ("待放映资源", "放映日志", "场次与放映队列", "数据与编号优先"):
+            with self.subTest(stale_copy=stale_copy):
+                self.assertNotIn(stale_copy, html)
+        self.assertIn("来源档案室", (static_dir / "app.js").read_text(encoding="utf-8"))
+        for label in ("电影藏馆", "馆藏片单", "来源检索", "待入馆", "选片标准", "入馆记录", "来源网络", "操作日志"):
+            with self.subTest(label=label):
+                self.assertIn(label, html)
         self.assertIn("滚轮或双指缩放", html)
         site_map_js = (static_dir / "js" / "site-map.js").read_text(encoding="utf-8")
         app_js = (static_dir / "app.js").read_text(encoding="utf-8")
@@ -141,27 +151,39 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('class="nav-item-label"', html)
         self.assertIn("siteNodePositionStorageKey", site_map_js)
         self.assertNotIn('document.documentElement.dataset.theme = "light"', (static_dir / "app.js").read_text(encoding="utf-8"))
+        self.assertIn('canvas.style.transform = `translate3d(', site_map_js)
+        self.assertIn('export function siteMapCopy()', site_map_js)
+        self.assertIn('label.textContent = "界面主题"', app_js)
+        self.assertNotIn("theme-copy", theme_css)
 
-    def test_theme_variants_have_structural_layout_and_contrast_contracts(self) -> None:
+    def test_theme_variants_share_layout_and_keep_palette_contracts(self) -> None:
         static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         app_js = (static_dir / "app.js").read_text(encoding="utf-8")
         for marker in (
             "--cinema-primary-bg",
             'html[data-theme="cinema"] .filter-chip.active',
-            'html[data-theme="cinema"] body[data-page="search"] .search-console',
-            'html[data-theme="cinema"] body[data-page="logs"] .logs-list',
-            'html[data-theme="archive"] body[data-page="dashboard"] .screening-mission-grid',
-            'html[data-theme="cinema"] body[data-page="dashboard"] .screening-program',
-            'html[data-theme="ledger"] body[data-page="search"] .search-console',
-            'html[data-theme="ledger"] body[data-page="dashboard"] .screening-stat-grid',
-            'html[data-theme="ledger"] body[data-page="search"] .candidate-index',
-            'html[data-theme="archive"] body[data-page="playlists"] .playlist-card',
+            "1.17 theme contract",
+            'html[data-theme] body[data-page="dashboard"] .screening-mission-grid',
+            'html[data-theme] body[data-page="search"] .search-console',
+            'html[data-theme] body[data-page="sites"] .site-live-map',
+            'html[data-theme] .site-star-node.selected .site-node-core',
+            '@media (max-width: 680px)',
             "@media (min-width: 901px)",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, theme_css)
         self.assertIn('class="candidate-index"', app_js)
+
+    def test_inline_svg_icons_have_explicit_size_and_safe_paint_contract(self) -> None:
+        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+        style_css = (static_dir / "style.css").read_text(encoding="utf-8")
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        self.assertIn(".inline-icon", style_css)
+        self.assertIn(".rule-summary > i > svg", style_css)
+        self.assertIn(".history-status .inline-icon", style_css)
+        self.assertIn('<div class="rule-summary"', html)
+        self.assertNotIn('<svg class="theme-copy', html)
 
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):

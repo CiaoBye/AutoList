@@ -33,9 +33,9 @@ import {
 	setSiteMapLayoutEdit,
 	setSiteMapOrientation,
 	setSiteMapViewport,
+	getSiteMapOrientation,
 	siteMapCopy,
 	siteMapLayoutEdit,
-	siteMapOrientation,
 	siteMapViewport,
 	siteMapZoomMax,
 	siteMapZoomMin,
@@ -219,8 +219,8 @@ function themeDetails(theme) {
 	return (
 		themeController?.themes?.[theme] || {
 			label: "馆藏档案",
-			shortLabel: "档案",
-			description: "纸张、档案卡与深青色",
+			shortLabel: "浅色",
+			description: "纸白、青绿与琥珀色调",
 		}
 	);
 }
@@ -237,7 +237,7 @@ function syncThemeControls(
 	});
 	const label = $("#theme-menu-label");
 	if (label)
-		label.textContent = `主题 · ${details.shortLabel || details.label}`;
+		label.textContent = "界面主题";
 	const status = $("#settings-theme-status");
 	if (status) status.textContent = details.label;
 	const sceneToggle = $("#settings-scene-mode");
@@ -252,7 +252,7 @@ function syncThemeControls(
 			document.documentElement.dataset.motion === "reduced";
 	if (document.body)
 		document.body.dataset.scene = String(theme) + "-" + currentPage;
-	const meta = resolvePageMeta(currentPage, theme);
+	const meta = resolvePageMeta(currentPage);
 	if ($("#page-eyebrow")) $("#page-eyebrow").textContent = meta.eyebrow;
 	if ($("#page-title")) $("#page-title").textContent = meta.title;
 	if ($("#page-lead")) {
@@ -260,27 +260,12 @@ function syncThemeControls(
 		$("#page-lead").hidden = !meta.lead;
 	}
 	document.title = meta.title + " · AutoList";
-	const dashboardLabels =
-		{
-			archive: {
-				page: "电影藏馆首页",
-				feature: "当前馆藏片单",
-				taskProgress: "最近检索进度",
-				libraryProgress: "馆藏完成度",
-			},
-			cinema: {
-				page: "放映台首页",
-				feature: "当前放映片单",
-				taskProgress: "最近排片进度",
-				libraryProgress: "放映准备度",
-			},
-			ledger: {
-				page: "总册索引首页",
-				feature: "当前登记片单",
-				taskProgress: "最近登记进度",
-				libraryProgress: "总册登记进度",
-			},
-		}[theme] || {};
+	const dashboardLabels = {
+		page: "电影藏馆首页",
+		feature: "当前馆藏片单",
+		taskProgress: "最近检索进度",
+		libraryProgress: "馆藏完成度",
+	};
 	$("#dashboard-page")?.setAttribute(
 		"aria-label",
 		dashboardLabels.page || "电影藏馆首页",
@@ -297,9 +282,7 @@ function syncThemeControls(
 		"aria-label",
 		dashboardLabels.libraryProgress || "馆藏完成度",
 	);
-	const siteLinearList = $("#sites-list .site-linear-list");
-	if (siteLinearList) siteLinearList.open = theme === "ledger";
-	syncSiteMapCopy(theme);
+	syncSiteMapCopy();
 	syncSiteMapOrientationControls();
 	return theme;
 }
@@ -347,87 +330,46 @@ const pageMeta = {
 		eyebrow: "FILM ARCHIVE / COLLECTION ROOM",
 		title: "电影藏馆",
 		lead: "",
-		themes: {
-			cinema: {
-				eyebrow: "MIDNIGHT PROGRAM / SCREENING FLOOR",
-				title: "放映台",
-			},
-			ledger: { eyebrow: "CATALOGUE / REGISTER DESK", title: "总册索引" },
-		},
 	},
 	playlists: {
 		eyebrow: "CATALOGUE / SHELF",
 		title: "馆藏片单",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING / REEL LIST", title: "场次片单" },
-			ledger: { eyebrow: "CATALOGUE / FILM INDEX", title: "片目目录" },
-		},
 	},
 	search: {
-		eyebrow: "SCREENING / SOURCE DESK",
-		title: "选片台",
+		eyebrow: "ARCHIVE / SOURCE DESK",
+		title: "来源检索",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING / BOOKING DESK", title: "排片搜索" },
-			ledger: { eyebrow: "REGISTER / SOURCE INDEX", title: "来源索引" },
-		},
 	},
 	cart: {
-		eyebrow: "SCREENING QUEUE / HOLDING BAY",
-		title: "放映队列",
+		eyebrow: "ARCHIVE / INTAKE QUEUE",
+		title: "待入馆",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING QUEUE / READY ROOM", title: "放映队列" },
-			ledger: { eyebrow: "REGISTER / PENDING SHEET", title: "待登记" },
-		},
 	},
 	rules: {
 		eyebrow: "CURATION / SELECTION NOTES",
 		title: "选片标准",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING / HOUSE RULES", title: "放映规则" },
-			ledger: { eyebrow: "CATALOGUE / RULE BOOK", title: "规则簿" },
-		},
 	},
 	sites: {
 		eyebrow: "SOURCE ROOM / PT NETWORK",
 		title: "来源网络",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING FLOOR / SOURCE STAGE", title: "来源场" },
-			ledger: { eyebrow: "CATALOGUE / SOURCE DIRECTORY", title: "来源目录" },
-		},
 	},
 	history: {
 		eyebrow: "ARCHIVE / INTAKE RECORD",
 		title: "入馆记录",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING / SHOW HISTORY", title: "放映履历" },
-			ledger: { eyebrow: "REGISTER / ENTRY LEDGER", title: "入馆台账" },
-		},
 	},
 	logs: {
-		eyebrow: "PROJECTION LOG / EVENT REEL",
-		title: "放映日志",
+		eyebrow: "ARCHIVE / OPERATION LOG",
+		title: "操作日志",
 		lead: "",
-		themes: {
-			cinema: { eyebrow: "SCREENING FLOOR / CREW LOG", title: "场务日志" },
-			ledger: { eyebrow: "CATALOGUE / OPERATION LOG", title: "操作记录" },
-		},
 	},
 };
 
-function resolvePageMeta(
-	page,
-	theme = themeController?.getTheme?.() ||
-		document.documentElement.dataset.theme ||
-		"archive",
-) {
-	const base = pageMeta[page] || pageMeta.dashboard;
-	return { ...base, ...(base.themes?.[theme] || {}) };
+function resolvePageMeta(page) {
+	return pageMeta[page] || pageMeta.dashboard;
 }
 
 const taskLabels = {
@@ -1742,7 +1684,6 @@ async function loadSites() {
 	siteCache = list;
 	if (selectedSiteId && !list.some((site) => site.id === selectedSiteId))
 		selectedSiteId = null;
-	if (!selectedSiteId && list.length) selectedSiteId = list[0].id;
 	renderSites();
 	renderSiteInspector(list.find((site) => site.id === selectedSiteId));
 	syncSiteInspectorMode();
@@ -1789,14 +1730,10 @@ function matchesSiteFilter(site) {
 	);
 }
 
-function syncSiteMapCopy(
-	theme = themeController?.getTheme?.() ||
-		document.documentElement.dataset.theme ||
-		"archive",
-) {
+function syncSiteMapCopy() {
 	const mapHeading = $("#sites-list .site-map-heading");
 	if (!mapHeading) return;
-	const copy = siteMapCopy(theme);
+	const copy = siteMapCopy();
 	const count = siteCache.filter(matchesSiteFilter).length;
 	mapHeading
 		.querySelector(".section-kicker")
@@ -1815,10 +1752,11 @@ function syncSiteMapCopy(
 }
 function syncSiteMapOrientationControls() {
 	const map = $("#sites-list");
-	map?.classList.toggle("is-vertical", siteMapOrientation === "vertical");
-	if (map) map.dataset.orientation = siteMapOrientation;
+	const orientation = getSiteMapOrientation();
+	map?.classList.toggle("is-vertical", orientation === "vertical");
+	if (map) map.dataset.orientation = orientation;
 	const button = $("#toggle-site-orientation");
-	const vertical = siteMapOrientation === "vertical";
+	const vertical = orientation === "vertical";
 	const label = vertical ? "切换为横向排布" : "切换为纵向排布";
 	if (button) {
 		button.setAttribute("aria-pressed", String(vertical));
@@ -1857,8 +1795,8 @@ function bindSiteLogoFallback(scope = document) {
 }
 function renderSites() {
 	const list = siteCache.filter(matchesSiteFilter);
-	if (list.length && !list.some((site) => site.id === selectedSiteId))
-		selectedSiteId = list[0].id;
+	if (selectedSiteId != null && !list.some((site) => site.id === selectedSiteId))
+		selectedSiteId = null;
 	if (!list.length) selectedSiteId = null;
 	const normalCount = list.filter(
 		(site) => siteConnectionState(site) === "normal",
@@ -1888,7 +1826,7 @@ function renderSites() {
 		return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes(selected)} aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}${editHint}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
 	};
 	$("#sites-list").innerHTML = list.length
-		? `<header class="site-map-heading"><div><p class="section-kicker">LIVE SOURCE NETWORK</p><h2>${list.length} 个来源在片源网络中</h2><p>滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="片源网络" aria-describedby="site-map-help site-map-announcer" tabindex="0"><div class="site-map-viewport"><div class="site-map-canvas"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}</div></div><div class="site-map-zoom-tools" role="group" aria-label="地图缩放"><button type="button" data-site-map-zoom="out" aria-label="缩小地图" title="缩小地图">${iconSvg("minus")}</button><output class="site-map-zoom-value" aria-live="polite">100%</output><button type="button" data-site-map-zoom="in" aria-label="放大地图" title="放大地图">${iconSvg("plus")}</button><button type="button" data-site-map-zoom="reset" aria-label="重置地图视野" title="重置地图视野">重置</button></div><div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div><p id="site-map-help" class="site-map-help">移动端默认保留单指页面滚动；需要拖动画布时先开启“地图操作”。编辑排布可用方向键与 Shift 大步移动节点。</p><div class="site-map-announcer" aria-live="polite" aria-atomic="true"></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list
+		? `<header class="site-map-heading"><div><p class="section-kicker">SOURCE ROOM / ARCHIVE NETWORK</p><h2>${list.length} 个来源档案室</h2><p>滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="来源档案地图" aria-describedby="site-map-help site-map-announcer" tabindex="0"><div class="site-map-viewport"><div class="site-map-canvas"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}</div></div><div class="site-map-zoom-tools" role="group" aria-label="地图缩放"><button type="button" data-site-map-zoom="out" aria-label="缩小地图" title="缩小地图">${iconSvg("minus")}</button><output class="site-map-zoom-value" aria-live="polite">100%</output><button type="button" data-site-map-zoom="in" aria-label="放大地图" title="放大地图">${iconSvg("plus")}</button><button type="button" data-site-map-zoom="reset" aria-label="重置地图视野" title="重置地图视野">重置</button></div><div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div><p id="site-map-help" class="site-map-help">移动端默认保留单指页面滚动；需要拖动画布时先开启“地图操作”。编辑排布可用方向键与 Shift 大步移动节点。</p><div class="site-map-announcer" aria-live="polite" aria-atomic="true"></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list
 				.map((site) => {
 					const selected = selectedSiteId === site.id;
 					return `<button type="button" data-open-site="${site.id}"${selected ? ' aria-current="true" class="selected"' : ""} aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`;
@@ -1900,10 +1838,7 @@ function renderSites() {
 		document.createTextNode("打开线性来源目录（键盘可用）"),
 	);
 	const linearList = $("#sites-list .site-linear-list");
-	if (linearList)
-		linearList.open =
-			(themeController?.getTheme?.() ||
-				document.documentElement.dataset.theme) === "ledger";
+	if (linearList) linearList.open = false;
 	syncSiteMapOrientationControls();
 	syncSiteMapViewport();
 	renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
@@ -2234,6 +2169,8 @@ $("#sites-list")?.addEventListener("pointermove", (event) => {
 		const distance = siteMapPointerDistance(points);
 		if (!rect?.width || !rect.height || !distance) return;
 		const midpoint = siteMapPointerMidpoint(points);
+		const anchorX = (midpoint.x - rect.left - rect.width / 2 - siteMapPinchState.initialX) / siteMapPinchState.initialScale;
+		const anchorY = (midpoint.y - rect.top - rect.height / 2 - siteMapPinchState.initialY) / siteMapPinchState.initialScale;
 		const scale = Math.max(
 			siteMapZoomMin,
 			Math.min(
@@ -2248,11 +2185,10 @@ $("#sites-list")?.addEventListener("pointermove", (event) => {
 				x:
 					siteMapPinchState.initialX +
 					(siteMapPinchState.initialScale - scale) *
-						(midpoint.x - rect.left - rect.width / 2),
+						anchorX,
 				y:
-					siteMapPinchState.initialY +
-					(siteMapPinchState.initialScale - scale) *
-						(midpoint.y - rect.top - rect.height / 2),
+						siteMapPinchState.initialY +
+					(siteMapPinchState.initialScale - scale) * anchorY,
 			},
 			field,
 			{persist: false},
@@ -2708,11 +2644,14 @@ async function handleDocumentClick(event) {
 		return;
 	}
 	if (toggleSiteOrientation) {
-		setSiteMapOrientation(siteMapOrientation === "vertical" ? "horizontal" : "vertical");
+		const currentOrientation = getSiteMapOrientation();
+		const nextOrientation =
+			currentOrientation === "vertical" ? "horizontal" : "vertical";
+		const appliedOrientation = setSiteMapOrientation(nextOrientation);
 		renderSites();
 		syncSiteMapOrientationControls();
 		showToast(
-			siteMapOrientation === "vertical"
+			appliedOrientation === "vertical"
 				? "来源地图已切换为纵向排布"
 				: "来源地图已切换为横向排布",
 		);

@@ -6,7 +6,10 @@ const siteNodePositionCache = new Map();
 const siteNodePositionOverrides = new Map();
 export const siteNodePositionStorageKey = "autolist-site-node-positions";
 export const siteMapOrientationStorageKey = "autolist-site-map-orientation";
-export const siteMapViewportStorageKey = "autolist-site-map-viewport";
+// 1.17: the previous viewport values were written before the canvas transform
+// was applied. Start a clean view so an old 184%/240% value cannot suddenly be
+// rendered after the interaction fix ships.
+export const siteMapViewportStorageKey = "autolist-site-map-viewport-v2";
 export const siteMapZoomMin = 0.78;
 export const siteMapZoomMax = 2.4;
 export let siteMapOrientation = safeStorageGet(siteMapOrientationStorageKey) === "vertical" ? "vertical" : "horizontal";
@@ -40,6 +43,10 @@ export function persistSiteMapViewport() {
 export function setSiteMapOrientation(next) {
   siteMapOrientation = next === "vertical" ? "vertical" : "horizontal";
   safeStorageSet(siteMapOrientationStorageKey, siteMapOrientation);
+  return siteMapOrientation;
+}
+
+export function getSiteMapOrientation() {
   return siteMapOrientation;
 }
 
@@ -81,6 +88,10 @@ export function syncSiteMapViewport() {
   canvas.style.setProperty("--map-scale", String(siteMapViewport.scale));
   canvas.style.setProperty("--map-pan-x", `${siteMapViewport.x}px`);
   canvas.style.setProperty("--map-pan-y", `${siteMapViewport.y}px`);
+  // Keep a concrete transform as the source of truth. Some Chromium builds
+  // keep a var()-based transform at identity while the custom properties are
+  // updated, which made zoom/pan controls report success without moving the map.
+  canvas.style.transform = `translate3d(${siteMapViewport.x}px, ${siteMapViewport.y}px, 0) scale(${siteMapViewport.scale})`;
   field.dataset.zoom = String(Math.round(siteMapViewport.scale * 100));
   field.setAttribute("aria-label", `${siteMapCopy().ariaLabel}，当前缩放 ${Math.round(siteMapViewport.scale * 100)}%，滚轮或双指缩放，拖动画布平移`);
   field.setAttribute("aria-description", "滚轮或加减按钮缩放；桌面端可拖动画布，移动端请先开启地图操作后拖动或双指缩放；点击来源节点进入档案；编辑排布模式下可用方向键或拖动调整位置");
@@ -117,8 +128,12 @@ export function zoomSiteMap(nextScale, anchorX = null, anchorY = null) {
   const scale = Math.max(siteMapZoomMin, Math.min(siteMapZoomMax, Number(nextScale) || 1));
   if (!field || scale === current.scale) return;
   const rect = field.getBoundingClientRect();
-  const x = Number.isFinite(anchorX) ? anchorX - rect.left - rect.width / 2 : 0;
-  const y = Number.isFinite(anchorY) ? anchorY - rect.top - rect.height / 2 : 0;
+  const x = Number.isFinite(anchorX)
+    ? (anchorX - rect.left - rect.width / 2 - current.x) / current.scale
+    : 0;
+  const y = Number.isFinite(anchorY)
+    ? (anchorY - rect.top - rect.height / 2 - current.y) / current.scale
+    : 0;
   setSiteMapViewport({
     scale,
     x: current.x + (current.scale - scale) * x,
@@ -140,13 +155,13 @@ export function focusSiteNode(siteId) {
   }, field);
 }
 
-export function siteMapCopy(theme = document.documentElement.dataset.theme || "archive") {
-  const copy = {
-    archive: {kicker: "SOURCE ROOM / ARCHIVE NETWORK", heading: "来源档案室", description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入档案。打开“编辑节点排布”后可直接拖动节点。", ariaLabel: "可操作的来源档案地图"},
-    cinema: {kicker: "SCREENING FLOOR / SOURCE MAP", heading: "放映来源", description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入场务档案。打开“编辑节点排布”后可直接拖动节点。", ariaLabel: "可操作的放映来源地图"},
-    ledger: {kicker: "CATALOGUE / SOURCE REGISTER", heading: "来源记录", description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入目录条目。打开“编辑节点排布”后可直接拖动节点。", ariaLabel: "可操作的来源目录地图"},
-  }[theme] || null;
-  return copy || siteMapCopy("archive");
+export function siteMapCopy() {
+  return {
+    kicker: "SOURCE ROOM / ARCHIVE NETWORK",
+    heading: "来源档案室",
+    description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。",
+    ariaLabel: "可操作的来源档案地图",
+  };
 }
 
 export function resetSiteNodePositions() {

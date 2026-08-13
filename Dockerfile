@@ -2,7 +2,7 @@ ARG PYTHON_IMAGE=python:3.12-slim
 FROM ${PYTHON_IMAGE}
 
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG AUTOLIST_ICON_URL=https://raw.githubusercontent.com/CiaoBye/AutoList/8a704fe03e381518b190a2d6c015e20a0ffce67f/unraid/autolist-icon.png
+ARG AUTOLIST_ICON_URL=https://raw.githubusercontent.com/CiaoBye/AutoList/9495fb38821549a6763f87e7e4d9b427815dba32/unraid/autolist-icon.png
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

@@ -17,7 +17,7 @@
 - `.venv/bin/python -m unittest discover -s tests -v`：173 项通过。
 - `python3 -m compileall -q app`、`node --check`（app.js/core.js/site-map.js/theme-init.js）、`git diff --check`、`pip check`：通过。
 - 隔离实例已用 Codex 内置浏览器验证 1280px 桌面与 390×844 移动端的页面路由、三主题桌面切换、来源节点档案、地图滚轮缩放、移动端操作模式、横纵切换、平移、节点编辑／键盘移动／确认／撤销；修复后无新增控制台错误。
-- 未执行真实 TMDB、Emby、Transmission、MoviePilot 写入或真实下载；Unraid 构建、切换和生产验收在发布步骤完成后补录。
+- 生产只读连接检测中 TMDB、Emby、Transmission、MoviePilot 均返回 `ok=true`；未执行真实下载或外部服务写入。Unraid 已构建并切换唯一 `Autolist` 容器至 `autolist:1.16`，健康、挂载、数据库迁移、设置脱敏、内置 Logo 和三套主题实机验收通过；旧 `autolist:1.14` 容器与镜像已删除。
 
 ## 1.15 - 2026-08-10
 

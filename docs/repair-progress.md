@@ -1,15 +1,13 @@
 # AutoList 修复进度与发布验收记录
 
-更新时间：2026-08-13
-当前版本：`1.16`（已发布）
+更新时间：2026-08-14
+当前版本：`1.17`（修复进行中，尚未发布）
 当前分支：`main`
-代码发布提交：`9495fb3`（后续提交仅补充发布记录与固定图标引用）
+代码基线提交：`a47e395`
 
 ## 当前结论
 
-本轮已经完成代码库、配置、测试、Docker/Compose、Unraid 模板和主要文档的完整审计，并将后端安全性、任务一致性、媒体资源处理和主题化 UI 修复写入 `1.16`。GitHub `main` 已推送，Unraid 唯一生产容器已切换并通过生产验收。
-
-发布提交与生产镜像均已完成；部署前持久化数据、`.env`、旧模板和容器配置已备份，旧 `autolist:1.14` 容器与镜像已在验收通过后删除。
+上一轮已完成代码库、配置、测试、Docker/Compose、Unraid 模板和主要文档的完整审计，并将后端安全性、任务一致性和资源处理修复发布到 `1.16`。本轮针对首页信息密度、地图视口、异常 SVG 和主题一致性形成 `1.17` 修复集；代码回归与本地浏览器验收已完成，当前仍需提交、GitHub 推送和 Unraid 更新。
 
 ## 已完成的审计范围
 
@@ -76,36 +74,42 @@
 - 地图状态动作已经集中到 `app/static/js/site-map.js`，编辑模式支持节点拖动、点击抑制、pointer capture 释放、位置持久化、恢复和键盘操作；实机发现的 `setSiteMapViewport` 漏导入也已补齐。
 - `app/static/style.css`、`app/static/theme.css` 已收口页面横向溢出、地图移动端 `touch-action`、路线错误条、Cinema/Ledger 主题控件尺寸、错误文字语义和焦点环。
 - `tests/` 已补齐调度器、CookieCloud body、出站响应、媒体签名、RSS 坏字段、站点重名、任务唯一性、RuntimeSettings、DNS 绑定和重定向等专项用例。
-- 发布验收已完成：844×390 与 1024×768 视口记录、Unraid 构建切换、生产健康、挂载、数据完整性、设置脱敏、Logo 资源、只读连接和 GitHub `main` 均已完成。
+- 上一轮 `1.16` 的生产验收记录已保留；本轮 `1.17` 仅在隔离临时数据实例执行浏览器验收，不把本地结果冒充生产状态。
+- 1.17 本轮：统一左侧导航、移动端导航、页面标题、首页正文和来源地图说明；主题菜单说明改为只描述色彩搭配。
+- 1.17 本轮：地图视口写入具体 `translate3d(...) scale(...)`，修正缩放／双指锚点，升级视口存储键并取消首次自动选站；选中站点不再改变 Logo 尺寸。
+- 1.17 本轮：为 `inline-icon` 及规则、历史、地图、空状态等裸 SVG 增加显式尺寸和安全描边；主题 CSS 增加统一结构契约，保留主题色彩差异。
+- 1.17 本轮补充：来源检索候选列改为可收缩轨道，修复 1280px Ledger 横向溢出；来源地图提示层避开缩放控件，横向／纵向按钮统一读取地图状态；待入馆、操作日志和来源档案室文案收敛到电影藏馆语义。
+- 1.17 本轮补充：选中站点及手机端节点保持与普通节点相同的 Logo 尺寸，取消 hover 造成的二次放大。
+- 1.17 本轮收口：三套主题在 1280px、1024px、390px 下的主要页面结构完成自动化实机对比；残留的检索表单、候选列表、日志边框和线性来源目录差异已统一为共享结构，仅保留色彩、材质和对比度差异。
 
 ## 测试与验证状态
 
 ### 已执行
 
-以下是修复前基线和部分本轮代码检查，均已通过：
+以下是本轮已完成的静态检查与回归：
 
 ```text
-.venv/bin/python -m unittest discover -s tests -v  # 108 项
+.venv/bin/python -m unittest discover -s tests -v  # 174 项
 python3 -m compileall -q app
 node --check app/static/app.js
 node --check app/static/js/core.js
+node --check app/static/js/site-map.js
 node --check app/static/js/theme-init.js
 git diff --check
 ```
 
 ### 当前验证结果与剩余验收
 
-- 最新工作树已执行 `.venv/bin/python -m unittest discover -s tests -v`，173 项通过；`compileall`、四个前端 `node --check`、`pip check`、`git diff --check` 通过。
-- 隔离服务已启动并由 Codex 内置浏览器实测 1280px 桌面和 390×844 移动端；三主题桌面路由、来源节点档案、地图缩放／平移、移动端滚动与操作模式、横纵切换、节点编辑键盘确认／撤销已验证。实测中发现并修复 `setSiteMapViewport` 漏导入，修复后无新增控制台错误。
-- 已补做 844×390 横屏与 1024×768 窄桌面记录：三套主题共 48 个路由检查无横向溢出、路由错误或控制台错误；生产页面 8 个路由、三套主题和控制台也已验收通过。
-- 生产只读连接检测：TMDB、Emby、Transmission、MoviePilot 均返回 `ok=true`；没有执行真实下载或外部写入。
-- 真实下载任务；本轮不会以真实下载作为测试手段。
+- `.venv/bin/python -m unittest discover -s tests -v`：174 项通过。
+- `python3 -m compileall -q app`、`node --check app/static/app.js`、`node --check app/static/js/core.js`、`node --check app/static/js/site-map.js`、`node --check app/static/js/theme-init.js`、`git diff --check`：通过。
+- 隔离服务由 Codex 内置浏览器实测：1280px 桌面、1024×768 窄桌面、390×844 手机竖屏、844×390 横屏；8 个路由 × 3 个主题均只激活对应页面，无横向溢出、无可见超大 SVG，左侧／移动导航和页面正文保持统一。桌面与窄桌面结构差异为 0，手机三主题结构差异为 0。
+- 地图实测：缩放按钮、视口 transform、选中节点、提示层避让、横向／纵向布局切换、编辑排布按钮和手机节点尺寸均通过；未执行真实下载、第三方写入或生产连接测试。
 
 ## 发布与部署状态
 
-- GitHub：提交 `9495fb3` 已推送 `main`；后续图标引用和发布记录提交会继续推送到同一分支。
-- Unraid：唯一 `Autolist` 容器运行 `autolist:1.16` 且为 `healthy`；旧 `autolist:1.14` 容器和镜像已删除。
-- 版本：代码、静态资源、Compose、Dockerfile、Unraid 模板和生产镜像统一为 `1.16`。
+- GitHub：当前基线为 `a47e395`；1.17 尚未提交和推送，完成最终差异检查后推送 `main`。
+- Unraid：当前生产容器仍运行 `autolist:1.16` 且为 `healthy`；1.17 尚未切换。
+- 版本：工作树代码、静态资源、Compose、Unraid 模板和 CHANGELOG 已开始统一为 `1.17`，生产镜像尚未更新。
 - 部署前备份：`/mnt/cache/appdata/Autolist/backups/1.16-predeploy-20260813T143224Z`。
 - 部署约束：只保留一个 AutoList 业务容器；保留 Unraid 数据目录和 `.env`，不将其纳入构建上下文。
 - 本记录不包含 SSH 密码、Cookie、API Key、访问令牌或其他敏感值。

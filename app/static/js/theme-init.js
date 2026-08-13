@@ -1,9 +1,9 @@
 /* AutoList theme bootstrap: keep the selected visual system before the main app loads. */
 (() => {
   const THEMES = Object.freeze({
-    archive: Object.freeze({label: "馆藏档案", shortLabel: "档案", description: "片目、来源与纸张档案", color: "#f0f3f2"}),
-    cinema: Object.freeze({label: "午夜放映", shortLabel: "放映", description: "暗场、场次与放映队列", color: "#0d171c"}),
-    ledger: Object.freeze({label: "编目索引", shortLabel: "索引", description: "目录、编号与高信息密度", color: "#eee8dd"}),
+    archive: Object.freeze({label: "馆藏档案", shortLabel: "浅色", description: "纸白、青绿与琥珀色调", color: "#f0f3f2"}),
+    cinema: Object.freeze({label: "午夜放映", shortLabel: "深色", description: "深青、冰蓝与琥珀色调", color: "#0d171c"}),
+    ledger: Object.freeze({label: "编目索引", shortLabel: "纸张", description: "米白、铁锈与深青色调", color: "#eee8dd"}),
   });
   const THEME_KEYS = Object.freeze(Object.keys(THEMES));
   const THEME_STORAGE_KEY = "autolist-theme";

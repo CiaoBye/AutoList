@@ -114,8 +114,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.17.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.17.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.18.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.18.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -163,7 +163,7 @@ class SecurityTests(unittest.TestCase):
         for marker in (
             "--cinema-primary-bg",
             'html[data-theme="cinema"] .filter-chip.active',
-            "1.17 theme contract",
+            "1.18 theme contract",
             'html[data-theme] body[data-page="dashboard"] .screening-mission-grid',
             'html[data-theme] body[data-page="search"] .search-console',
             'html[data-theme] body[data-page="sites"] .site-live-map',
@@ -173,6 +173,14 @@ class SecurityTests(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, theme_css)
+        for legacy_layout in (
+            'html[data-theme="ledger"] body[data-page="sites"] .site-linear-list-items { grid-template-columns: 1fr;',
+            'html[data-theme="cinema"] body[data-page="search"] .search-console { display: grid;',
+            'html[data-theme="ledger"] .screening-hero { min-height:',
+            'html[data-theme="ledger"] body[data-page="dashboard"] .screening-feature { min-height:',
+        ):
+            with self.subTest(legacy_layout=legacy_layout):
+                self.assertNotIn(legacy_layout, theme_css)
         self.assertIn('class="candidate-index"', app_js)
 
     def test_inline_svg_icons_have_explicit_size_and_safe_paint_contract(self) -> None:

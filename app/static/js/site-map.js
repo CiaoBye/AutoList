@@ -1,5 +1,5 @@
-// 站点地图计算层（审计 3-10）：视野/节点位置/缩放等纯计算逻辑，
-// 与 app.js 的页面渲染、事件绑定解耦，便于独立测试与维护。
+// 站点地图状态与交互适配层：集中管理视野、节点位置、缩放和排布状态。
+// 计算边界保持小而明确；DOM 同步留在这里，app.js 只负责页面路由和事件入口。
 import { $, safeStorageGet, safeStorageSet } from "./core.js";
 
 const siteNodePositionCache = new Map();

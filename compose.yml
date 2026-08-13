@@ -6,7 +6,7 @@ services:
         PYTHON_IMAGE: ${AUTOLIST_PYTHON_IMAGE:-python:3.12-slim}
         PIP_INDEX_URL: ${AUTOLIST_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
         AUTOLIST_ICON_URL: ${AUTOLIST_ICON_URL:-https://raw.githubusercontent.com/CiaoBye/AutoList/9495fb38821549a6763f87e7e4d9b427815dba32/unraid/autolist-icon.png}
-    image: autolist:1.17
+    image: autolist:1.18
     container_name: Autolist
     restart: unless-stopped
     env_file: .env

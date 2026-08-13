@@ -1,13 +1,13 @@
 # AutoList 修复进度与发布验收记录
 
 更新时间：2026-08-14
-当前版本：`1.18`（修复进行中，待发布）
+当前版本：`1.18`（已完成代码审计、提交、推送与 Unraid 验收）
 当前分支：`main`
-代码基线提交：`0d7c2e3`（1.17；1.18 尚未提交）
+代码基线提交：`8599e70`（`main`）
 
 ## 当前结论
 
-上一轮已完成代码库、配置、测试、Docker/Compose、Unraid 模板和主要文档的完整审计，并将后端安全性、任务一致性和资源处理修复发布到 `1.16`。1.17 已统一电影藏馆文案并修复地图、图标与首页信息密度；本轮 1.18 进一步移除主题 CSS 的旧布局分叉，使主题只影响色彩搭配与对比度。代码回归与本地浏览器验收已完成，当前仍需提交、GitHub 推送和 Unraid 更新。
+上一轮已完成代码库、配置、测试、Docker/Compose、Unraid 模板和主要文档的完整审计，并将后端安全性、任务一致性和资源处理修复发布到 `1.16`。1.17 已统一电影藏馆文案并修复地图、图标与首页信息密度；本轮 1.18 进一步移除主题 CSS 的旧布局分叉，使主题只影响色彩搭配与对比度。1.18 已完成代码回归、隔离实例验收、GitHub `main` 推送和 Unraid 生产切换；生产只读浏览器验收通过。
 
 ## 已完成的审计范围
 
@@ -82,6 +82,7 @@
 - 1.17 本轮补充：选中站点及手机端节点保持与普通节点相同的 Logo 尺寸，取消 hover 造成的二次放大。
 - 1.17 本轮收口：三套主题在 1280px、1024px、390px 下的主要页面结构完成自动化实机对比；残留的检索表单、候选列表、日志边框和线性来源目录差异已统一为共享结构，仅保留视觉差异。
 - 1.18 本轮：删除旧主题结构区段，Ledger 不再单独控制地图高度、线性列表列数或首页字体；为主题 CSS 增加“无主题专属布局选择器”的静态回归约束。
+- 1.18 本轮收口：设置页主题说明改为“仅更换色彩搭配与对比度”，地图适配层注释与实际 DOM 同步职责一致；主题专属非色彩声明扫描结果为 0。
 
 ## 测试与验证状态
 
@@ -103,15 +104,18 @@ git diff --check
 
 - `.venv/bin/python -m unittest discover -s tests -v`：174 项通过。
 - `python3 -m compileall -q app`、`node --check app/static/app.js`、`node --check app/static/js/core.js`、`node --check app/static/js/site-map.js`、`node --check app/static/js/theme-init.js`、`git diff --check`：通过。
+- `python3 -m pip check`：`No broken requirements found.`；主题 CSS 专属非色彩声明扫描：0 项。
 - 隔离服务由 Codex 内置浏览器实测：1280px 桌面、1024×768 窄桌面、390×844 手机竖屏、844×390 横屏；8 个路由 × 3 个主题均只激活对应页面，无横向溢出、无可见超大 SVG，左侧／移动导航和页面正文保持统一。桌面与窄桌面结构差异为 0，手机三主题结构差异为 0。
-- 地图实测：缩放按钮、视口 transform、选中节点、提示层避让、横向／纵向布局切换、编辑排布按钮和手机节点尺寸均通过；未执行真实下载、第三方写入或生产连接测试。
+- 地图实测：缩放按钮、视口 transform、选中节点、提示层避让、横向／纵向布局切换、编辑排布按钮和手机节点尺寸均通过；未执行真实下载或第三方写入。
+- Unraid 生产浏览器实测：1280px 桌面 24 组合、1024px 窄桌面 24 组合、390×844 手机 24 组合通过；21 个来源节点可打开档案，地图缩放、排布切换和编辑状态正常；Logo、favicon、PNG 图标均从当前容器内置资源加载，未出现异常大 SVG。
 
 ## 发布与部署状态
 
-- GitHub：1.17 已推送到 `main`（`0d7c2e3`）；1.18 尚未提交和推送，完成最终差异检查后推送 `main`。
-- Unraid：当前生产容器运行 `autolist:1.17` 且为 `healthy`；1.18 尚未切换。
-- 版本：工作树代码、静态资源、Compose、Unraid 模板和 CHANGELOG 已统一为 `1.18`，生产镜像尚未更新。
-- 部署前备份：`/mnt/cache/appdata/Autolist/backups/1.16-predeploy-20260813T143224Z`。
+- GitHub：1.18 已推送到 `main`，提交为 `8599e70`（完整提交：`8599e70e3c3ad9dcac0b49c9802a4a54de5dbb3a`）。
+- Unraid：唯一运行中的 `Autolist` 容器为 `autolist:1.18`，状态 `healthy`；`/api/health` 返回 `version=1.18`、`scheduler_ok=true`。
+- 镜像与资源：当前镜像 ID 为 `8481447539c1`；镜像内置 `logo.svg`、`favicon.svg`、`autolist-icon.png`，Unraid 图标标签指向本次提交资源。
+- 数据与备份：持久化数据库仍挂载 `/mnt/user/appdata/Autolist/data`，部署前备份为 `/mnt/cache/appdata/Autolist/backups/1.18-predeploy-20260813T170407Z`；`.env` 未进入构建上下文且未被覆盖。
+- 清理：生产验收通过后已删除停止的 `Autolist-1.17-rollback`、`Autolist-1.16-rollback` 及 `autolist:1.17`、`autolist:1.16`，当前仅保留 1 个 AutoList 容器和 `autolist:1.18` 镜像。
 - 部署约束：只保留一个 AutoList 业务容器；保留 Unraid 数据目录和 `.env`，不将其纳入构建上下文。
 - 本记录不包含 SSH 密码、Cookie、API Key、访问令牌或其他敏感值。
 
@@ -122,4 +126,4 @@ git diff --check
 
 ## 回滚方式
 
-如需回滚，使用备份目录中的旧数据库/WAL、`.env` 和模板，并从 GitHub 的已验证提交重新构建旧镜像；仅替换 AutoList 镜像，不删除 `/mnt/user/appdata/Autolist/data`，不覆盖当前 `.env`。
+如需回滚，使用 `/mnt/cache/appdata/Autolist/backups/1.18-predeploy-20260813T170407Z` 中的数据和 `.env` 备份，并从 GitHub 的已验证提交重新构建旧镜像；仅替换 AutoList 镜像，不删除 `/mnt/user/appdata/Autolist/data`，不覆盖当前 `.env`。旧 1.16/1.17 镜像已按清理策略删除，需要通过对应提交重新构建。

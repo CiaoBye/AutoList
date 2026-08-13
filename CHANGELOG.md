@@ -14,6 +14,7 @@
 
 - `.venv/bin/python -m unittest discover -s tests -v`：174 项通过；Python 编译、四个前端模块语法检查、`git diff --check` 和 `pip check` 通过。
 - 隔离实例通过 Codex 内置浏览器完成 1280px、1024×768、390×844、844×390 的 8 路由 × 3 主题验收；无横向溢出、无超大 SVG，首页与地图结构尺寸一致，地图缩放、重置、节点进入、横纵排布和编辑排布可操作。
+- 已推送 GitHub `main` 提交 `8599e70e3c3ad9dcac0b49c9802a4a54de5dbb3a`，并在 Unraid 切换唯一 `Autolist` 容器至 `autolist:1.18`；健康检查、scheduler、持久化数据库挂载、内置 Logo/PNG 图标和生产浏览器页面矩阵均通过。旧 1.16/1.17 容器与镜像在验收通过后删除，保留部署前数据与 `.env` 备份。
 - 未执行真实下载，也未向 TMDB、Emby、Transmission 或 MoviePilot 写入外部业务数据。
 
 ## 1.17 - 2026-08-14

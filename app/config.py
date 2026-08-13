@@ -1,13 +1,21 @@
 from dataclasses import asdict, dataclass
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import tempfile
+import threading
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - production image is Unix-based
+    fcntl = None  # type: ignore[assignment]
+
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.14"
+APP_VERSION = "1.16"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -95,12 +103,20 @@ def access_token_strength() -> str:
     return "strong" if access_token_is_strong() else "weak"
 
 
+def _env_float(name: str, default: str) -> float:
+    """Read a float env var with a safe fallback for invalid input."""
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
 @dataclass
 class Settings:
     data_dir: str = os.getenv("DATA_DIR", "/data")
     mp_base_url: str = os.getenv("MP_BASE_URL", "").rstrip("/")
     mp_api_key: str = os.getenv("MP_API_KEY", "")
-    mp_timeout_seconds: float = float(os.getenv("MP_TIMEOUT_SECONDS", "30"))
+    mp_timeout_seconds: float = _env_float("MP_TIMEOUT_SECONDS", "30")
     emby_base_url: str = os.getenv("EMBY_BASE_URL", "").rstrip("/")
     emby_api_key: str = os.getenv("EMBY_API_KEY", "")
     tmdb_api_key: str = os.getenv("TMDB_API_KEY", "")
@@ -133,7 +149,11 @@ class Settings:
             if key in values and values[key] is not None:
                 setattr(self, key, bool(values[key]))
         if values.get("mp_timeout_seconds") is not None:
-            self.mp_timeout_seconds = float(values["mp_timeout_seconds"])
+            try:
+                parsed_timeout = float(values["mp_timeout_seconds"])
+            except (TypeError, ValueError):
+                parsed_timeout = self.mp_timeout_seconds  # 非法值保留现值
+            self.mp_timeout_seconds = parsed_timeout
 
     def public_values(self) -> dict[str, Any]:
         return {
@@ -157,14 +177,14 @@ class Settings:
             "outbound_proxy_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url": public_endpoint_url(self.outbound_proxy_url),
-            "tmdb_proxy_enabled": self.tmdb_proxy_enabled,
             "pt_proxy_enabled": self.pt_proxy_enabled,
             "ai_base_url": self.ai_base_url,
             "ai_api_key": "",
             "ai_api_key_configured": bool(self.ai_api_key),
             "ai_model": self.ai_model,
             "tr_base_url": self.tr_base_url,
-            "tr_username": self.tr_username,
+            "tr_username": "",
+            "tr_username_configured": bool(self.tr_username),
             "tr_password": REDACTED_SECRET,
             "tr_password_configured": bool(self.tr_password),
             "dashboard_random_posters": self.dashboard_random_posters,
@@ -175,6 +195,8 @@ class Settings:
 
 
 settings = Settings()
+
+_runtime_settings_thread_lock = threading.RLock()
 
 
 def runtime_settings_path() -> Path:
@@ -194,14 +216,55 @@ def load_runtime_settings() -> Settings:
     return settings
 
 
-def save_runtime_settings(values: dict[str, Any]) -> Settings:
-    settings.apply(values)
-    path = runtime_settings_path()
+@contextmanager
+def _runtime_settings_lock(path: Path):
+    """Serialize runtime-settings updates within and across worker processes."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {key: value for key, value in asdict(settings).items() if key != "data_dir"}
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.chmod(0o600)
-    temporary.replace(path)
-    path.chmod(0o600)
+    lock_path = path.with_name(f".{path.name}.lock")
+    with _runtime_settings_thread_lock:
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            lock_path.chmod(0o600)
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def save_runtime_settings(values: dict[str, Any]) -> Settings:
+    path = runtime_settings_path()
+    with _runtime_settings_lock(path):
+        # Reload the latest file while holding the lock so separate Uvicorn
+        # workers do not overwrite one another's partial updates with stale
+        # in-memory Settings values.
+        if path.exists():
+            try:
+                current = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                current = None
+            if isinstance(current, dict):
+                settings.apply(current)
+        settings.apply(values)
+        payload = {key: value for key, value in asdict(settings).items() if key != "data_dir"}
+        file_descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        try:
+            with os.fdopen(file_descriptor, "w", encoding="utf-8") as temporary_file:
+                file_descriptor = -1
+                json.dump(payload, temporary_file, ensure_ascii=False, indent=2)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+            os.chmod(temporary_name, 0o600)
+            os.replace(temporary_name, path)
+        finally:
+            if file_descriptor >= 0:
+                os.close(file_descriptor)
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+        path.chmod(0o600)
     return settings

@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <script src="/assets/js/theme-init.js?v=1.14.0"></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.14.0">
+  <script src="/assets/js/theme-init.js?v=1.16.0"></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.16.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.14.0">
-  <link rel="stylesheet" href="/assets/theme.css?v=1.14.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.16.0">
+  <link rel="stylesheet" href="/assets/theme.css?v=1.16.0">
 </head>
 <body data-page="dashboard">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -24,13 +24,27 @@
       <symbol id="icon-logs" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="17" cy="12" r="2"/><circle cx="20" cy="18" r="2"/></symbol>
       <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
       <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4L3 10M3 5v5h5M4 13a8 8 0 0 0 14.7 4L21 14M21 19v-5h-5"/></symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="icon-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+      <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+      <symbol id="icon-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+      <symbol id="icon-chevron-up" viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></symbol>
+      <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
+      <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="icon-pending" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 8v4l3 2"/></symbol>
+      <symbol id="icon-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9.7 9a2.5 2.5 0 1 1 4 2c-1.2.8-1.7 1.2-1.7 2.5M12 17h.01"/></symbol>
     </defs>
   </svg>
 
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.14.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.16.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -47,7 +61,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">来源网络</span><span class="theme-copy theme-copy-cinema">来源场</span><span class="theme-copy theme-copy-ledger">来源目录</span></span></a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">放映日志</span><span class="theme-copy theme-copy-cinema">场务日志</span><span class="theme-copy theme-copy-ledger">操作记录</span></span></a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.14</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.16</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -70,10 +84,14 @@
             </div>
           </details>
           <button id="open-settings" class="button button-secondary"><svg class="button-svg"><use href="#icon-settings"></use></svg>设置</button>
-          <button id="open-import" class="button button-secondary">＋ 导入片单</button>
+          <button id="open-import" class="button button-secondary"><svg class="button-svg" aria-hidden="true"><use href="#icon-plus"></use></svg>导入片单</button>
           <button id="mobile-menu" class="mobile-menu" type="button" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg></button>
         </div>
       </header>
+      <div id="route-error" class="route-error" role="alert" aria-live="assertive" aria-atomic="true" hidden>
+        <span id="route-error-message"></span>
+        <button id="route-error-retry" class="button button-secondary" type="button" data-route-retry>重新加载</button>
+      </div>
 
       <section id="dashboard-page" class="app-page active" data-page="dashboard" aria-label="电影藏馆首页">
         <div class="screening-dashboard">
@@ -155,9 +173,9 @@
               <label class="field field-search-scope"><span>搜索模式</span><select id="search-scope"><option value="pending">未下载</option><option value="range">序号范围</option></select></label>
               <label id="search-count-field" class="field field-search-count"><span>本次搜索前 N 部</span><input id="search-count" type="number" min="1" max="10000" value="50" inputmode="numeric"></label>
               <label id="search-start-field" class="field field-search-start" hidden><span>起始序号</span><input id="start" type="number" min="1" inputmode="numeric" placeholder="1"></label>
-              <span id="search-range-arrow" class="range-arrow" aria-hidden="true" hidden>→</span>
+                <span id="search-range-arrow" class="range-arrow" aria-hidden="true" hidden><svg><use href="#icon-arrow-right"></use></svg></span>
               <label id="search-end-field" class="field field-search-end" hidden><span>结束序号</span><input id="end" type="number" min="1" inputmode="numeric" placeholder="50"></label>
-              <button id="search" class="button button-primary" type="button"><span class="button-icon" aria-hidden="true">⌕</span><span>开始搜索</span></button>
+              <button id="search" class="button button-primary" type="button"><svg class="button-svg" aria-hidden="true"><use href="#icon-search"></use></svg><span>开始搜索</span></button>
             </div>
             <div class="search-automation-actions">
               <button id="run-playlist-completion" class="button button-secondary">搜索未下载影片</button>
@@ -197,8 +215,8 @@
               </div>
             </div>
             <div class="candidate-labels" aria-hidden="true"><span>影片 / 资源</span><span>推荐依据</span><span>来源与规格</span><span>评分</span><span></span></div>
-            <div id="candidates" class="candidate-list" aria-live="polite" aria-busy="false">
-              <div class="empty-state"><span aria-hidden="true">⌕</span><strong>等待搜索结果</strong><p>选择片单和序号范围，候选会在这里实时出现。</p></div>
+            <div id="candidates" class="candidate-list" aria-busy="false">
+              <div class="empty-state"><span aria-hidden="true"><svg><use href="#icon-search"></use></svg></span><strong>等待搜索结果</strong><p>选择片单和序号范围，候选会在这里实时出现。</p></div>
             </div>
           </section>
         </div>
@@ -211,7 +229,7 @@
             <span id="cart-count" class="count-badge">0</span>
           </div>
           <div id="cart-list" class="cart-list cart-list-page">
-            <div class="empty-state"><span aria-hidden="true">＋</span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class="button button-secondary" type="button" data-route-target="search">前往资源搜索</button></div>
+            <div class="empty-state"><span aria-hidden="true"><svg><use href="#icon-plus"></use></svg></span><strong>下载列表为空</strong><p>前往资源搜索，从候选中加入需要的资源。</p><button class="button button-secondary" type="button" data-route-target="search">前往资源搜索</button></div>
           </div>
           <footer class="cart-checkout">
             <div><span>已选资源</span><strong id="cart-checkout-count">0 个</strong></div>
@@ -226,7 +244,7 @@
         <div class="page-stack">
           <section class="panel rules-editor-panel">
             <div class="panel-heading candidate-heading"><div><p class="section-kicker">CURATION NOTES</p><h2>选片标准</h2><p class="panel-lead">先决定哪些版本值得进入馆藏，再按允许组合、来源和分辨率选出最合适的一份。</p></div><button id="save-rules" class="button button-primary">保存规则</button></div>
-            <div class="rule-summary" aria-label="候选决策顺序"><span>硬性排除</span><i>→</i><span>允许组合</span><i>→</i><span>站点优先</span><i>→</i><span>分辨率</span><i>→</i><span>做种与优惠</span></div>
+            <div class="rule-summary" aria-label="候选决策顺序"><span>硬性排除</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>允许组合</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>站点优先</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>分辨率</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>做种与优惠</span></div>
             <div class="policy-layout">
               <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">01</span><div><h3>硬性排除</h3><p>命中后不会进入下载列表；普通 BluRay 压制不受影响。</p></div></div><div id="hard-exclusion-options" class="exclusion-grid"></div></section>
               <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">02</span><div><h3>允许组合</h3><p>编码与制作组必须同时命中。第一层永远排在保底层之前。</p></div></div><div class="profile-grid"><article class="policy-profile primary"><div><span>第一优先级</span><strong>x265 压制</strong></div><label class="field"><span>允许制作组</span><input id="rules-primary-groups" value="ADE, FRDS, HDS, CHD"></label></article><article class="policy-profile fallback"><div><span>无首选资源时</span><strong>x264 保底</strong></div><label class="field"><span>允许制作组</span><input id="rules-fallback-groups" value="CMCT"></label></article></div></section>
@@ -250,10 +268,10 @@
           </div>
           <div class="site-toolbar">
             <div><p class="section-kicker">SOURCE ROOM / PT NETWORK</p><h2>来源网络</h2><p class="panel-lead">每个站点都是馆藏链上的一座来源档案室：可检测、可定位、可重新排布。</p></div>
-            <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary">＋ 添加站点</button></div>
+            <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary"><svg class="button-svg" aria-hidden="true"><use href="#icon-plus"></use></svg>添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-orientation="horizontal" aria-label="站点筛选"><button id="site-filter-all" class="site-filter active" type="button" role="tab" aria-selected="true" aria-controls="sites-list" data-site-filter="all">全部</button><button id="site-filter-active" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="active">已启用</button><button id="site-filter-inactive" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="inactive">已停用</button><button id="site-filter-normal" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="normal">正常</button><button id="site-filter-slow" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="slow">缓慢</button><button id="site-filter-failed" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="failed">失败</button><button id="site-filter-unknown" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="unknown">未知</button></div>
-          <div class="site-workspace site-constellation-workspace"><div class="site-map-column"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><div class="site-map-action-strip" role="note"><span class="site-map-action-copy"><strong><span class="theme-copy theme-copy-archive">来源地图</span><span class="theme-copy theme-copy-cinema">放映来源图</span><span class="theme-copy theme-copy-ledger">来源目录图</span></strong> <span class="theme-copy theme-copy-archive">滚轮或双指缩放，拖动画布平移；点击节点进入来源档案，Alt+拖动可重新排布。</span><span class="theme-copy theme-copy-cinema">滚轮或双指缩放，拖动画布平移；点击节点进入场务档案，Alt+拖动可重新排布。</span><span class="theme-copy theme-copy-ledger">滚轮或双指缩放，拖动画布平移；点击节点进入目录条目，Alt+拖动可重新排布。</span></span><span class="site-map-action-controls"><button id="toggle-site-orientation" class="button button-secondary" type="button" aria-pressed="false">切换为纵向排布</button><button id="reset-site-layout" class="button button-secondary" type="button">恢复节点排布</button></span></div></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭来源档案"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="来源档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一座来源档案室</strong><p>点击节点进入档案；滚轮或双指缩放、拖动画布可浏览整张来源图。</p></div></div></aside></div>
+              <div class="site-workspace site-constellation-workspace"><div class="site-map-column"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><div class="site-map-action-strip" role="note"><span class="site-map-action-copy"><strong><span class="theme-copy theme-copy-archive">来源地图</span><span class="theme-copy theme-copy-cinema">放映来源图</span><span class="theme-copy theme-copy-ledger">来源目录图</span></strong> <span class="theme-copy theme-copy-archive">滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。</span><span class="theme-copy theme-copy-cinema">滚轮或双指缩放，拖动画布平移；点击节点进入场务档案。打开“编辑节点排布”后可直接拖动节点。</span><span class="theme-copy theme-copy-ledger">滚轮或双指缩放，拖动画布平移；点击节点进入目录条目。打开“编辑节点排布”后可直接拖动节点。</span><small>移动端默认保留单指页面滚动，需要拖动画布时先开启地图操作。</small></span><span class="site-map-action-controls"><button id="toggle-site-map-interaction" class="button button-secondary" type="button" aria-pressed="false">进入地图操作</button><button id="toggle-site-orientation" class="button button-secondary" type="button" aria-pressed="false">切换为纵向排布</button><button id="toggle-site-layout-edit" class="button button-secondary" type="button" aria-pressed="false">编辑节点排布</button><button id="reset-site-layout" class="button button-secondary" type="button">恢复节点排布</button></span></div></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭来源档案"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="来源档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一座来源档案室</strong><p>点击节点进入档案；滚轮或双指缩放、拖动画布可浏览整张来源图。</p></div></div></aside></div>
         </section>
       </section>
 
@@ -274,7 +292,7 @@
                 </select>
               </label>
               <button id="clear-history" class="button button-secondary button-danger-soft" type="button">清除当前分组</button>
-              <button id="refresh-history" class="icon-button" type="button" aria-label="刷新下载历史"><span aria-hidden="true">↻</span></button>
+              <button id="refresh-history" class="icon-button" type="button" aria-label="刷新下载历史"><svg aria-hidden="true"><use href="#icon-refresh"></use></svg></button>
             </div>
           </div>
           <div class="table-wrap">
@@ -295,7 +313,7 @@
                 <label>级别 <select id="logs-level"><option value="">全部</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label>
                 <label>关键词 <input id="logs-query" type="search" placeholder="片名 / 站点 / 错误" aria-label="日志关键词"></label>
                 <button id="clear-logs" class="icon-button" aria-label="清空日志" title="清空日志"><svg><use href="#icon-trash"></use></svg></button>
-                <button id="refresh-logs" class="icon-button" type="button" aria-label="刷新日志" title="刷新日志"><span aria-hidden="true">↻</span></button>
+                <button id="refresh-logs" class="icon-button" type="button" aria-label="刷新日志" title="刷新日志"><svg aria-hidden="true"><use href="#icon-refresh"></use></svg></button>
               </div>
             </div>
             <div id="logs-list" class="logs-list" aria-live="polite"></div>
@@ -307,10 +325,10 @@
 
   <dialog id="import-dialog" class="dialog" aria-labelledby="import-dialog-title">
     <form method="dialog" class="dialog-card">
-      <div class="dialog-heading"><div><p class="section-kicker">NEW PLAYLIST</p><h2 id="import-dialog-title">导入片单</h2></div><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
+      <div class="dialog-heading"><div><p class="section-kicker">NEW PLAYLIST</p><h2 id="import-dialog-title">导入片单</h2></div><button class="icon-button" value="cancel" aria-label="关闭"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
       <div class="import-tabs" role="tablist" aria-label="片单导入方式"><button id="import-tab-url" class="active" type="button" role="tab" aria-selected="true" aria-controls="import-panel-url" data-import-mode="url">粘贴网址</button><button id="import-tab-file" type="button" role="tab" aria-selected="false" aria-controls="import-panel-file" tabindex="-1" data-import-mode="file">上传文件</button><button id="import-tab-paste" type="button" role="tab" aria-selected="false" aria-controls="import-panel-paste" tabindex="-1" data-import-mode="paste">粘贴内容</button></div>
       <section id="import-panel-url" class="import-mode" role="tabpanel" aria-labelledby="import-tab-url" data-import-panel="url"><label class="field"><span>片单网址</span><input id="import-url" placeholder="TMDB、Letterboxd、IMDb 或 MDBList"></label><label class="field"><span>最多导入</span><input id="import-limit" type="number" min="1" max="10000" value="5000"></label></section>
-      <section id="import-panel-file" class="import-mode" role="tabpanel" aria-labelledby="import-tab-file" data-import-panel="file" hidden><label class="drop-zone" for="file"><span class="drop-icon" aria-hidden="true">⇧</span><strong id="file-label">选择片单文件</strong><small id="file-hint">点击选择 .xlsx、.json 或 .csv</small><input id="file" type="file" accept=".xlsx,.json,.csv" aria-label="选择片单文件" aria-describedby="file-hint"></label></section>
+      <section id="import-panel-file" class="import-mode" role="tabpanel" aria-labelledby="import-tab-file" data-import-panel="file" hidden><label class="drop-zone" for="file"><svg class="drop-icon" aria-hidden="true"><use href="#icon-upload"></use></svg><strong id="file-label">选择片单文件</strong><small id="file-hint">点击选择 .xlsx、.json 或 .csv</small><input id="file" type="file" accept=".xlsx,.json,.csv" aria-label="选择片单文件" aria-describedby="file-hint"></label></section>
       <section id="import-panel-paste" class="import-mode" role="tabpanel" aria-labelledby="import-tab-paste" data-import-panel="paste" hidden><label class="field"><span>JSON 或 CSV 内容</span><textarea id="import-content" rows="8" placeholder='{"name":"我的片单","items":[...]}'></textarea></label><label class="toggle-field"><input id="import-content-csv" type="checkbox"><span>内容是 CSV</span></label></section>
       <label class="field"><span>片单名称（可选）</span><input id="name" placeholder="例如：年度电影计划"></label>
       <div id="import-preview" class="import-preview" hidden></div>
@@ -321,14 +339,14 @@
 
   <dialog id="confirm-dialog" class="dialog confirm-dialog" aria-labelledby="confirm-dialog-title">
     <form method="dialog" class="dialog-card">
-      <span class="confirm-icon" aria-hidden="true">↗</span><h2 id="confirm-dialog-title">提交下载列表？</h2><p id="confirm-copy" class="dialog-copy">确认后将开始下载。</p>
+      <span class="confirm-icon" aria-hidden="true"><svg><use href="#icon-arrow-up-right"></use></svg></span><h2 id="confirm-dialog-title">提交下载列表？</h2><p id="confirm-copy" class="dialog-copy">确认后将开始下载。</p>
       <div class="dialog-actions"><button class="button button-secondary" value="cancel">返回检查</button><button id="confirm-download" class="button button-primary" value="confirm">确认提交</button></div>
     </form>
   </dialog>
 
   <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-dialog-title">
     <form method="dialog" class="dialog-card settings-card">
-      <div class="dialog-heading"><div><p class="section-kicker">PREFERENCES</p><h2 id="settings-dialog-title">AutoList 设置</h2></div><button class="icon-button" value="cancel" aria-label="关闭设置">×</button></div>
+      <div class="dialog-heading"><div><p class="section-kicker">PREFERENCES</p><h2 id="settings-dialog-title">AutoList 设置</h2></div><button class="icon-button" value="cancel" aria-label="关闭设置"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
       <div class="settings-layout">
         <nav class="settings-tabs" role="tablist" aria-label="设置分类">
           <button id="settings-tab-recognition" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-recognition" data-settings-tab="recognition"><strong>识别与片单</strong><small>TMDB、MDBList、AI</small></button>
@@ -340,42 +358,42 @@
           <div id="settings-panel-recognition" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-recognition" data-settings-panel="recognition">
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt=""></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em></div>
-              <label class="field"><span>API Key</span><input id="settings-tmdb-key" type="password" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label>
+              <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-tmdb-key" type="password" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label><label class="clear-setting" data-clear-setting="clear_tmdb_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
               <label class="field"><span>语言</span><input id="settings-tmdb-language" value="zh-CN"></label>
             </section>
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon"><img src="/assets/service-mdblist.svg" alt=""></span><div><strong>MDBList</strong><small>可选 · 私有片单与更高额度</small></div><em id="settings-mdblist-status">未配置</em></div>
-              <label class="field"><span>API Key</span><input id="settings-mdblist-key" type="password" autocomplete="off" placeholder="公开片单可留空"></label>
+              <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-mdblist-key" type="password" autocomplete="off" placeholder="公开片单可留空"></label><label class="clear-setting" data-clear-setting="clear_mdblist_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
             </section>
             <section class="settings-section settings-section-wide">
               <div class="settings-section-title"><span class="settings-icon ai"><img src="/assets/service-ai.svg" alt=""></span><div><strong>AI 辅助识别</strong><small>可选 · OpenAI 兼容接口</small></div><em id="settings-ai-status">未配置</em></div>
-              <div class="settings-inline settings-inline-three"><label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label><label class="field"><span>API Key</span><input id="settings-ai-key" type="password" autocomplete="off"></label><label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label><div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-ai-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_ai_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div><label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label></div>
             </section>
           </div>
           <div id="settings-panel-download" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-download" data-settings-panel="download" hidden>
             <section class="settings-section settings-section-wide settings-mp-section">
               <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt=""></span><div><strong>MoviePilot</strong><small>仅负责下载分类与整理</small></div><em id="settings-mp-status">检测中</em></div>
-              <div class="settings-inline settings-inline-three"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.168.31.100:3000"></label><label class="field"><span>API Key</span><input id="settings-mp-key" type="password" autocomplete="off"></label><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.168.31.100:3000"></label><div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-mp-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_mp_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
             </section>
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt=""></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em></div>
               <label class="field"><span>RPC 地址</span><input id="settings-tr-url" type="url" placeholder="http://192.168.31.100:9191"></label>
-              <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username" autocomplete="username"></label><label class="field"><span>密码</span><input id="settings-tr-password" type="password" autocomplete="current-password"></label></div>
+              <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username" autocomplete="username"></label><div class="field-with-clear"><label class="field"><span>密码</span><input id="settings-tr-password" type="password" autocomplete="current-password"></label><label class="clear-setting" data-clear-setting="clear_tr_password" hidden><input type="checkbox"><span>清除已保存密码</span></label></div></div>
             </section>
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt=""></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em></div>
               <label class="field"><span>服务地址</span><input id="settings-emby-url" type="url" placeholder="http://192.168.31.100:8096"></label>
-              <label class="field"><span>API Key</span><input id="settings-emby-key" type="password" autocomplete="off"></label>
+              <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-emby-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_emby_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
             </section>
           </div>
           <div id="settings-panel-sites" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-sites" data-settings-panel="sites" hidden>
             <section class="settings-section settings-section-wide cookiecloud-section">
               <div class="settings-section-title"><span class="settings-icon cookiecloud"><img src="/assets/service-cookiecloud.svg" alt=""></span><div><strong>CookieCloud</strong><small>上传后自动按域名更新站点 Cookie</small></div><em id="settings-cookiecloud-status">未配置</em></div>
-              <div class="settings-inline settings-inline-three"><label class="field"><span>用户 KEY</span><input id="settings-cookiecloud-key" autocomplete="off" placeholder="与 Chrome 扩展保持一致"></label><label class="field"><span>端对端加密密码</span><input id="settings-cookiecloud-password" type="password" autocomplete="off" placeholder="留空保留已配置密码"></label><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" readonly value="/cookiecloud"></label></div>
+              <div class="settings-inline settings-inline-three"><div class="field-with-clear"><label class="field"><span>用户 KEY</span><input id="settings-cookiecloud-key" autocomplete="off" placeholder="与 Chrome 扩展保持一致"></label><label class="clear-setting" data-clear-setting="clear_cookiecloud_key" hidden><input type="checkbox"><span>清除已保存 KEY</span></label></div><div class="field-with-clear"><label class="field"><span>端对端加密密码</span><input id="settings-cookiecloud-password" type="password" autocomplete="off" placeholder="留空保留已配置密码"></label><label class="clear-setting" data-clear-setting="clear_cookiecloud_password" hidden><input type="checkbox"><span>清除已保存密码</span></label></div><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" readonly value="/cookiecloud"></label></div>
             </section>
             <section class="settings-section settings-section-wide">
               <div class="settings-section-title"><span class="settings-icon proxy"><img src="/assets/service-proxy.svg" alt=""></span><div><strong>网络与代理</strong><small>按服务独立分流</small></div><em id="settings-proxy-status">未配置</em></div>
-              <label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" type="url" autocomplete="off" aria-describedby="settings-proxy-help" placeholder="http://127.0.0.1:7890"></label>
+              <div class="field-with-clear"><label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" type="url" autocomplete="off" aria-describedby="settings-proxy-help" placeholder="http://127.0.0.1:7890"></label><label class="clear-setting" data-clear-setting="clear_outbound_proxy_url" hidden><input type="checkbox"><span>清除已保存代理地址</span></label></div>
               <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-tmdb-proxy" type="checkbox"><span>TMDB 走代理</span></label><label class="toggle-field"><input id="settings-pt-proxy" type="checkbox"><span>PT 站点允许代理</span></label></div>
               <p id="settings-proxy-help" class="settings-help">代理主机和端口会直接显示，方便排查连接；认证信息、API Key、Cookie 和 Token 不会显示。</p>
             </section>
@@ -392,7 +410,7 @@
               <p class="theme-settings-note">主题会改变页面的阅读布局与视觉层，不改变片单、搜索、下载和站点数据。关闭页面场景化后仍保留主题颜色与字体。</p>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.14.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.16.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
@@ -407,7 +425,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="site-dialog" class="dialog" aria-labelledby="site-dialog-title">
     <form method="dialog" class="dialog-card">
-      <div class="dialog-heading"><div><p class="section-kicker">PT SITE</p><h2 id="site-dialog-title">添加站点</h2></div><button class="icon-button" value="cancel" aria-label="关闭站点设置">×</button></div>
+      <div class="dialog-heading"><div><p class="section-kicker">PT SITE</p><h2 id="site-dialog-title">添加站点</h2></div><button class="icon-button" value="cancel" aria-label="关闭站点设置"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
       <input id="site-id" type="hidden">
       <label class="field"><span>站点名称</span><input id="site-name" placeholder="例如：馒头"></label>
       <div class="settings-inline"><label class="field"><span>优先级</span><input id="site-priority" type="number" min="1" max="999" value="100"></label><label class="field"><span>超时（秒）</span><input id="site-timeout" type="number" min="3" max="300" value="30"></label></div>
@@ -425,6 +443,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">藏馆</span><span class="theme-copy theme-copy-cinema">放映</span><span class="theme-copy theme-copy-ledger">总册</span></span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">片单</span><span class="theme-copy theme-copy-cinema">场次</span><span class="theme-copy theme-copy-ledger">目录</span></span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">来源</span><span class="theme-copy theme-copy-cinema">搜索</span><span class="theme-copy theme-copy-ledger">索引</span></span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">待入馆</span><span class="theme-copy theme-copy-cinema">队列</span><span class="theme-copy theme-copy-ledger">登记</span></span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span class="nav-item-label"><span class="theme-copy theme-copy-archive">更多</span><span class="theme-copy theme-copy-cinema">场务</span><span class="theme-copy theme-copy-ledger">管理</span></span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.14.0"></script>
+  <script type="module" src="/assets/app.js?v=1.16.0"></script>
 </body>
 </html>

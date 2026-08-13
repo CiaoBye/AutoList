@@ -12,109 +12,41 @@ from datetime import datetime, timedelta
 from defusedxml import ElementTree
 
 from .config import APP_VERSION, public_endpoint_url, settings
-from .util import safe_request
+from .parsers import AccountTableParser, NexusTableParser, human_size_bytes, numeric_value, site_proxy
+from .util import safe_request, to_float, to_int
 
 
-class NexusTableParser(HTMLParser):
-    """Collect torrent rows while preserving outer cells across nested tables."""
 
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.rows: list[dict[str, Any]] = []
-        self.stack: list[dict[str, Any]] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = {key.lower(): value or "" for key, value in attrs}
-        if tag.lower() == "tr":
-            self.stack.append({"cells": [], "td_depth": 0, "links": [], "anchors": [], "free": False})
-            return
-        for row in self.stack:
-            if tag.lower() == "td":
-                row["td_depth"] += 1
-                if row["td_depth"] == 1:
-                    row["cells"].append([])
-            elif tag.lower() == "a":
-                link = {"href": html.unescape(attributes.get("href", "")), "title": attributes.get("title", ""), "text": []}
-                row["links"].append(link)
-                row["anchors"].append(link)
-            marker = " ".join((attributes.get("class", ""), attributes.get("src", "")))
-            if re.search(r"(?:^|[\s_/.-])(pro_free|free2up|freeleech|free|2up)(?:[\s_/.-]|$)", marker, re.I):
-                row["free"] = True
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() == "tr":
-            if self.stack:
-                self.rows.append(self.stack.pop())
-            return
-        for row in self.stack:
-            if tag.lower() == "td" and row["td_depth"]:
-                row["td_depth"] -= 1
-            elif tag.lower() == "a" and row["anchors"]:
-                row["anchors"].pop()
-
-    def handle_data(self, data: str) -> None:
-        for row in self.stack:
-            if row["td_depth"] and row["cells"]:
-                row["cells"][-1].append(data)
-            if row["anchors"]:
-                row["anchors"][-1]["text"].append(data)
+# 按 (timeout, proxy) 缓存模块级 AsyncClient，供搜索/检测方法复用连接池（审计 3-24）。
+_search_clients: dict[tuple[float, str | None], httpx.AsyncClient] = {}
 
 
-class AccountTableParser(HTMLParser):
-    """Collect simple label/value rows from tracker account pages."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.rows: list[list[str]] = []
-        self.text: list[str] = []
-        self._row: list[list[str]] | None = None
-        self._cell: list[str] | None = None
-
-    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() == "tr":
-            self._row = []
-        elif tag.lower() in {"td", "th"} and self._row is not None:
-            self._cell = []
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"td", "th"} and self._row is not None and self._cell is not None:
-            value = re.sub(r"\s+", " ", " ".join(self._cell)).strip()
-            self._row.append(value)
-            self._cell = None
-        elif tag.lower() == "tr" and self._row is not None:
-            if self._row:
-                self.rows.append(self._row)
-            self._row = None
-
-    def handle_data(self, data: str) -> None:
-        if data.strip():
-            self.text.append(data)
-        if self._cell is not None:
-            self._cell.append(data)
+def _search_client(timeout: float, proxy: str | None = None) -> httpx.AsyncClient:
+    key = (float(timeout), proxy)
+    client = _search_clients.get(key)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=timeout, proxy=proxy, follow_redirects=False)
+        _search_clients[key] = client
+    return client
 
 
-def human_size_bytes(value: Any) -> int | None:
-    if isinstance(value, (int, float)):
-        return max(0, int(value))
-    match = re.search(r"(\d+(?:[.,]\d+)?)\s*(B|Ki?B|Mi?B|Gi?B|Ti?B|Pi?B)\b", str(value or ""), re.I)
-    if not match:
-        return None
-    units = {"b": 1, "kb": 1024, "kib": 1024, "mb": 1024**2, "mib": 1024**2,
-             "gb": 1024**3, "gib": 1024**3, "tb": 1024**4, "tib": 1024**4,
-             "pb": 1024**5, "pib": 1024**5}
-    return int(float(match.group(1).replace(",", ".")) * units[match.group(2).lower()])
+async def close_search_clients() -> None:
+    """Close the shared PT/search connection pools during shutdown and tests.
 
-
-def numeric_value(value: Any) -> float | None:
-    if isinstance(value, (int, float)):
-        return float(value)
-    match = re.search(r"-?\d+(?:[.,]\d+)?", str(value or "").replace(",", ""))
-    return float(match.group(0)) if match else None
-
-
-def site_proxy(site: dict[str, Any]) -> str | None:
-    """Only explicitly opted-in PT sites use the configured outbound proxy."""
-    return settings.outbound_proxy_url if settings.pt_proxy_enabled and site.get("proxy") and settings.outbound_proxy_url else None
+    The cache is intentionally process-local so search requests can reuse TCP
+    connections.  Clearing only the dictionary leaves the underlying sockets
+    open until garbage collection, which is especially visible as
+    ``ResourceWarning`` on Python 3.14 and can retain proxy connections after
+    a reload.  Remove the references first, then close each client defensively
+    so one broken pool cannot prevent the remaining pools from being released.
+    """
+    clients = list(_search_clients.values())
+    _search_clients.clear()
+    for client in clients:
+        try:
+            await client.aclose()
+        except Exception:
+            continue
 
 
 class MoviePilotClient:
@@ -139,7 +71,7 @@ class MoviePilotClient:
         torrent_payload = dict(torrent_in)
         factor = torrent_payload.pop("volume_factor", None)
         if factor is not None and torrent_payload.get("downloadvolumefactor") is None:
-            torrent_payload["downloadvolumefactor"] = float(factor)
+            torrent_payload["downloadvolumefactor"] = to_float(factor)
         publish_time = torrent_payload.pop("publish_time", None)
         if publish_time and not torrent_payload.get("pubdate"):
             torrent_payload["pubdate"] = str(publish_time)
@@ -172,9 +104,13 @@ class TMDBClient:
         last_error: Exception | None = None
         for attempt in range(3):
             try:
+                proxy = settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None
                 async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=settings.mp_timeout_seconds,
-                                             proxy=settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None) as client:
-                    response = await safe_request(client, "GET", request_path, params=params, label="TMDB 地址")
+                                             proxy=proxy) as client:
+                    response = await safe_request(
+                        client, "GET", request_path, params=params, label="TMDB 地址",
+                        proxy_mode=bool(proxy),
+                    )
                     response.raise_for_status()
                     return response
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -302,12 +238,6 @@ class EmbyClient:
             title_matches[0] if title_matches else None,
         )
 
-    async def library_state(
-        self, title: str, year: int | None, tmdb_id: int | None = None, imdb_id: str | None = None,
-    ) -> str:
-        state, _ = await self.library_match(title, year, tmdb_id, imdb_id)
-        return state
-
     async def library_match(
         self, title: str, year: int | None, tmdb_id: int | None = None, imdb_id: str | None = None,
     ) -> tuple[str, dict[str, Any] | None]:
@@ -385,20 +315,24 @@ class TorznabClient:
         params: dict[str, Any] = {"t": "movie", "q": title, "apikey": site.get("api_key", "")}
         if imdb_id:
             params["imdbid"] = imdb_id.removeprefix("tt")
-        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False, proxy=site_proxy(site)) as client:
-            response = await safe_request(client, "GET", site["base_url"], params=params, label=f"站点 {site.get('name', '')} 地址")
-            response.raise_for_status()
+        proxy = site_proxy(site)
+        client = _search_client(settings.mp_timeout_seconds, proxy)
+        response = await safe_request(
+            client, "GET", site["base_url"], params=params, label=f"站点 {site.get('name', '')} 地址",
+            proxy_mode=bool(proxy),
+        )
+        response.raise_for_status()
         root = ElementTree.fromstring(response.content)
         results: list[dict[str, Any]] = []
         for item in root.findall(".//item"):
             attrs = {node.attrib.get("name"): node.attrib.get("value") for node in item if node.tag.endswith("attr")}
             enclosure = item.find("enclosure")
             try:
-                size = int(attrs.get("size") or item.findtext("size") or 0)
+                size = to_int(attrs.get("size") or item.findtext("size") or 0)
             except (TypeError, ValueError):
                 size = 0
             try:
-                seeders = int(attrs.get("seeders") or 0)
+                seeders = to_int(attrs.get("seeders") or 0)
             except (TypeError, ValueError):
                 seeders = 0
             results.append({
@@ -424,10 +358,14 @@ class RSSClient:
         headers = {"User-Agent": str(site.get("user_agent") or "AutoList")}
         if site.get("cookie"):
             headers["Cookie"] = str(site["cookie"])
+        proxy = site_proxy(site)
         async with httpx.AsyncClient(
-            timeout=int(site.get("timeout_seconds") or 30), follow_redirects=False, proxy=site_proxy(site),
+            timeout=to_int(site.get("timeout_seconds") or 30), follow_redirects=False, proxy=proxy,
         ) as client:
-            response = await safe_request(client, "GET", feed_url, headers=headers, label=f"站点 {site.get('name', '')} RSS 地址")
+            response = await safe_request(
+                client, "GET", feed_url, headers=headers, label=f"站点 {site.get('name', '')} RSS 地址",
+                proxy_mode=bool(proxy),
+            )
             response.raise_for_status()
         root = ElementTree.fromstring(response.content)
         normalized_title = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
@@ -449,7 +387,10 @@ class RSSClient:
                 link = atom_link.attrib.get("href") if atom_link is not None else None
             if not link:
                 continue
-            size = int((enclosure.attrib.get("length") if enclosure is not None else "0") or 0)
+            try:
+                size = to_int((enclosure.attrib.get("length") if enclosure is not None else "0") or 0)
+            except (TypeError, ValueError):
+                size = 0
             results.append({
                 "title": torrent_title or "未知资源", "site_name": site["name"], "enclosure": link,
                 "size": size, "seeders": 0,
@@ -486,13 +427,25 @@ class MTeamClient:
         }
 
     @staticmethod
+    def _require_success(body: dict[str, Any], action: str) -> None:
+        """Reject ambiguous M-Team responses instead of treating missing codes as success."""
+        code = body.get("code")
+        message = str(body.get("message") or "").strip()
+        if code is not None:
+            success = str(code) == "0"
+        else:
+            success = message.upper() == "SUCCESS"
+        if not success:
+            raise RuntimeError(message or f"M-Team {action}失败")
+
+    @staticmethod
     def _discount_factor(discount: str) -> float:
         """Map M-Team promotion discounts to a volume factor (0=free, 1=full price)."""
         if str(discount).strip().upper() == "FREE":
             return 0.0
         match = re.fullmatch(r"PERCENT_(\d+)", str(discount or "").strip().upper())
         if match:
-            return min(0.95, max(0.05, int(match.group(1)) / 100))
+            return min(0.95, max(0.05, to_int(match.group(1)) / 100))
         return 1.0
 
     def _parse_row(self, row: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
@@ -503,7 +456,7 @@ class MTeamClient:
         if factor == 0:
             labels.insert(0, "FREE")
         elif factor < 1:
-            labels.insert(0, f"{int(factor * 100)}%")
+            labels.insert(0, f"{to_int(factor * 100)}%")
         request_options = {
             "method": "post", "cookie": False, "params": {"id": str(row.get("id"))},
             "header": {**self.headers(site), "Content-Type": "multipart/form-data"}, "result": "data",
@@ -515,8 +468,8 @@ class MTeamClient:
             detail_url = f"{self.api_base(site)}/details.php?id={row.get('id')}"
         return {
             "title": row.get("name") or "未知资源", "description": row.get("smallDescr"),
-            "site_name": site["name"], "size": int(row.get("size") or 0),
-            "seeders": int(status.get("seeders") or 0), "leechers": int(status.get("leechers") or 0),
+            "site_name": site["name"], "size": to_int(row.get("size") or 0),
+            "seeders": to_int(status.get("seeders") or 0), "leechers": to_int(status.get("leechers") or 0),
             "enclosure": f"[{encoded}]{self.api_base(site)}/api/torrent/genDlToken",
             "labels": labels, "volume_factor": factor, "site_ua": site.get("user_agent") or f"AutoList/{APP_VERSION}",
             "publish_time": publish_time, "detail_url": detail_url,
@@ -524,26 +477,26 @@ class MTeamClient:
 
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
         keyword = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else title
-        timeout = int(site.get("timeout_seconds") or 30)
+        timeout = to_int(site.get("timeout_seconds") or 30)
         rows: list[dict[str, Any]] = []
-        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site), follow_redirects=False) as client:
-            # 分页拉取（最多 5 页 = 500 条），避免热门影片被硬截断到 100 条。
-            for page in range(1, 6):
-                payload = {"pageNumber": page, "pageSize": 100, "mode": "normal", "keyword": keyword}
-                response = await safe_request(
-                    client, "POST", f"{self.api_base(site)}/api/torrent/search", headers=self.headers(site),
-                    json=payload, label=f"站点 {site.get('name', '')} API 地址",
-                )
-                response.raise_for_status()
-                body = response.json()
-                if str(body.get("code")) not in ("0", "None") and body.get("message") != "SUCCESS":
-                    raise RuntimeError(body.get("message") or "M-Team API 搜索失败")
-                data = body.get("data") or {}
-                page_rows = data.get("data") or []
-                rows.extend(page_rows)
-                total_pages = int(data.get("totalPages") or 1)
-                if len(page_rows) < 100 or page >= total_pages:
-                    break
+        proxy = site_proxy(site)
+        client = _search_client(timeout=timeout, proxy=proxy)
+        # 分页拉取（最多 5 页 = 500 条），避免热门影片被硬截断到 100 条。
+        for page in range(1, 6):
+            payload = {"pageNumber": page, "pageSize": 100, "mode": "normal", "keyword": keyword}
+            response = await safe_request(
+                client, "POST", f"{self.api_base(site)}/api/torrent/search", headers=self.headers(site),
+                json=payload, label=f"站点 {site.get('name', '')} API 地址", proxy_mode=bool(proxy),
+            )
+            response.raise_for_status()
+            body = response.json()
+            self._require_success(body, "API 搜索")
+            data = body.get("data") or {}
+            page_rows = data.get("data") or []
+            rows.extend(page_rows)
+            total_pages = to_int(data.get("totalPages") or 1)
+            if len(page_rows) < 100 or page >= total_pages:
+                break
         return [self._parse_row(row, site) for row in rows]
 
     async def check(self, site: dict[str, Any]) -> dict[str, Any]:
@@ -551,16 +504,16 @@ class MTeamClient:
         return {"ok": True, "message": f"API 可用，探测返回 {len(results)} 条"}
 
     async def account_stats(self, site: dict[str, Any]) -> dict[str, Any]:
-        timeout = int(site.get("timeout_seconds") or 30)
-        async with httpx.AsyncClient(timeout=timeout, proxy=site_proxy(site), follow_redirects=False) as client:
-            response = await safe_request(
-                client, "POST", f"{self.api_base(site)}/api/member/profile", headers=self.headers(site),
-                json={}, label=f"站点 {site.get('name', '')} API 地址",
-            )
-            response.raise_for_status()
-            body = response.json()
-        if str(body.get("code")) not in ("0", "None") and body.get("message") != "SUCCESS":
-            raise RuntimeError(body.get("message") or "M-Team 账户统计请求失败")
+        timeout = to_int(site.get("timeout_seconds") or 30)
+        proxy = site_proxy(site)
+        client = _search_client(timeout=timeout, proxy=proxy)
+        response = await safe_request(
+            client, "POST", f"{self.api_base(site)}/api/member/profile", headers=self.headers(site),
+            json={}, label=f"站点 {site.get('name', '')} API 地址", proxy_mode=bool(proxy),
+        )
+        response.raise_for_status()
+        body = response.json()
+        self._require_success(body, "账户统计请求")
         source = body.get("data") or {}
 
         def find(keys: set[str], value: Any = source) -> Any:
@@ -588,17 +541,19 @@ class MTeamClient:
             "downloaded": downloaded,
             "ratio": numeric_value(find({"ratio", "sharerate", "share_ratio"})),
             "bonus": numeric_value(find({"bonus", "bonuspoints", "bonus_point"})),
-            "seeding": int(numeric_value(find({"seeding", "seedcount", "seed_count"})) or 0),
+            "seeding": to_int(numeric_value(find({"seeding", "seedcount", "seed_count"})) or 0),
         }
+
+
+# Some sites use different search page endpoints (module-level constant, never mutated).
+NEXUSPHP_SEARCH_PATHS: dict[str, str] = {
+    "totheglory.im": "browse.php",
+}
 
 
 class NexusPHPClient:
     """Conservative cookie-based adapter for common NexusPHP torrent tables."""
 
-    # Some sites use different search page endpoints.
-    _SEARCH_PATHS: dict[str, str] = {
-        "totheglory.im": "browse.php",
-    }
     # Some sites (e.g. hdarea.club) aggressively rate-limit automated User-Agents.
     _BROWSER_UA = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -620,8 +575,8 @@ class NexusPHPClient:
         for value in cells:
             match = re.search(r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(B|Ki?B|Mi?B|Gi?B|Ti?B)\b", value, re.I)
             if match:
-                number = float(match.group(1).replace(",", "."))
-                return int(number * units[match.group(2).lower()])
+                number = to_float(match.group(1).replace(",", "."))
+                return to_int(number * units[match.group(2).lower()])
         return 0
 
     @staticmethod
@@ -630,10 +585,10 @@ class NexusPHPClient:
         for cell in cells:
             match = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", cell)
             if match:
-                return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+                return f"{match.group(1)}-{to_int(match.group(2)):02d}-{to_int(match.group(3)):02d}"
             match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", cell)
             if match:
-                return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+                return f"{match.group(1)}-{to_int(match.group(2)):02d}-{to_int(match.group(3)):02d}"
             relative = NexusPHPClient._relative_publish_date(cell)
             if relative:
                 return relative
@@ -651,25 +606,28 @@ class NexusPHPClient:
         for unit, factor in (("年", 365), ("月", 30), ("周", 7), ("天", 1)):
             match = re.search(rf"(\d+)\s*{unit}", cell)
             if match:
-                days += int(match.group(1)) * factor
+                days += to_int(match.group(1)) * factor
         return (now - timedelta(days=days)).strftime("%Y-%m-%d") if days else None
 
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
         base = str(site.get("base_url") or "").rstrip("/") + "/"
         host = (urlparse(base).hostname or "").lower()
         search_page = "torrents.php"
-        for domain, path in self._SEARCH_PATHS.items():
+        for domain, path in NEXUSPHP_SEARCH_PATHS.items():
             if domain in host:
                 search_page = path
                 break
         params = {"search": imdb_id or title, "search_area": 0}
         headers = {"Cookie": str(site.get("cookie") or ""), "User-Agent": str(site.get("user_agent") or f"AutoList/{APP_VERSION}")}
-        async with httpx.AsyncClient(timeout=int(site.get("timeout_seconds") or 30), follow_redirects=False, proxy=site_proxy(site)) as client:
-            response = await safe_request(
-                client, "GET", urljoin(base, search_page), params=params, headers=headers,
-                label=f"站点 {site.get('name', '')} 地址",
-            )
-            response.raise_for_status()
+        proxy = site_proxy(site)
+        client = _search_client(timeout=to_int(site.get("timeout_seconds") or 30), proxy=proxy)
+        response = await safe_request(
+            client, "GET", urljoin(base, search_page), params=params, headers=headers,
+            label=f"站点 {site.get('name', '')} 地址", proxy_mode=bool(proxy),
+        )
+        response.raise_for_status()
+        if self._looks_like_login_page(response):
+            raise RuntimeError("Cookie 已失效，站点返回登录页面")
         results: list[dict[str, Any]] = []
         parser = NexusTableParser()
         parser.feed(response.text)
@@ -682,7 +640,7 @@ class NexusPHPClient:
                 continue
             title_text = self._text(detail["title"] or " ".join(detail["text"]))
             cells = [self._text(" ".join(cell)) for cell in row["cells"]]
-            numeric = [int(value.replace(",", "")) for value in cells[-5:] if re.fullmatch(r"[\d,]+", value)]
+            numeric = [to_int(value.replace(",", "")) for value in cells[-5:] if re.fullmatch(r"[\d,]+", value)]
             results.append({
                 "title": title_text, "site_name": site["name"], "size": self._size(cells),
                 "seeders": numeric[-3] if len(numeric) >= 3 else 0,
@@ -694,7 +652,7 @@ class NexusPHPClient:
         for item in results:
             key = str(item.get("enclosure") or item.get("title") or "")
             current = unique.get(key)
-            if current is None or int(item.get("size") or 0) > int(current.get("size") or 0):
+            if current is None or to_int(item.get("size") or 0) > to_int(current.get("size") or 0):
                 unique[key] = item
         return list(unique.values())
 
@@ -736,14 +694,14 @@ class NexusPHPClient:
             "downloaded": downloaded,
             "ratio": numeric_value(banner_value(("分享率", "比率", "ratio"))),
             "bonus": numeric_value(banner_value(("魔力值", "魔力豆", "魔力", "积分", "bonus"))),
-            "seeding": int(numeric_value(banner_value(("当前活动", "當前活動", "做种数", "做種數", "seeding"))) or 0),
+            "seeding": to_int(numeric_value(banner_value(("当前活动", "當前活動", "做种数", "做種數", "seeding"))) or 0),
         }
 
     @staticmethod
     def _tnode_stats(data: dict[str, Any]) -> dict[str, Any] | None:
         """TNode SPA 站点（如朱雀）的 /api/user/getInfo 用户信息。"""
-        uploaded = int(data.get("upload") or 0)
-        downloaded = int(data.get("download") or 0)
+        uploaded = to_int(data.get("upload") or 0)
+        downloaded = to_int(data.get("download") or 0)
         if not uploaded and not downloaded:
             return None
         return {
@@ -751,7 +709,7 @@ class NexusPHPClient:
             "downloaded": downloaded,
             "ratio": (uploaded / downloaded) if downloaded > 0 else None,
             "bonus": numeric_value(data.get("bonus")),
-            "seeding": int(data.get("seeding") or 0),
+            "seeding": to_int(data.get("seeding") or 0),
         }
 
     async def account_stats(self, site: dict[str, Any]) -> dict[str, Any]:
@@ -760,41 +718,46 @@ class NexusPHPClient:
             "Cookie": str(site.get("cookie") or ""),
             "User-Agent": str(site.get("user_agent") or self._BROWSER_UA),
         }
-        timeout = int(site.get("timeout_seconds") or 30)
-        async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=False, proxy=site_proxy(site),
-        ) as client:
-            home = await safe_request(client, "GET", base, headers=headers, label=f"站点 {site.get('name', '')} 地址")
-            home.raise_for_status()
-            banner = self._banner_stats(home.text)
-            if banner:
-                return banner
-            # TNode SPA（朱雀等）：首页带 x-csrf-token，账户信息走 JSON API。
-            csrf = re.search(r'<meta name="x-csrf-token" content="([^"]+)"', home.text)
-            if csrf:
-                info = await safe_request(
-                    client, "GET", urljoin(base, "api/user/getInfo"),
-                    headers={
-                        **headers, "x-csrf-token": csrf.group(1),
-                        "X-Requested-With": "XMLHttpRequest", "Referer": base,
-                    }, label=f"站点 {site.get('name', '')} 地址",
-                )
-                info.raise_for_status()
-                try:
-                    data = (info.json().get("data") or {})
-                except ValueError:
-                    data = {}
-                tnode = self._tnode_stats(data)
-                if tnode:
-                    return tnode
-            user_link = re.search(
-                r"""href=["']([^"']*userdetails\.php\?[^"']*\bid=\d+[^"']*)["']""",
-                home.text,
-                re.I,
+        timeout = to_int(site.get("timeout_seconds") or 30)
+        proxy = site_proxy(site)
+        client = _search_client(timeout=timeout, proxy=proxy)
+        home = await safe_request(
+            client, "GET", base, headers=headers, label=f"站点 {site.get('name', '')} 地址",
+            proxy_mode=bool(proxy),
+        )
+        home.raise_for_status()
+        banner = self._banner_stats(home.text)
+        if banner:
+            return banner
+        # TNode SPA（朱雀等）：首页带 x-csrf-token，账户信息走 JSON API。
+        csrf = re.search(r'<meta name="x-csrf-token" content="([^"]+)"', home.text)
+        if csrf:
+            info = await safe_request(
+                client, "GET", urljoin(base, "api/user/getInfo"),
+                headers={
+                    **headers, "x-csrf-token": csrf.group(1),
+                    "X-Requested-With": "XMLHttpRequest", "Referer": base,
+                }, label=f"站点 {site.get('name', '')} 地址", proxy_mode=bool(proxy),
             )
-            details_url = urljoin(base, html.unescape(user_link.group(1))) if user_link else urljoin(base, "userdetails.php")
-            details = await safe_request(client, "GET", details_url, headers=headers, label=f"站点 {site.get('name', '')} 地址")
-            details.raise_for_status()
+            info.raise_for_status()
+            try:
+                data = (info.json().get("data") or {})
+            except ValueError:
+                data = {}
+            tnode = self._tnode_stats(data)
+            if tnode:
+                return tnode
+        user_link = re.search(
+            r"""href=["']([^"']*userdetails\.php\?[^"']*\bid=\d+[^"']*)["']""",
+            home.text,
+            re.I,
+        )
+        details_url = urljoin(base, html.unescape(user_link.group(1))) if user_link else urljoin(base, "userdetails.php")
+        details = await safe_request(
+            client, "GET", details_url, headers=headers, label=f"站点 {site.get('name', '')} 地址",
+            proxy_mode=bool(proxy),
+        )
+        details.raise_for_status()
         parser = AccountTableParser()
         parser.feed(details.text)
         values: dict[str, str] = {}
@@ -836,5 +799,17 @@ class NexusPHPClient:
             "downloaded": downloaded,
             "ratio": numeric_value(match_value(("分享率", "比率", "ratio"))),
             "bonus": numeric_value(match_value(("魔力值", "魔力", "积分", "bonus"))),
-            "seeding": int(numeric_value(match_value(("做种数", "seeding", "seedcount"))) or 0),
+            "seeding": to_int(numeric_value(match_value(("做种数", "seeding", "seedcount"))) or 0),
         }
+
+    @staticmethod
+    def _looks_like_login_page(response: httpx.Response) -> bool:
+        """Detect a successful HTTP response that is actually an expired-cookie login page."""
+        path = (response.url.path or "").lower()
+        if path.endswith(("/login.php", "/takelogin.php")):
+            return True
+        text = response.text[:200_000]
+        has_password = bool(re.search(r"<input[^>]+(?:name|type)=[\"'](?:password|passwd)[\"']", text, re.I))
+        has_username = bool(re.search(r"<input[^>]+name=[\"'](?:username|user|uid)[\"']", text, re.I))
+        posts_login = bool(re.search(r"<form[^>]+action=[\"'][^\"']*(?:take)?login\.php", text, re.I))
+        return has_password and (has_username or posts_login)

@@ -1,13 +1,15 @@
+import asyncio
 import json
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from app import main
+from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
 from app.candidate_policy import DEFAULT_POLICY, merge_custom_rules, release_group_catalog
 from app.clients import NexusPHPClient
 from app.config import settings
 from app.database import config_values, connect, initialize
+from app.util import to_int
 
 
 class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -20,16 +22,18 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self) -> None:
         main.raw_candidates.clear()
+        from app.clients import _search_clients
+        _search_clients.clear()
         settings.data_dir = self.previous_data_dir
         self.temp.cleanup()
 
     def create_playlist_item(self, title: str = "Workflow Movie", year: int = 2020) -> tuple[int, int]:
         with connect() as conn:
-            playlist_id = int(conn.execute(
+            playlist_id = to_int(conn.execute(
                 "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
                 ("工作流测试", 1, main.utc_now()),
             ).lastrowid)
-            item_id = int(conn.execute(
+            item_id = to_int(conn.execute(
                 """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title)
                    VALUES(?,?,?,?,?,?)""",
                 (playlist_id, 1, "tt1234567", title, year, "工作流电影"),
@@ -63,6 +67,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         tmdb.find_by_imdb.return_value = [imdb_match]
         with patch("app.services.recognition.TMDBClient", return_value=tmdb), patch("app.services.recognition.AIRecognitionClient") as ai_type:
             result = await main.recognize_movie("Exact", 2001, "tt0000001")
+        self.assertIsNotNone(result)
         self.assertEqual(result["id"], 101)
         tmdb.search_movie.assert_not_awaited()
         ai_type.return_value.suggest.assert_not_called()
@@ -74,6 +79,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         ai.suggest.return_value = {"original_title": "Corrected", "year": 2002}
         with patch("app.services.recognition.TMDBClient", return_value=tmdb), patch("app.services.recognition.AIRecognitionClient", return_value=ai):
             result = await main.recognize_movie("Wrong", 2002, "tt0000002")
+        self.assertIsNotNone(result)
         self.assertEqual(result["id"], 202)
         self.assertEqual(tmdb.search_movie.await_count, 2)
         ai.suggest.assert_awaited_once_with("Wrong", 2002)
@@ -139,7 +145,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         accepted, reason = main.candidate_identity(item, media, "Bir Zamanlar Anadolu'da 2011 1080p BluRay")
         self.assertTrue(accepted)
         query_media = {**media, "year": "2001", "original_title": "Canonical Original", "imdb_id": "tt7654321"}
-        queries = main.build_search_queries(item, query_media)
+        queries = main.build_search_queries(dict(item), query_media)
         self.assertEqual(queries[0][1], "tt7654321")
         self.assertLessEqual(len(queries), 4)
         self.assertTrue(any("Canonical Original 2001" in query[0] for query in queries))
@@ -172,7 +178,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
                        VALUES(?,?,?,?,1,1,?)""",
                     (name, "nexusphp", f"https://{name.lower()}.example", priority, main.utc_now()),
                 )
-            task_id = int(conn.execute(
+            task_id = to_int(conn.execute(
                 """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
                    VALUES(?,?,?,?,?,?,?)""",
                 (playlist_id, 1, 1, "queued", 1, main.utc_now(), main.utc_now()),
@@ -215,7 +221,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any("should-not-leak" in log["message"] for log in logs))
         attempts = await main.task_attempts(task_id)
         self.assertEqual(len(attempts["items"]), 3)
-        self.assertEqual(sum(int(site["failed"] or 0) for site in attempts["sites"]), 1)
+        self.assertEqual(sum(to_int(site["failed"] or 0) for site in attempts["sites"]), 1)
         retry_id, retry_total = main.create_followup_search_task(task_id, True)
         self.assertEqual(retry_total, 1)
         with connect() as conn:
@@ -260,19 +266,19 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_retry_runs_only_the_exact_failed_item_site_pairs(self) -> None:
         playlist_id, first_item_id = self.create_playlist_item("First Movie", 2020)
         with connect() as conn:
-            second_item_id = int(conn.execute(
+            second_item_id = to_int(conn.execute(
                 """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title)
                    VALUES(?,?,?,?,?,?)""",
                 (playlist_id, 2, "tt7654321", "Second Movie", 2021, "第二部"),
             ).lastrowid)
             site_ids = []
             for name in ("Alpha", "Beta"):
-                site_ids.append(int(conn.execute(
+                site_ids.append(to_int(conn.execute(
                     """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
                        VALUES(?,?,?,1,1,?)""",
                     (name, "nexusphp", f"https://{name.lower()}.example", main.utc_now()),
                 ).lastrowid))
-            source_id = int(conn.execute(
+            source_id = to_int(conn.execute(
                 """INSERT INTO search_tasks(
                      playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -299,7 +305,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         seen: list[tuple[int, int]] = []
 
         async def fake_search_site(_task_id: int, item: object, site: dict, *_args: object) -> tuple[dict, list, None, int]:
-            seen.append((int(item["id"]), int(site["id"])))  # type: ignore[index]
+            seen.append((to_int(item["id"]), to_int(site["id"])))  # type: ignore[index]
             return site, [], None, 1
 
         media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
@@ -313,7 +319,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_moviepilot_false_response_is_recorded_as_failure(self) -> None:
         playlist_id, item_id = self.create_playlist_item()
         with connect() as conn:
-            task_id = int(conn.execute(
+            task_id = to_int(conn.execute(
                 "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                 (playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
             ).lastrowid)
@@ -339,11 +345,11 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_snapshot_missing_item_fails_explicitly(self) -> None:
         playlist_id, item_id = self.create_playlist_item()
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
                 ("Snapshot Site", "rss", "https://snapshot.example/feed", main.utc_now()),
             ).lastrowid)
-            task_id = int(conn.execute(
+            task_id = to_int(conn.execute(
                 """INSERT INTO search_tasks(
                      playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -358,7 +364,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_followup_rejects_running_source_task(self) -> None:
         playlist_id, _item_id = self.create_playlist_item()
         with connect() as conn:
-            task_id = int(conn.execute(
+            task_id = to_int(conn.execute(
                 "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                 (playlist_id, 1, 1, "running", 1, main.utc_now(), main.utc_now()),
             ).lastrowid)
@@ -369,12 +375,12 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_restart_copies_original_item_and_site_snapshots(self) -> None:
         playlist_id, item_id = self.create_playlist_item()
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
                    VALUES(?,?,?,1,1,?)""",
                 ("Original", "rss", "https://original.example/feed", main.utc_now()),
             ).lastrowid)
-            source_id = int(conn.execute(
+            source_id = to_int(conn.execute(
                 """INSERT INTO search_tasks(
                      playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -436,12 +442,13 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
           <td><a href="download.php?id=42&amp;passkey=dummy">下载</a></td>
           <td>8.25<br>GiB</td><td>12</td><td>3</td><td>99</td>
         </tr></table>"""
+        response.content = response.text.encode()
+        response.url = Mock(path="/torrents.php")
         response.raise_for_status = Mock()
         client = AsyncMock()
         client.get.return_value = response
-        context = AsyncMock()
-        context.__aenter__.return_value = client
-        with patch("app.clients.httpx.AsyncClient", return_value=context):
+        # 共享 client 工厂直接返回 AsyncClient 实例（审计 3-24），不再经过 __aenter__。
+        with patch("app.clients.httpx.AsyncClient", return_value=client):
             rows = await NexusPHPClient().search(
                 {"name": "测试站", "base_url": "https://tracker.example", "cookie": "dummy"},
                 "Movie",
@@ -449,35 +456,36 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Movie.2020.1080p.x265-FRDS")
-        self.assertEqual(rows[0]["size"], int(8.25 * 1024**3))
+        self.assertEqual(rows[0]["size"], to_int(8.25 * 1024**3))
         self.assertEqual(rows[0]["seeders"], 12)
 
     async def test_nexusphp_account_stats_parse_combined_profile_cell(self) -> None:
         home = Mock()
         home.text = '<a href="userdetails.php?id=42">账户</a>'
+        home.content = home.text.encode()
         home.raise_for_status = Mock()
         details = Mock()
         details.text = """<table><tr><td>
           上传量：12.5 TiB<br>下载量：2.5 TiB<br>分享率：5.00<br>魔力值：1234.5<br>做种数：86
         </td></tr></table>"""
+        details.content = details.text.encode()
         details.raise_for_status = Mock()
         client = AsyncMock()
         client.get.side_effect = [home, details]
-        context = AsyncMock()
-        context.__aenter__.return_value = client
-        with patch("app.clients.httpx.AsyncClient", return_value=context):
+        with patch("app.clients.httpx.AsyncClient", return_value=client):
             stats = await NexusPHPClient().account_stats({
                 "name": "测试站",
                 "base_url": "https://tracker.example",
                 "cookie": "session=dummy",
             })
-        self.assertEqual(stats["uploaded"], int(12.5 * 1024**4))
-        self.assertEqual(stats["downloaded"], int(2.5 * 1024**4))
+        self.assertEqual(stats["uploaded"], to_int(12.5 * 1024**4))
+        self.assertEqual(stats["downloaded"], to_int(2.5 * 1024**4))
         self.assertEqual(stats["ratio"], 5.0)
         self.assertEqual(stats["seeding"], 86)
 
     async def test_moviepilot_payload_maps_internal_torrent_fields(self) -> None:
         response = Mock()
+        response.content = b"{}"
         response.raise_for_status = Mock()
         response.json.return_value = {"success": True}
         client = AsyncMock()
@@ -495,3 +503,349 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("publish_time", payload["torrent_in"])
         self.assertEqual(payload["torrent_in"]["downloadvolumefactor"], 0.5)
         self.assertEqual(payload["torrent_in"]["pubdate"], "2026-07-18")
+
+
+class BackgroundTaskTests(unittest.IsolatedAsyncioTestCase):
+    """P1-2：run_recognition / run_library_scan 行为测试（审计 finding P1-2）。"""
+
+    async def asyncSetUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous_data_dir = settings.data_dir
+        settings.data_dir = self.temp.name
+        main.raw_candidates.clear()
+        initialize()
+
+    async def asyncTearDown(self) -> None:
+        main.raw_candidates.clear()
+        settings.data_dir = self.previous_data_dir
+        self.temp.cleanup()
+
+    def _playlist_and_items(self, count: int = 1) -> tuple[int, list[int]]:
+        with connect() as conn:
+            playlist_id = to_int(conn.execute(
+                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
+                ("后台任务测试", 1, main.utc_now()),
+            ).lastrowid)
+            item_ids = []
+            for rank in range(1, count + 1):
+                item_ids.append(to_int(conn.execute(
+                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title)
+                       VALUES(?,?,?,?,?,?)""",
+                    (playlist_id, rank, f"tt{rank:07d}", f"Movie {rank}", 2020 + rank, f"电影 {rank}"),
+                ).lastrowid))
+        return playlist_id, item_ids
+
+    async def test_run_recognition_completes_and_persists(self) -> None:
+        playlist_id, item_ids = self._playlist_and_items(2)
+        from app.services import automation
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO recognition_tasks(playlist_id,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?)""",
+                (playlist_id, "queued", 2, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        media = {"id": 42, "title": "Movie 1", "original_title": "Movie 1", "imdb_id": "tt0000001", "release_date": "2021-05-01"}
+        with patch.object(automation, "recognize_movie", new=AsyncMock(return_value=media)) as recognize, \
+             patch.object(automation, "persist_tmdb_item", new=Mock()) as persist:
+            await automation.run_recognition(task_id)
+        self.assertEqual(recognize.await_count, 2)
+        self.assertEqual(persist.call_count, 2)
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["matched"], 2)
+        self.assertEqual(task["completed"], 2)
+        self.assertIsNone(task["error_message"])
+        # 登记表已清理
+        from app import state
+        self.assertNotIn(task_id, state.running_recognition_tasks)
+
+    async def test_run_recognition_marks_partial_when_item_fails(self) -> None:
+        playlist_id, _item_ids = self._playlist_and_items(2)
+        from app.services import automation
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO recognition_tasks(playlist_id,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?)""",
+                (playlist_id, "queued", 2, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        media = {"id": 42, "title": "Movie 1", "original_title": "Movie 1", "imdb_id": "tt0000001", "release_date": "2021-05-01"}
+        with patch.object(automation, "recognize_movie", new=AsyncMock(side_effect=[media, RuntimeError("识别失败")])), \
+             patch.object(automation, "persist_tmdb_item", new=Mock()):
+            await automation.run_recognition(task_id)
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
+        self.assertEqual(task["status"], "partial")
+        self.assertEqual(task["matched"], 1)
+        self.assertEqual(task["completed"], 2)
+        self.assertIn("识别失败", task["error_message"] or "")
+
+    async def test_run_recognition_marks_cancelled_when_cancelled(self) -> None:
+        import asyncio
+        from app.services import automation
+        playlist_id, _item_ids = self._playlist_and_items(1)
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO recognition_tasks(playlist_id,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?)""",
+                (playlist_id, "queued", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        gate = asyncio.Event()
+
+        async def blocked(_title, _year, _imdb):
+            await gate.wait()
+
+        with patch.object(automation, "recognize_movie", new=blocked):
+            runner = asyncio.create_task(automation.run_recognition(task_id))
+            await asyncio.sleep(0.05)
+            runner.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await runner
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
+        self.assertEqual(task["status"], "cancelled")
+
+    async def test_run_library_scan_updates_states_and_counts(self) -> None:
+        from app.services import library
+        playlist_id, _item_ids = self._playlist_and_items(2)
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO library_scan_tasks(playlist_id,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?)""",
+                (playlist_id, "queued", 2, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        states = [("in_library", "emby-1", "tag1"), ("strm", "emby-2", "tag2")]
+        with patch.object(library, "library_details", new=AsyncMock(side_effect=states)):
+            await library.run_library_scan(task_id)
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM library_scan_tasks WHERE id=?", (task_id,)).fetchone()
+            items = conn.execute(
+                "SELECT library_state FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,),
+            ).fetchall()
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["in_library"], 1)
+        self.assertEqual(task["strm"], 1)
+        # as_completed 并发完成顺序不定，按集合断言。
+        self.assertEqual({row["library_state"] for row in items}, {"in_library", "strm"})
+        from app import state
+        self.assertNotIn(task_id, state.running_library_tasks)
+
+    async def test_run_library_scan_marks_failed_on_error(self) -> None:
+        from app.services import library
+        playlist_id, _item_ids = self._playlist_and_items(1)
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO library_scan_tasks(playlist_id,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?)""",
+                (playlist_id, "queued", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+        with patch.object(library, "library_details", new=AsyncMock(side_effect=RuntimeError("Emby 离线"))):
+            await library.run_library_scan(task_id)
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM library_scan_tasks WHERE id=?", (task_id,)).fetchone()
+        self.assertEqual(task["status"], "failed")
+        self.assertIn("Emby 离线", task["error_message"] or "")
+
+    async def test_run_library_scan_marks_partial_and_preserves_unknown(self) -> None:
+        from app.services import library
+        playlist_id, _item_ids = self._playlist_and_items(2)
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO library_scan_tasks(playlist_id,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?)""",
+                (playlist_id, "queued", 2, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+
+        lookup_calls = 0
+
+        async def mixed_lookup(*_args: object, **_kwargs: object) -> tuple[str, str | None, str | None]:
+            nonlocal lookup_calls
+            lookup_calls += 1
+            if lookup_calls == 1:
+                return "unknown", None, None
+            raise RuntimeError("Emby 请求失败 password=do-not-leak")
+
+        with patch.object(library, "library_details", new=AsyncMock(side_effect=mixed_lookup)):
+            await library.run_library_scan(task_id)
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM library_scan_tasks WHERE id=?", (task_id,)).fetchone()
+            items = conn.execute(
+                "SELECT library_state FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,),
+            ).fetchall()
+        self.assertEqual(task["status"], "partial")
+        self.assertEqual(task["completed"], 2)
+        self.assertIn("Emby 请求失败", task["error_message"] or "")
+        self.assertNotIn("do-not-leak", task["error_message"] or "")
+        self.assertIn("unknown", {row["library_state"] for row in items})
+
+
+class AutomationStateMachineTests(unittest.IsolatedAsyncioTestCase):
+    """2-1/2-2：自动化 run 在容量满与搜索失败时的状态机回归测试。"""
+
+    async def asyncSetUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous_data_dir = settings.data_dir
+        settings.data_dir = self.temp.name
+        main.raw_candidates.clear()
+        initialize()
+
+    async def asyncTearDown(self) -> None:
+        main.raw_candidates.clear()
+        settings.data_dir = self.previous_data_dir
+        self.temp.cleanup()
+
+    def _playlist_and_items(self, count: int = 1) -> tuple[int, list[int]]:
+        with connect() as conn:
+            playlist_id = to_int(conn.execute(
+                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
+                ("后台任务测试", 1, main.utc_now()),
+            ).lastrowid)
+            item_ids = []
+            for rank in range(1, count + 1):
+                item_ids.append(to_int(conn.execute(
+                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title)
+                       VALUES(?,?,?,?,?,?)""",
+                    (playlist_id, rank, f"tt{rank:07d}", f"Movie {rank}", 2020 + rank, f"电影 {rank}"),
+                ).lastrowid))
+        return playlist_id, item_ids
+
+    def _automation_run(self, playlist_id: int) -> int:
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at) VALUES(?,?,?,1,1,?)",
+                ("TestSite", "nexusphp", "https://tracker.example", main.utc_now()),
+            )
+            return to_int(conn.execute(
+                """INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (playlist_id, "manual", "queued", "queued", main.utc_now(), main.utc_now()),
+            ).lastrowid)
+
+    def _queue_item(self, playlist_id: int, item_id: int, rank: int = 1) -> dict:
+        return {
+            "id": item_id, "rank_no": rank, "imdb_id": "tt0000001", "tmdb_id": 42,
+            "tmdb_title": "Movie 1", "tmdb_original_title": "Movie 1", "tmdb_year": "2021",
+            "tmdb_imdb_id": "tt0000001", "original_title": "Movie 1", "year": 2021,
+            "chinese_title": None, "library_state": "not_found",
+        }
+
+    async def test_capacity_full_keeps_run_queued(self) -> None:
+        from fastapi import HTTPException
+        from app.services import automation
+        playlist_id, item_ids = self._playlist_and_items(1)
+        run_id = self._automation_run(playlist_id)
+        with patch.object(automation, "searchable_playlist_items", new=AsyncMock(return_value={
+            "download_state": "known_empty", "items": [self._queue_item(playlist_id, item_ids[0])],
+        })), \
+             patch.object(automation, "begin_search_task_slot", side_effect=HTTPException(429, "容量已满")), \
+             patch.object(automation, "library_details", new=AsyncMock(return_value=("not_found", None, None))):
+            await automation.run_playlist_automation(run_id)
+        with connect() as conn:
+            run = conn.execute("SELECT * FROM automation_runs WHERE id=?", (run_id,)).fetchone()
+        self.assertEqual(run["status"], "queued")
+        self.assertIn("容量已满", run["message"] or "")
+
+    async def test_failed_search_marks_run_partial_with_warning_notification(self) -> None:
+        from app.services import automation
+        playlist_id, item_ids = self._playlist_and_items(1)
+        run_id = self._automation_run(playlist_id)
+
+        async def fail_search(task_id: int) -> None:
+            with connect() as conn:
+                conn.execute("UPDATE search_tasks SET status='failed',completed=0 WHERE id=?", (task_id,))
+
+        with patch.object(automation, "searchable_playlist_items", new=AsyncMock(return_value={
+            "download_state": "known_empty", "items": [self._queue_item(playlist_id, item_ids[0])],
+        })), \
+             patch.object(automation, "run_search", new=fail_search), \
+             patch.object(automation, "library_details", new=AsyncMock(return_value=("not_found", None, None))):
+            await automation.run_playlist_automation(run_id)
+        with connect() as conn:
+            run = conn.execute("SELECT * FROM automation_runs WHERE id=?", (run_id,)).fetchone()
+            notification = conn.execute("SELECT * FROM notifications ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(run["status"], "partial")
+        self.assertIn("failed", run["message"] or "")
+        self.assertEqual(notification["level"], "warning")
+        self.assertIn("部分完成", notification["title"])
+
+    async def test_partial_search_keeps_automation_run_partial_with_warning(self) -> None:
+        """搜索任务 partial 不能被自动化流程误报为 completed。"""
+        from app.services import automation
+        playlist_id, item_ids = self._playlist_and_items(1)
+        run_id = self._automation_run(playlist_id)
+
+        async def partial_search(task_id: int) -> None:
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE search_tasks SET status='partial',completed=1,error_message=? WHERE id=?",
+                    ("站点乙：连接超时 passkey=should-not-leak", task_id),
+                )
+
+        with patch.object(automation, "searchable_playlist_items", new=AsyncMock(return_value={
+            "download_state": "known_empty", "items": [self._queue_item(playlist_id, item_ids[0])],
+        })), \
+             patch.object(automation, "run_search", new=partial_search), \
+             patch.object(automation, "library_details", new=AsyncMock(return_value=("not_found", None, None))):
+            await automation.run_playlist_automation(run_id)
+        with connect() as conn:
+            run = conn.execute("SELECT * FROM automation_runs WHERE id=?", (run_id,)).fetchone()
+            notification = conn.execute("SELECT * FROM notifications ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(run["status"], "partial")
+        self.assertEqual(run["searched"], 1)
+        self.assertIn("partial", run["message"] or "")
+        self.assertEqual(notification["level"], "warning")
+        self.assertNotIn("should-not-leak", run["message"] or "")
+
+    async def test_successful_search_marks_run_completed_with_success_notification(self) -> None:
+        from app.services import automation
+        playlist_id, item_ids = self._playlist_and_items(1)
+        run_id = self._automation_run(playlist_id)
+
+        async def complete_search(task_id: int) -> None:
+            with connect() as conn:
+                conn.execute("UPDATE search_tasks SET status='completed',completed=1 WHERE id=?", (task_id,))
+
+        with patch.object(automation, "searchable_playlist_items", new=AsyncMock(return_value={
+            "download_state": "known_empty", "items": [self._queue_item(playlist_id, item_ids[0])],
+        })), \
+             patch.object(automation, "run_search", new=complete_search), \
+             patch.object(automation, "library_details", new=AsyncMock(return_value=("not_found", None, None))):
+            await automation.run_playlist_automation(run_id)
+        with connect() as conn:
+            run = conn.execute("SELECT * FROM automation_runs WHERE id=?", (run_id,)).fetchone()
+            notification = conn.execute("SELECT * FROM notifications ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["searched"], 1)
+        self.assertEqual(notification["level"], "success")
+        self.assertIn("处理完成", notification["title"])
+
+    async def test_scheduler_heartbeat_continues_during_long_tick(self) -> None:
+        from app import state
+        from app.services import automation
+
+        heartbeat_count = 0
+        heartbeat_seen = asyncio.Event()
+        release_tick = asyncio.Event()
+
+        def record_heartbeat(_timestamp: str) -> None:
+            nonlocal heartbeat_count
+            heartbeat_count += 1
+            if heartbeat_count >= 3:
+                heartbeat_seen.set()
+
+        async def slow_account_refresh(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+            await release_tick.wait()
+            return []
+
+        with patch.object(automation, "SCHEDULER_HEARTBEAT_INTERVAL_SECONDS", 0.001), \
+             patch.object(state, "mark_scheduler_heartbeat", side_effect=record_heartbeat), \
+             patch.object(automation, "cleanup_old_data", new=Mock()), \
+             patch.object(automation, "refresh_stale_site_account_stats", new=slow_account_refresh), \
+             patch.object(automation, "consume_queued_automation_runs", new=AsyncMock(return_value=0)):
+            runner = asyncio.create_task(automation.sync_scheduler())
+            await asyncio.wait_for(heartbeat_seen.wait(), timeout=1)
+            self.assertGreaterEqual(heartbeat_count, 3)
+            runner.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await runner
+            release_tick.set()

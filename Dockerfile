@@ -28,9 +28,9 @@ USER appuser
 EXPOSE 8080
 VOLUME ["/data"]
 
-# Only checks the local process and SQLite file. It deliberately does not call
-# TMDB, PT sites, Emby, Transmission, or MoviePilot.
+# Checks the local process and SQLite file via app/healthcheck.py. It deliberately
+# does not call TMDB, PT sites, Emby, Transmission, or MoviePilot.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["python", "-c", "import json,sqlite3,urllib.request; response=urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=2); payload=json.load(response); assert response.status == 200 and payload.get('ok') is True; database=sqlite3.connect('/data/playlist-autodown.db', timeout=2); database.execute('PRAGMA query_only=ON'); assert database.execute('PRAGMA quick_check(1)').fetchone()[0] == 'ok'; assert database.execute(\"SELECT 1 FROM sqlite_master WHERE type='table' AND name='playlists'\").fetchone(); database.close()"]
+  CMD ["python", "-m", "app.healthcheck"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

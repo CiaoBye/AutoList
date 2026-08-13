@@ -51,15 +51,8 @@ class TaskPayload(BaseModel):
 
 
 class ConfigPayload(BaseModel):
-    preferred_resolutions: str | None = None
-    minimum_resolution: str | None = None
-    preferred_codecs: str | None = None
-    priority_groups: str | None = None
-    secondary_groups: str | None = None
-    fallback_groups: str | None = None
-    allow_unknown_groups: bool | None = None
+    # 旧版评分键已废弃（审计 2-7）：candidate_policy 是唯一评分配置源。
     candidate_limit: int | None = Field(default=None, ge=1, le=20)
-    scoring_policy: dict[str, Any] | None = None
     candidate_policy: dict[str, Any] | None = None
 
 
@@ -67,43 +60,42 @@ class ScorePreviewPayload(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     seeders: int = Field(default=0, ge=0)
     volume_factor: float = Field(default=1, ge=0)
-    scoring_policy: dict[str, Any] | None = None
     candidate_policy: dict[str, Any] | None = None
 
 
 class RuntimeSettingsPayload(BaseModel):
-    mp_base_url: str = ""
-    mp_api_key: str | None = None
+    mp_base_url: str = Field(default="", max_length=2048)
+    mp_api_key: str | None = Field(default=None, max_length=512)
     mp_timeout_seconds: float = Field(default=30, ge=3, le=300)
-    emby_base_url: str = ""
-    emby_api_key: str | None = None
-    tmdb_api_key: str | None = None
-    tmdb_language: str = "zh-CN"
-    mdblist_api_key: str | None = None
-    cookiecloud_key: str | None = Field(default=None, max_length=128, pattern=r"^(?:[A-Za-z0-9_-]{5,128})?$")
-    cookiecloud_password: str | None = None
-    outbound_proxy_url: str | None = None
+    emby_base_url: str = Field(default="", max_length=2048)
+    emby_api_key: str | None = Field(default=None, max_length=512)
+    tmdb_api_key: str | None = Field(default=None, max_length=512)
+    tmdb_language: str = Field(default="zh-CN", max_length=32)
+    mdblist_api_key: str | None = Field(default=None, max_length=512)
+    cookiecloud_key: str | None = Field(default=None, max_length=128, pattern=r"^(?:[A-Za-z0-9_-]{12,128})?$")
+    cookiecloud_password: str | None = Field(default=None, max_length=2048)
+    outbound_proxy_url: str | None = Field(default=None, max_length=2048)
     tmdb_proxy_enabled: bool = False
     pt_proxy_enabled: bool = False
-    ai_base_url: str = ""
-    ai_api_key: str | None = None
-    ai_model: str = ""
-    tr_base_url: str = ""
-    tr_username: str = ""
-    tr_password: str | None = None
+    ai_base_url: str = Field(default="", max_length=2048)
+    ai_api_key: str | None = Field(default=None, max_length=512)
+    ai_model: str = Field(default="", max_length=120)
+    tr_base_url: str = Field(default="", max_length=2048)
+    tr_username: str = Field(default="", max_length=120)
+    tr_password: str | None = Field(default=None, max_length=2048)
     dashboard_random_posters: bool = False
 
 
 class SitePayload(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    base_url: str = ""
-    api_key: str | None = None
-    cookie: str | None = None
-    user_agent: str = ""
+    base_url: str = Field(default="", max_length=2048)
+    api_key: str | None = Field(default=None, max_length=512)
+    cookie: str | None = Field(default=None, max_length=65536)
+    user_agent: str = Field(default="", max_length=512)
     priority: int = Field(default=100, ge=1, le=999)
     timeout_seconds: int = Field(default=30, ge=3, le=300)
-    rss_url: str = ""
-    icon_url: str = ""
+    rss_url: str = Field(default="", max_length=2048)
+    icon_url: str = Field(default="", max_length=1_500_000)
     proxy: bool = False
     render: bool = False
     limit_interval: int | None = Field(default=None, ge=1)
@@ -116,7 +108,7 @@ class SitePayload(BaseModel):
 
 
 class CookieCloudUploadPayload(BaseModel):
-    uuid: str = Field(min_length=5, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    uuid: str = Field(min_length=12, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     encrypted: str = Field(min_length=16, max_length=32_000_000)
     crypto_type: str = Field(default="legacy", pattern=r"^(legacy|aes-128-cbc-fixed)$")
 

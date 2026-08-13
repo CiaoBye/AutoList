@@ -20,7 +20,7 @@ from ..state import (
     prune_raw_candidates,
     raw_candidates,
 )
-from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, utc_now
+from ..util import to_int, first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, utc_now
 
 router = APIRouter()
 
@@ -52,6 +52,9 @@ def _matches_active_torrent(candidate: Any, item: dict[str, Any], active_torrent
 async def toggle_cart(candidate_id: str) -> dict[str, Any]:
     prune_raw_candidates()
     with connect() as conn:
+        # Serialize the check-and-insert across workers; the candidate primary
+        # key alone cannot protect the same release represented by two rows.
+        conn.execute("BEGIN IMMEDIATE")
         candidate = conn.execute(
             "SELECT eligibility,exclusion_reason,playlist_item_id,site_name,resource_key FROM candidates WHERE id=?",
             (candidate_id,),
@@ -144,6 +147,7 @@ async def download_cart() -> dict[str, Any]:
                 needs_research += 1
                 expired_items.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"]})
                 message = "搜索上下文已失效，请重新搜索后加入下载列表"
+                resource_key = candidate["resource_key"] or resource_fingerprint(candidate["title"], candidate["size"])
                 with connect() as conn:
                     already_recorded = conn.execute(
                         "SELECT 1 FROM download_history WHERE candidate_id=? AND success=0 AND message=? LIMIT 1",
@@ -152,23 +156,28 @@ async def download_cart() -> dict[str, Any]:
                     if not already_recorded:
                         conn.execute(
                             """INSERT INTO download_history(
-                                   candidate_id,playlist_item_id,playlist_item_snapshot_json,title,torrent_name,site_name,success,message,created_at
-                               ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                            (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), candidate["playlist_original_title"], candidate["title"], candidate["site_name"], 0, message, utc_now()),
+                                   candidate_id,playlist_item_id,playlist_item_snapshot_json,resource_key,title,torrent_name,site_name,success,message,created_at
+                               ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                            (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), resource_key, candidate["playlist_original_title"], candidate["title"], candidate["site_name"], 0, message, utc_now()),
                         )
                 continue
             # 幂等复查 1：相同发布已成功提交过（同候选或同影片+站点+资源指纹），跳过避免重复下载。
+            # 去重依据同时落在 candidates.submitted_at（审计 3-2）：清空下载历史不解除防重复。
             resource_key = candidate["resource_key"] or resource_fingerprint(candidate["title"], candidate["size"])
             with connect() as conn:
                 already_submitted = conn.execute(
                     """SELECT 1 FROM download_history h
                        WHERE h.success=1 AND (
-                         h.candidate_id=? OR EXISTS (
+                         h.candidate_id=? OR h.resource_key=? OR EXISTS (
                            SELECT 1 FROM candidates c WHERE c.id=h.candidate_id
                              AND c.playlist_item_id=? AND c.site_name=? AND c.resource_key=?
                          )
-                       ) LIMIT 1""",
-                    (candidate["id"], candidate["playlist_item_id"], candidate["site_name"], resource_key),
+                       )
+                       UNION ALL
+                       SELECT 1 FROM candidates c
+                       WHERE c.id=? AND c.submitted_at IS NOT NULL
+                       LIMIT 1""",
+                    (candidate["id"], resource_key, candidate["playlist_item_id"], candidate["site_name"], resource_key, candidate["id"]),
                 ).fetchone()
             if already_submitted:
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "该发布已提交过"})
@@ -221,12 +230,13 @@ async def download_cart() -> dict[str, Any]:
             with connect() as conn:
                 conn.execute(
                     """INSERT INTO download_history(
-                           candidate_id,playlist_item_id,playlist_item_snapshot_json,title,torrent_name,site_name,submission_hash,success,message,created_at
-                       ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), candidate["playlist_original_title"], candidate["title"], candidate["site_name"], submission_hash, int(success), message, utc_now()),
+                           candidate_id,playlist_item_id,playlist_item_snapshot_json,resource_key,title,torrent_name,site_name,submission_hash,success,message,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), resource_key, candidate["playlist_original_title"], candidate["title"], candidate["site_name"], submission_hash, int(success), message, utc_now()),
                 )
                 if success:
                     conn.execute("DELETE FROM cart_items WHERE candidate_id=?", (candidate["id"],))
+                    conn.execute("UPDATE candidates SET submitted_at=? WHERE id=?", (utc_now(), candidate["id"]))
                     completed += 1
                     forget_raw_candidate(candidate["id"])
         if needs_research and completed == 0 and not skipped:

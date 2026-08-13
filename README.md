@@ -4,15 +4,15 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.14`。AutoList 的首页是“电影藏馆”总览：用馆藏进度、下一步任务、来源摘录和入馆记录组织全局，而不是把完整业务挤在首页。界面支持“馆藏档案、午夜放映、编目索引”三套全页面主题，默认保留 C 方向的馆藏档案；三套主题不仅换色，还分别承担“阅读片目、控制放映、登记目录”的信息组织方式：Archive 使用纸张档案卡与片目／来源注记，Cinema 使用暗场放映台、场次和队列，Ledger 使用纵向目录、编号候选、六列统计带和表格优先布局。页面标题、按钮、左侧导航和状态文案统一往电影藏馆的“片目、片源、入馆、放映”语义收敛。站点页统一使用“来源网络 × 来源档案”语义：滚轮或触控板滚动、双指手势可缩放，空白处拖动画布可平移，点击来源节点进入档案；只有按住 Alt/⌘ 再拖动才会重新排布节点。视野缩放、节点排布和横向／纵向布局只保存在当前浏览器，不修改站点配置；地图同时提供 44px 缩放控件、键盘加减／方向键和线性来源目录。编目索引主题仍保留可操作的来源地图，不再因目录模式隐藏底图。Cinema 同步修复暗色页面的按钮、标签、日志详情和分隔线对比度，Archive 和 Ledger 分别对进度卡、标题遮罩和窄桌面统计密度做了主题化适配。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
+当前版本：`1.16`。AutoList 的首页是“电影藏馆”总览：用馆藏进度、下一步任务、来源摘录和入馆记录组织全局，而不是把完整业务挤在首页。界面支持“馆藏档案、午夜放映、编目索引”三套全页面主题，默认保留 C 方向的馆藏档案；三套主题不仅换色，还分别承担“阅读片目、控制放映、登记目录”的信息组织方式：Archive 使用纸张档案卡与片目／来源注记，Cinema 使用暗场放映台、场次和队列，Ledger 使用纵向目录、编号候选、六列统计带和表格优先布局。页面标题、按钮、左侧导航和状态文案统一往电影藏馆的“片目、片源、入馆、放映”语义收敛。站点页统一使用“来源网络 × 来源档案”语义：滚轮或触控板滚动、双指手势可缩放，空白处拖动画布可平移，点击来源节点进入档案；移动端默认保留页面单指滚动，开启“进入地图操作”后才接管画布拖动和双指缩放；“编辑节点排布”提供拖动、方向键、Enter 确认与 Escape 撤销。视野缩放、节点排布和横向／纵向布局只保存在当前浏览器，不修改站点配置；地图同时提供 44px 缩放控件、键盘加减／方向键和线性来源目录。编目索引主题仍保留可操作的来源地图，不再因目录模式隐藏底图。Cinema 同步修复暗色页面的按钮、标签、日志详情和分隔线对比度，Archive 和 Ledger 分别对进度卡、标题遮罩和窄桌面统计密度做了主题化适配。片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，提高不同站点的召回率，并在候选入库前校验高信息量片名、年份及合集标记，避免共享通用词的不同影片混入候选。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部；仍保留按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户上传/下载/分享率与制作组规则全部由 AutoList 独立维护。MoviePilot 只作为下载分类与整理下游：AutoList 调用其 DownloadChain，再由其提交 Transmission。
 
 外部片单先在导入弹窗预览再写入。TMDB 使用官方 API；Letterboxd 公开片单使用其官方嵌入页面，避免普通网页的 Cloudflare 校验；IMDb 公开 List 使用当前 GraphQL 列表接口；MDBList 公开片单使用其 JSON 接口。私有片单仍需使用站点导出文件，AutoList 不绕过验证码或登录限制。
 
 ## 实际运行效果
 
-以下截图此前来自 Unraid 上实际运行的 `autolist:1.04` 容器，展示真实片单数据、候选规则和响应式布局；当前代码版本为 `autolist:1.14`，生产容器按部署说明构建并切换。截图画廊保留为历史业务数据快照，当前运行界面支持三套主题切换。公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
+以下截图此前来自 Unraid 上实际运行的 `autolist:1.04` 容器，展示真实片单数据、候选规则和响应式布局；当前代码版本为 `autolist:1.16`，本轮生产切换会在发布验收完成后补录。截图画廊保留为历史业务数据快照，当前运行界面支持三套主题切换。公开文档不记录局域网地址。截图不包含设置页、访问令牌或其他敏感字段。
 
-新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页各三套可切换方案；1.14 在此基础上继续收敛电影藏馆语言，并让来源网络支持缩放、平移、节点进入档案和独立的节点排布模式。
+新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页各三套可切换方案；1.16 在此基础上继续收敛电影藏馆语言、闭环节点排布模式，并让来源网络支持缩放、平移、节点进入档案和独立的节点排布模式。
 
 ### 主题切换
 
@@ -85,13 +85,13 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ### Unraid 7.3.2
 
-将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.14`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
+将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.16`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
 
 ```bash
 docker build \
   --build-arg PYTHON_IMAGE=python:3.12-slim \
   --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-  -t autolist:1.14 .
+  -t autolist:1.16 .
 ```
 
 首次创建容器前，先只读检查持久化目录权限。镜像以非 root UID `10001` 运行，目录必须允许该 UID 读写：
@@ -101,7 +101,7 @@ DATA_DIR=/mnt/user/appdata/Autolist/data
 mkdir -p "$DATA_DIR"
 stat -c '%u:%g %a' "$DATA_DIR"
 docker run --rm --user 10001:10001 \
-  -v "$DATA_DIR:/data:rw" autolist:1.14 \
+  -v "$DATA_DIR:/data:rw" autolist:1.16 \
   python -c 'import os; assert os.access("/data", os.W_OK | os.X_OK)'
 ```
 
@@ -109,7 +109,7 @@ docker run --rm --user 10001:10001 \
 
 容器内置 `/app/app/static/logo.svg`、`/app/app/static/favicon.svg` 和 `/app/app/static/autolist-icon.png`，Web 端分别通过 `/assets/logo.svg`、`/assets/favicon.svg` 和 `/assets/autolist-icon.png` 提供。Docker label、Compose label 和模板 `<Icon>` 使用固定 commit 的 PNG 资源，避免 `main` 分支变更导致图标漂移；离线安装时可将 `unraid/autolist-icon.png` 复制到 `/mnt/user/appdata/Autolist/`，再把模板/label 的图标地址改为 `file:///mnt/user/appdata/Autolist/autolist-icon.png`。
 
-镜像和 Compose 都配置了轻量 healthcheck：它只请求 `http://127.0.0.1:8080/api/health`，并以只读方式执行 SQLite `quick_check(1)` 和核心表检查，不检测 TMDB、PT、Emby、Transmission 或 MoviePilot，所以下游临时故障不会触发容器重启。可用以下命令查看状态：
+镜像和 Compose 都配置了轻量 healthcheck：它只请求 `http://127.0.0.1:8080/api/health`，以只读方式执行 SQLite `quick_check(1)` 和核心表检查，并确认本地调度器没有停止或长期失去心跳；不检测 TMDB、PT、Emby、Transmission 或 MoviePilot，所以下游临时故障不会触发容器重启。可用以下命令查看状态：
 
 ```bash
 docker inspect --format '{{.State.Health.Status}}' Autolist
@@ -149,3 +149,7 @@ docker inspect --format '{{.State.Health.Status}}' Autolist
 - 浏览器 Cookie 不能由普通网页或 Docker 容器直接读取；Chrome 登录态通过 CookieCloud 扩展主动上传。AutoList 不读取 Chrome 配置目录、密码库或浏览器存储。
 - Compose **默认不再**写入 `api.themoviedb.org` 的 `extra_hosts`。大陆网络请用 TMDB 代理；若仍需 hosts，在自有 compose 覆盖或宿主机 DNS 中维护，并自行更新可能漂移的 CDN IP。
 - 设置页可管理**本机浏览器**访问令牌（`localStorage`）；服务端 `AUTOLIST_ACCESS_TOKEN` 只读环境变量，不会被页面改写。
+- **配置优先级**（审计 3-7）：运行设置保存到 `/data/runtime-settings.json` 后优先于 `.env` 环境变量；`.env` 仅作为首次启动和未保存字段的默认值。修改 `.env` 后如需立即生效，请在设置页重新保存对应字段或删除 `runtime-settings.json`。
+- **MoviePilot 传输安全**（审计 3-16）：提交下载时会把站点 Cookie 与含 passkey 的下载地址随请求交给 MoviePilot，请确保 `MP_BASE_URL` 使用 HTTPS 或仅暴露于受控内网。
+- **脱敏边界**（审计 4-2）：日志与错误消息的敏感值脱敏为键名启发式——标准键（Cookie/Token/API Key/Authorization/含 `key`/`token`/`passkey`/`secret` 的查询参数）会被遮蔽；自定义响应头名携带的值与含空格的非常规写法可能残留，属纵深防御而非完整保证。
+- 片单来源（TMDB/MDBList/Letterboxd/IMDb）统一受「TMDB 走代理」开关控制（审计 3-8）。

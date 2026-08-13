@@ -1,12 +1,10 @@
-import hmac
-import re
-from typing import Any
-
-
 import hashlib
 import hmac
+import os
 import re
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 
 SENSITIVE_ASSIGNMENT = re.compile(
@@ -19,6 +17,8 @@ SENSITIVE_HEADER_LINE = re.compile(r"(?im)^(\s*(?:Authorization|Cookie|Set-Cooki
 URL_SENSITIVE_PARAM = re.compile(
     r"(?i)(https?://[^\s<>\"']*[?&])(key|token|passkey|secret|apikey|api[_-]?key)=[^&\s<>\"']+"
 )
+MEDIA_SIGNATURE_TTL_SECONDS = 5 * 60
+MEDIA_PATH = re.compile(r"^/api/(?:sites/\d+/icon|playlist-items/\d+/poster)$")
 
 
 def sanitize_sensitive_text(value: Any, limit: int = 500) -> str:
@@ -61,3 +61,48 @@ def extract_access_token(authorization: str | None, header_token: str | None = N
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
     return ""
+
+
+def is_signed_media_path(path: str) -> bool:
+    return bool(MEDIA_PATH.fullmatch(str(path or "")))
+
+
+def _media_signature_value(path: str, expires_at: int) -> str:
+    token = os.getenv("AUTOLIST_ACCESS_TOKEN", "").strip()
+    message = f"{path}\n{expires_at}".encode("utf-8")
+    return hmac.new(token.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def signed_media_url(path: str, now: int | None = None) -> str:
+    """Create a short-lived HMAC URL for browser image requests.
+
+    Browsers cannot attach ``X-AutoList-Token`` to a normal ``<img>`` request.
+    The URL carries only an expiring signature, never the access token itself.
+    The signature covers only the request path (never the query), matching the
+    middleware contract that verifies against ``request.url.path``; cache
+    parameters like ``tag`` stay outside the signed material.
+    """
+    if not os.getenv("AUTOLIST_ACCESS_TOKEN", "").strip():
+        return path
+    sign_path = urlparse(path).path or str(path)
+    expires_at = int(now if now is not None else time.time()) + MEDIA_SIGNATURE_TTL_SECONDS
+    signature = _media_signature_value(sign_path, expires_at)
+    separator = "&" if "?" in path else "?"
+    return f"{path}{separator}expires={expires_at}&signature={signature}"
+
+
+def media_signature_matches(
+    path: str, expires: str | None, signature: str | None, now: int | None = None,
+) -> bool:
+    token = os.getenv("AUTOLIST_ACCESS_TOKEN", "").strip()
+    if not token or not is_signed_media_path(path):
+        return False
+    try:
+        expires_at = int(str(expires or ""))
+    except (TypeError, ValueError):
+        return False
+    current = int(time.time() if now is None else now)
+    if expires_at < current or expires_at > current + MEDIA_SIGNATURE_TTL_SECONDS + 30:
+        return False
+    expected = _media_signature_value(path, expires_at)
+    return hmac.compare_digest(expected, str(signature or ""))

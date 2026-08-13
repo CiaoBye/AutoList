@@ -9,14 +9,19 @@ from typing import Any
 from ..candidate_policy import analyze as analyze_policy_candidate
 from ..clients import AIRecognitionClient, TMDBClient
 from ..database import connect
-from ..util import utc_now
+from ..util import to_int, utc_now
 
 
-def analyze_candidate(title: str, index: int, config: dict[str, str], torrent: dict[str, Any] | None = None) -> dict[str, Any]:
-    try:
-        policy = json.loads(config.get("candidate_policy") or "{}")
-    except (TypeError, json.JSONDecodeError):
-        policy = {}
+def analyze_candidate(
+    title: str, index: int, config: dict[str, str], torrent: dict[str, Any] | None = None,
+    policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """策略可复用：调用方已解析时传入 policy，避免每次候选重复 json.loads（审计 2-13）。"""
+    if policy is None:
+        try:
+            policy = json.loads(config.get("candidate_policy") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            policy = {}
     return analyze_policy_candidate(title, index, policy, torrent)
 
 
@@ -88,9 +93,9 @@ async def recognize_movie(title: str, year: int | None, imdb_id: str | None = No
 def tmdb_item_values(media: dict[str, Any], fallback_imdb: str | None = None) -> tuple[Any, ...]:
     release_year = str(media.get("release_date") or "")[:4]
     return (
-        int(media["id"]), str(media.get("title") or "").strip() or None,
+        to_int(media["id"]), str(media.get("title") or "").strip() or None,
         str(media.get("original_title") or "").strip() or None,
-        int(release_year) if release_year.isdigit() else None,
+        to_int(release_year) if release_year.isdigit() else None,
         media.get("imdb_id") or fallback_imdb, utc_now(),
     )
 

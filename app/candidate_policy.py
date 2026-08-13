@@ -5,10 +5,57 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .util import to_int
+
 
 # AutoList's built-in canonical names and aliases. The order matters: preferred
 # groups are evaluated before broader site-family expressions.
+
+def _has_uneven_alternation(rule: str) -> bool:
+    """交替式指数回溯检测（审计 2-3 残余）：``(a|aa)+b`` 族无法被嵌套量词
+    规则识别。组后带量词且组内交替分支长度不一致时，失败路径呈指数级
+    回溯；等长分支（如 ``(?:AB|CD)+``）保持线性，仍允许。
+    """
+    stack: list[int] = []
+    for index, char in enumerate(rule):
+        if char == "(":
+            stack.append(index)
+        elif char == ")" and stack:
+            start = stack.pop()
+            inner = rule[start + 1:index]
+            after = rule[index + 1:index + 2]
+            if after in ("*", "+", "{"):
+                if inner.startswith("?:"):
+                    inner = inner[2:]
+                branches = [len(branch) for branch in inner.split("|")]
+                if len(set(branches)) > 1:
+                    return True
+    return False
+
 NESTED_QUANTIFIER = re.compile(r"\([^()]*[+*][^()]*\)\s*[+*{]")
+
+
+def _has_nested_quantifier(rule: str) -> bool:
+    """Detect nested quantifiers (e.g. ``(?:A+)+``) that enable catastrophic backtracking.
+
+    A quantified group whose own body contains another quantifier is the dangerous
+    shape; a single quantifier over a plain alternation (``(?:AB|CD)+``) stays
+    linear and remains allowed.
+    """
+    if re.search(r"[+*][+*{]", rule):
+        return True
+    stack: list[int] = []
+    for index, char in enumerate(rule):
+        if char == "(":
+            stack.append(index)
+        elif char == ")" and stack:
+            start = stack.pop()
+            inner = rule[start + 1:index]
+            after = rule[index + 1:index + 2]
+            if re.search(r"[+*{]", inner) and after in ("*", "+", "{"):
+                return True
+    return False
+
 BUILTIN_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
     ("ADE", r"ADE"),
     ("FRDS", r"FRDS"),
@@ -134,7 +181,10 @@ DEFAULT_POLICY: dict[str, Any] = {
 
 def normalized_policy(value: Any) -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
-    profiles = source.get("profiles") if isinstance(source.get("profiles"), list) else DEFAULT_POLICY["profiles"]
+    default_profiles_value = DEFAULT_POLICY.get("profiles")
+    default_profiles = default_profiles_value if isinstance(default_profiles_value, list) else []
+    profiles_value = source.get("profiles")
+    profiles = profiles_value if isinstance(profiles_value, list) else default_profiles
     cleaned_profiles: list[dict[str, Any]] = []
     for index, profile in enumerate(profiles[:8]):
         if not isinstance(profile, dict):
@@ -148,7 +198,7 @@ def normalized_policy(value: Any) -> dict[str, Any]:
             "label": str(profile.get("label") or f"策略 {index + 1}")[:40],
             "enabled": bool(profile.get("enabled", True)),
             "codecs": codecs, "groups": groups,
-            "tier": max(1, min(int(profile.get("tier") or index + 1), 9)),
+            "tier": max(1, min(to_int(profile.get("tier"), index + 1), 9)),
         })
     if not cleaned_profiles:
         cleaned_profiles = [dict(item) for item in DEFAULT_POLICY["profiles"]]
@@ -170,7 +220,7 @@ def normalized_policy(value: Any) -> dict[str, Any]:
         "resolution_order": resolutions,
         "hard_exclusions": exclusions,
         "custom_release_groups": custom,
-        "candidate_limit": max(1, min(int(source.get("candidate_limit") or 6), 20)),
+        "candidate_limit": max(1, min(to_int(source.get("candidate_limit"), 6), 20)),
     }
 
 
@@ -193,8 +243,10 @@ def merge_custom_rules(values: Any) -> list[str]:
             re.compile(rule, re.I)
         except re.error as exc:
             raise ValueError(f"无效的制作组规则：{rule}") from exc
-        if NESTED_QUANTIFIER.search(rule):
+        if NESTED_QUANTIFIER.search(rule) or _has_nested_quantifier(rule):
             raise ValueError("规则包含嵌套量词（如 (?:A+)+），可能造成匹配性能问题")
+        if _has_uneven_alternation(rule):
+            raise ValueError("规则包含不等长交替分支的量词（如 (a|aa)+），可能造成匹配性能问题")
         seen.add(key)
         result.append(rule)
     return result[:300]
@@ -297,7 +349,7 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
     source = parse_source(upper)
     group = match_release_group(title, policy)
     exclusion = hard_exclusion_reason(title, policy)
-    seeders = int(torrent.get("seeders") or torrent.get("seeder") or 0)
+    seeders = to_int(torrent.get("seeders") or torrent.get("seeder"))
     # 0 人做种的资源无法实际下载，直接排除（仅在实际搜索/试算携带种子数据时生效）。
     if torrent and not exclusion and seeders == 0:
         exclusion = "0 人做种，无法下载"
@@ -316,9 +368,9 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
         volume = float(volume)
     except (TypeError, ValueError):
         volume = 1.0
-    site_priority = max(1, min(int(torrent.get("_site_priority") or 100), 999))
+    site_priority = max(1, min(to_int(torrent.get("_site_priority"), 100), 999))
     resolution_rank = policy["resolution_order"].index(resolution) if resolution in policy["resolution_order"] else 9
-    profile_tier = int(profile["tier"]) if profile else 9
+    profile_tier = to_int(profile["tier"], 9) if profile else 9
     # Deterministic priority: profile -> site -> resolution -> seeders -> promotion -> source order.
     # Free/discount is a continuous weight: 0.0 (free) ranks first, 1.0 (full price) last.
     ranking = (
@@ -327,7 +379,7 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
         + site_priority * 10**6
         + resolution_rank * 10**4
         + max(0, 9999 - min(seeders, 9999))
-        + max(0, min(100, int(volume * 100)))
+        + max(0, min(100, to_int(volume * 100)))
         + index
     )
     score = 0 if not eligible else max(1, 100 - (profile_tier - 1) * 25 - resolution_rank * 5)
@@ -338,7 +390,8 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
         {"label": resolution, "score": 0},
         {"label": f"{seeders} 做种", "score": 0},
     ]
-    reason = exclusion or f"{profile['label']} · 站点优先级 {site_priority} · {resolution}"
+    profile_label = profile["label"] if profile else "未命中允许组合"
+    reason = exclusion or f"{profile_label} · 站点优先级 {site_priority} · {resolution}"
     return {
         "ranking": ranking, "score": score, "breakdown": breakdown,
         "tier": profile_tier, "group": group, "resolution": resolution,

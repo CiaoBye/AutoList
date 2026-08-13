@@ -14,12 +14,12 @@ from openpyxl import load_workbook
 
 from ..list_sources import PlaylistSourceFetcher, parse_csv_items
 from ..security import safe_error
+from ..domain.titles import normalized_title_key
 from ..util import first_value
-from ..schemas import ImportPayload
+from ..schemas import ImportPayload, MAX_IMPORT_ROWS
 
 MAX_XLSX_UNCOMPRESSED = 200 * 1024 * 1024
 MAX_XLSX_ENTRIES = 5000
-MAX_IMPORT_ROWS = 200_000
 MAX_JSON_PAYLOAD_BYTES = 10 * 1024 * 1024
 
 
@@ -120,7 +120,7 @@ def normalize_import_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         year = int(year_raw) if str(year_raw or "").isdigit() else None
         if not title:
             continue
-        normalized_title = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", title.lower())
+        normalized_title = normalized_title_key(title)
         key = f"tmdb:{tmdb_id}" if tmdb_id else (f"imdb:{imdb_id.lower()}" if imdb_id else f"title:{normalized_title}:{year or ''}")
         if key in seen:
             continue

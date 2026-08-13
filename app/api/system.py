@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import socket
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -40,11 +41,13 @@ from ..services.cookiecloud_store import cookiecloud_file
 from ..services.recognition import analyze_candidate
 from ..services.sites import apply_cookie_groups
 from ..state import (
+    enforce_cookiecloud_anonymous_rate_limit,
     enforce_cookiecloud_get_rate_limit,
     enforce_cookiecloud_rate_limit,
     require_configured_cookiecloud_uuid,
+    scheduler_health,
 )
-from ..util import decode_cookiecloud_body, is_private_or_reserved_address, secret_free
+from ..util import decode_cookiecloud_body, read_request_body_limited, secret_free, validated_base_url
 
 router = APIRouter()
 
@@ -56,85 +59,18 @@ ALLOWED_PRIVATE_HOSTS = {
 }
 
 
-def _host_allowlisted(hostname: str) -> bool:
-    hostname = hostname.lower()
-    return any(hostname == allowed or hostname.endswith(f".{allowed}") for allowed in ALLOWED_PRIVATE_HOSTS)
-
-
-def _hostname_resolves_to_public(hostname: str) -> bool | None:
-    """True when every resolved address is a usable outbound target (not private
-    or reserved), False when any is private, None when resolution fails.
-    Domain literals are resolved only when the deployment declared an
-    untrusted network (access token enabled).
-    """
-    try:
-        addresses = socket.getaddrinfo(hostname, None)
-    except OSError:
-        return None
-    if not addresses:
-        return None
-    return all(not is_private_or_reserved_address(ipaddress.ip_address(address[4][0])) for address in addresses)
-
-
-def validated_base_url(value: str, label: str, required: bool, allow_private: bool | None = None) -> str:
-    """Validate a base URL and optionally reject private/reserved IP literals.
-
-    allow_private defaults to the deployment's trust model: when an access token
-    is enabled the operator declared a possibly untrusted network, so PT-site
-    addresses (an outbound request surface) must be public; without a token the
-    trusted-LAN model keeps backward compatibility for LAN-hosted trackers.
-    Domain names are not resolved here to avoid DNS-rebinding surprises.
-    """
-    normalized = value.strip().rstrip("/")
-    if not normalized:
-        if required:
-            raise HTTPException(422, f"{label}不能为空")
-        return ""
-    try:
-        parsed = urlparse(normalized)
-        hostname = parsed.hostname
-    except ValueError as exc:
-        raise HTTPException(422, f"{label}地址格式无效") from exc
-    if parsed.scheme not in {"http", "https"} or not hostname:
-        raise HTTPException(422, f"{label}必须以 http:// 或 https:// 开头")
-    if parsed.username or parsed.password:
-        raise HTTPException(422, f"{label}不能包含用户名或密码")
-    if allow_private is None:
-        allow_private = not access_token_required()
-    if not allow_private and not _host_allowlisted(hostname):
-        try:
-            address = ipaddress.ip_address(hostname)
-        except ValueError:
-            address = None
-        if address is not None:
-            if is_private_or_reserved_address(address):
-                raise HTTPException(422, f"{label}不能使用内网或保留地址")
-        else:
-            # 域名：解析后要求全部地址为公网；解析失败或仅内网地址均拒绝。
-            public = _hostname_resolves_to_public(hostname)
-            if public is None:
-                raise HTTPException(422, f"{label}域名无法解析")
-            if not public:
-                raise HTTPException(422, f"{label}域名仅解析到内网或保留地址（可在 AUTOLIST_ALLOW_PRIVATE_HOSTS 中放行）")
-    sensitive_query = re.compile(
-        r"^(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|token|passkey|password|passwd|secret|cookie|authorization|key)$",
-        re.I,
-    )
-    if any(sensitive_query.fullmatch(key.strip()) for key, _value in parse_qsl(parsed.query, keep_blank_values=True)):
-        raise HTTPException(422, f"{label}不能在查询参数中包含密钥或密码")
-    return normalized
-
-
-
 # Populated by app.main after router registration.
 @router.get("/api/health")
 async def health() -> dict[str, Any]:
+    scheduler = scheduler_health()
     return {
         "ok": True,
         "version": APP_VERSION,
         "access_token_required": access_token_required(),
         "access_token_strength": access_token_strength(),
         "access_token_strength_enforced": access_token_strength_enforced(),
+        "scheduler": scheduler,
+        "scheduler_ok": scheduler["ok"],
     }
 
 @router.get("/cookiecloud")
@@ -144,15 +80,24 @@ async def cookiecloud_root() -> Response:
 
 @router.post("/cookiecloud/update")
 async def cookiecloud_update(request: Request) -> dict[str, Any]:
-    enforce_cookiecloud_rate_limit()
+    anonymous_rejection = enforce_cookiecloud_anonymous_rate_limit()
+    if anonymous_rejection is not None:
+        raise HTTPException(429, anonymous_rejection)
     try:
-        content = decode_cookiecloud_body(await request.body(), request.headers.get("content-encoding", ""))
+        raw_content = await read_request_body_limited(request)
+        content = decode_cookiecloud_body(raw_content, request.headers.get("content-encoding", ""))
         payload = CookieCloudUploadPayload.model_validate_json(content)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(422, f"CookieCloud 上传数据无效：{safe_error(exc)}") from exc
-    require_configured_cookiecloud_uuid(payload.uuid)
+    uuid_rejection = require_configured_cookiecloud_uuid(payload.uuid)
+    if uuid_rejection is not None:
+        raise HTTPException(uuid_rejection[0], uuid_rejection[1])
+    # 限流在 uuid 校验之后：未认证垃圾请求不得消耗合法同步预算（审计 2-4）。
+    rate_rejection = enforce_cookiecloud_rate_limit()
+    if rate_rejection is not None:
+        raise HTTPException(429, rate_rejection)
     if not settings.cookiecloud_password:
         raise HTTPException(422, "请先在 AutoList 设置中配置 CookieCloud 端对端加密密码")
     try:
@@ -183,17 +128,25 @@ async def cookiecloud_update(request: Request) -> dict[str, Any]:
 
 @router.get("/cookiecloud/get/{uuid_value}")
 async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
-    enforce_cookiecloud_get_rate_limit()
-    require_configured_cookiecloud_uuid(uuid_value)
+    read_rejection = enforce_cookiecloud_get_rate_limit()
+    if read_rejection is not None:
+        raise HTTPException(429, read_rejection)
+    uuid_rejection = require_configured_cookiecloud_uuid(uuid_value)
+    if uuid_rejection is not None:
+        raise HTTPException(uuid_rejection[0], uuid_rejection[1])
     path = cookiecloud_file(uuid_value)
     if not path.exists():
         raise HTTPException(404, "CookieCloud 数据不存在")
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(422, "CookieCloud 数据文件无法解析") from exc
+    return data
 
 @router.get("/api/cookiecloud/status")
 async def cookiecloud_status() -> dict[str, Any]:
     key = (settings.cookiecloud_key or "").strip()
-    key_valid = bool(re.fullmatch(r"[A-Za-z0-9_-]{5,128}", key)) if key else False
+    key_valid = bool(re.fullmatch(r"[A-Za-z0-9_-]{12,128}", key)) if key else False
     configured = bool(key_valid and settings.cookiecloud_password)
     try:
         path = cookiecloud_file(key) if key_valid else None
@@ -207,8 +160,67 @@ async def cookiecloud_status() -> dict[str, Any]:
         "endpoint": "/cookiecloud",
     }
 
+_connection_cache: tuple[float, dict[str, Any]] | None = None
+CONNECTION_CACHE_TTL_SECONDS = 30
+
+RUNTIME_SETTING_CLEAR_FIELDS = {
+    "mp_base_url": "clear_mp_base_url",
+    "mp_api_key": "clear_mp_api_key",
+    "emby_base_url": "clear_emby_base_url",
+    "emby_api_key": "clear_emby_api_key",
+    "tmdb_api_key": "clear_tmdb_api_key",
+    "mdblist_api_key": "clear_mdblist_api_key",
+    "cookiecloud_key": "clear_cookiecloud_key",
+    "cookiecloud_password": "clear_cookiecloud_password",
+    "outbound_proxy_url": "clear_outbound_proxy_url",
+    "ai_base_url": "clear_ai_base_url",
+    "ai_api_key": "clear_ai_api_key",
+    "ai_model": "clear_ai_model",
+    "tr_base_url": "clear_tr_base_url",
+    "tr_username": "clear_tr_username",
+    "tr_password": "clear_tr_password",
+}
+
+
+def _runtime_setting_clear_values(raw_payload: dict[str, Any]) -> dict[str, str]:
+    """Parse explicit clear markers without weakening partial-update semantics.
+
+    RuntimeSettingsPayload intentionally keeps secret fields optional and
+    redacted.  The clear protocol is therefore read from the raw JSON body so
+    clients can send ``clear_tmdb_api_key: true`` without ever echoing the
+    existing secret.  A nested ``clear`` object is accepted as a convenience
+    for future clients; both forms are restricted to the same allowlist.
+    """
+    nested = raw_payload.get("clear", {})
+    if nested is None:
+        nested = {}
+    if not isinstance(nested, dict):
+        raise HTTPException(422, "settings.clear 必须是对象")
+    cleared: dict[str, str] = {}
+    for field, marker in RUNTIME_SETTING_CLEAR_FIELDS.items():
+        values = []
+        if marker in raw_payload:
+            values.append(raw_payload[marker])
+        if field in nested:
+            values.append(nested[field])
+        if marker in nested:
+            values.append(nested[marker])
+        if not values:
+            continue
+        if any(value is not True for value in values):
+            raise HTTPException(422, f"{marker} 必须是 true 或省略")
+        cleared[field] = ""
+    unknown = set(nested) - set(RUNTIME_SETTING_CLEAR_FIELDS) - set(RUNTIME_SETTING_CLEAR_FIELDS.values())
+    if unknown:
+        raise HTTPException(422, f"不支持清除设置：{', '.join(sorted(str(item) for item in unknown))}")
+    return cleared
+
+
 @router.get("/api/connection")
-async def connection() -> dict[str, Any]:
+async def connection(force_refresh: bool = False) -> dict[str, Any]:
+    global _connection_cache
+    if not force_refresh and _connection_cache is not None and time.monotonic() - _connection_cache[0] < CONNECTION_CACHE_TTL_SECONDS:
+        return _connection_cache[1]
     async def check_one(name: str, client: Any) -> tuple[str, dict[str, Any]]:
         try:
             return name, await asyncio.wait_for(client.check(), timeout=6)
@@ -224,7 +236,9 @@ async def connection() -> dict[str, Any]:
     results = dict(checked)
     # AutoList submits through MoviePilot; direct Transmission credentials are diagnostic only.
     required = (results["tmdb"], results["moviepilot"])
-    return {"ok": all(item.get("ok") for item in required), "providers": results, "message": "核心服务正常" if all(item.get("ok") for item in required) else "核心服务需要配置"}
+    payload = {"ok": all(item.get("ok") for item in required), "providers": results, "message": "核心服务正常" if all(item.get("ok") for item in required) else "核心服务需要配置"}
+    _connection_cache = (time.monotonic(), payload)
+    return payload
 
 @router.get("/api/downloads")
 async def downloads() -> list[dict[str, Any]]:
@@ -242,12 +256,23 @@ async def get_runtime_settings() -> dict[str, Any]:
     return settings.public_values()
 
 @router.put("/api/settings")
-async def put_runtime_settings(payload: RuntimeSettingsPayload) -> dict[str, Any]:
-    values = payload.model_dump()
-    values["mp_base_url"] = validated_base_url(values["mp_base_url"], "MoviePilot 地址", False)
-    values["emby_base_url"] = validated_base_url(values["emby_base_url"], "Emby 地址", False)
-    values["ai_base_url"] = validated_base_url(values["ai_base_url"], "AI 地址", False)
-    values["tr_base_url"] = validated_base_url(values["tr_base_url"], "Transmission 地址", False)
+async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request) -> dict[str, Any]:
+    values = payload.model_dump(exclude_unset=True)
+    try:
+        raw_payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(422, "设置请求体无效") from exc
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(422, "设置请求体必须是对象")
+    values.update(_runtime_setting_clear_values(raw_payload))
+    for key, label in (
+        ("mp_base_url", "MoviePilot 地址"),
+        ("emby_base_url", "Emby 地址"),
+        ("ai_base_url", "AI 地址"),
+        ("tr_base_url", "Transmission 地址"),
+    ):
+        if key in values:
+            values[key] = validated_base_url(values[key], label, False)
     if values.get("outbound_proxy_url"):
         values["outbound_proxy_url"] = validated_base_url(str(values["outbound_proxy_url"]), "代理地址", True)
     for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_password"):
@@ -257,11 +282,13 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload) -> dict[str, Any
         elif str(values[key]).strip() == "":
             values[key] = ""
     save_runtime_settings(values)
+    global _connection_cache
+    _connection_cache = None
     return settings.public_values()
 
 @router.post("/api/settings/test")
 async def test_runtime_settings() -> dict[str, Any]:
-    return (await connection())["providers"]
+    return (await connection(force_refresh=True))["providers"]
 
 @router.put("/api/config")
 async def put_config(payload: ConfigPayload) -> dict[str, str]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -11,7 +12,9 @@ from fastapi import HTTPException
 
 from ..clients import EmbyClient
 from ..database import cleanup_old_data, connect, json_value
-from ..domain.titles import canonical_item_title, canonical_item_year
+from ..domain.titles import canonical_item_title, canonical_item_year, item_identity_keys
+from .. import state
+from ..logs import event_logger
 from ..list_sources import PlaylistSourceFetcher
 from ..security import safe_error, sanitize_sensitive_text
 from ..state import (
@@ -40,16 +43,18 @@ def update_recognition_task(task_id: int, **values: Any) -> None:
 
 
 async def run_recognition(task_id: int) -> None:
-    with connect() as conn:
-        task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
-        items = conn.execute(
-            """SELECT * FROM playlist_items
-               WHERE playlist_id=? AND (tmdb_id IS NULL OR tmdb_title IS NULL OR tmdb_original_title IS NULL)
-               ORDER BY rank_no""", (task["playlist_id"],),
-        ).fetchall()
-    update_recognition_task(task_id, status="running")
-    matched, errors = 0, []
     try:
+        with connect() as conn:
+            task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
+            if not task:
+                return
+            items = conn.execute(
+                """SELECT * FROM playlist_items
+                   WHERE playlist_id=? AND (tmdb_id IS NULL OR tmdb_title IS NULL OR tmdb_original_title IS NULL)
+                   ORDER BY rank_no""", (task["playlist_id"],),
+            ).fetchall()
+        update_recognition_task(task_id, status="running")
+        matched, errors = 0, []
         for completed, item in enumerate(items, start=1):
             try:
                 media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
@@ -65,7 +70,7 @@ async def run_recognition(task_id: int) -> None:
             task_id, status="partial" if errors else "completed", completed=len(items), matched=matched,
             error_message="；".join(errors[:8])[:500] if errors else None,
         )
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as _cancel:
         update_recognition_task(task_id, status="cancelled")
         raise
     except Exception as exc:
@@ -100,7 +105,12 @@ async def run_playlist_automation(run_id: int) -> None:
         if not run or not playlist:
             return
         queue = await searchable_playlist_items(int(playlist["id"]), int(playlist["automation_batch_size"] or 50))
-        items = queue["items"]
+        if queue.get("download_state") == "unknown":
+            message = "下载器当前不可用，已暂停自动化处理；请检查 Transmission 连接后重试"
+            update_automation_run(run_id, status="blocked", stage="blocked", message=message)
+            add_notification("新增影片处理已暂停", message, "warning")
+            return
+        items = list(queue.get("items") or [])
         update_automation_run(run_id, status="running", stage="recognition", total=len(items))
         emby = EmbyClient()
         recognized = searched = recommended = 0
@@ -131,6 +141,8 @@ async def run_playlist_automation(run_id: int) -> None:
                 )
             if state != "in_library" and tmdb_id:
                 searchable_ids.append(int(item["id"]))
+        search_incomplete = False
+        final_task = None
         if searchable_ids:
             with connect() as conn:
                 begin_search_task_slot(conn)
@@ -146,21 +158,33 @@ async def run_playlist_automation(run_id: int) -> None:
                 ]
                 if not site_ids:
                     raise HTTPException(422, "请先在站点配置中选择至少一个参与搜索的站点")
-                task_id = int(conn.execute(
+                task_cursor = conn.execute(
                     """INSERT INTO search_tasks(
                          playlist_id,range_start,range_end,status,total,trigger,site_ids_json,item_ids_json,created_at,updated_at
                        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (playlist["id"], ranks[0], ranks[1], "queued", len(searchable_ids), "automation",
                      json_value(site_ids), json_value(searchable_ids), now, now),
-                ).lastrowid)
+                )
+                task_lastrowid = task_cursor.lastrowid
+                if task_lastrowid is None:
+                    raise RuntimeError("搜索任务写入失败")
+                task_id = task_lastrowid
             update_automation_run(run_id, stage="search")
-            running_tasks[task_id] = asyncio.current_task()  # visible in health while the nested search runs
-            await run_search(task_id)
+            # 独立搜索任务句柄（审计 3-9）：取消搜索任务时，CancelledError 会从
+            # await 传播到本协程，run 被标记 cancelled 并终止——这是有意的传播
+            # 语义（用户取消搜索即取消该批自动化处理），run_search 的 finally
+            # 负责清理登记表。
+            search_task = asyncio.create_task(run_search(task_id))
+            running_tasks[task_id] = search_task
+            await search_task
             # searched 以搜索任务实际完成数为准，而非计划数（任务可能 failed/partial）。
+            # cancelled 不会到达这里（CancelledError 已由上层 except 处理）。
             with connect() as conn:
                 final_task = conn.execute("SELECT status,completed FROM search_tasks WHERE id=?", (task_id,)).fetchone()
-            if final_task and final_task["status"] in ("completed", "partial"):
-                searched = int(final_task["completed"] or 0)
+            # 搜索任务的 partial/failed/interrupted 都表示本轮没有完整覆盖站点，
+            # 自动化 run 必须保留为警告状态，不能把部分结果包装成成功。
+            search_incomplete = not final_task or final_task["status"] != "completed"
+            searched = int(final_task["completed"] or 0) if final_task else 0
             with connect() as conn:
                 preferred_rows = conn.execute(
                     """SELECT c.id,c.playlist_item_id FROM candidates c
@@ -174,13 +198,33 @@ async def run_playlist_automation(run_id: int) -> None:
                         preferred.append(row)
                         seen_items.add(int(row["playlist_item_id"]))
                 recommended = len(preferred)
-        message = f"处理 {len(items)} 部，新增识别 {recognized}，搜索 {searched}，推荐 {recommended}；候选需人工确认"
-        update_automation_run(
-            run_id, status="completed", stage="completed", completed=len(items), recognized=recognized,
-            searched=searched, recommended=recommended, message=message,
-        )
-        add_notification("新增影片处理完成", message, "success")
-    except asyncio.CancelledError:
+        final_task_status = final_task["status"] if final_task else "unknown"
+        if search_incomplete:
+            message = (
+                f"处理 {len(items)} 部，新增识别 {recognized}，搜索 {searched}；"
+                f"搜索任务 {final_task_status}，失败站点需重试"
+            )
+            update_automation_run(
+                run_id, status="partial", stage="search", completed=len(items), recognized=recognized,
+                searched=searched, recommended=recommended, message=message,
+            )
+            add_notification("新增影片处理部分完成", message, "warning")
+        else:
+            message = f"处理 {len(items)} 部，新增识别 {recognized}，搜索 {searched}，推荐 {recommended}；候选需人工确认"
+            update_automation_run(
+                run_id, status="completed", stage="completed", completed=len(items), recognized=recognized,
+                searched=searched, recommended=recommended, message=message,
+            )
+            add_notification("新增影片处理完成", message, "success")
+    except HTTPException as exc:
+        if exc.status_code == 429:
+            # 搜索任务容量已满：任务回到排队状态，由调度器在容量释放后继续消费。
+            update_automation_run(run_id, status="queued", stage="queued", message="搜索任务容量已满，等待空闲后自动继续")
+            return
+        reason = safe_error(exc)
+        update_automation_run(run_id, status="failed", message=reason)
+        add_notification("新增影片处理失败", reason, "error")
+    except asyncio.CancelledError as _cancel:
         update_automation_run(run_id, status="cancelled", message="新片处理任务已取消")
         raise
     except Exception as exc:
@@ -194,6 +238,15 @@ async def run_playlist_automation(run_id: int) -> None:
 _playlist_sync_locks: dict[int, asyncio.Lock] = {}
 
 
+def playlist_sync_lock(playlist_id: int) -> asyncio.Lock:
+    """进程内片单同步锁：手动刷新与定时增量共享，统一所有 rank 写入路径（审计 3-3）。"""
+    try:
+        key = int(playlist_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("片单 ID 无效") from exc
+    return _playlist_sync_locks.setdefault(key, asyncio.Lock())
+
+
 async def sync_playlist_incremental(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
     """Serialize source fetch and rank allocation per playlist.
 
@@ -201,7 +254,7 @@ async def sync_playlist_incremental(playlist_id: int, trigger: str = "manual") -
     a manual request and the scheduler can both read the same ``max(rank_no)``
     and race on the playlist's unique rank constraint.
     """
-    lock = _playlist_sync_locks.setdefault(int(playlist_id), asyncio.Lock())
+    lock = playlist_sync_lock(playlist_id)
     if lock.locked():
         raise HTTPException(409, "该片单已有同步任务运行，请等待完成")
     async with lock:
@@ -223,20 +276,16 @@ async def _sync_playlist_incremental(playlist_id: int, trigger: str = "manual") 
                 "SELECT imdb_id,tmdb_id,original_title,year FROM playlist_items WHERE playlist_id=?", (playlist_id,),
             ).fetchall()
             keys = {
-                ("imdb", str(row["imdb_id"])) if row["imdb_id"] else
-                ("tmdb", str(row["tmdb_id"])) if row["tmdb_id"] else
-                ("title", re.sub(r"\W+", "", str(row["original_title"]).lower()), str(row["year"] or ""))
+                key
                 for row in existing
+                for key in item_identity_keys(dict(row))
             }
             max_rank = int(conn.execute("SELECT COALESCE(MAX(rank_no),0) FROM playlist_items WHERE playlist_id=?", (playlist_id,)).fetchone()[0])
             additions = []
             for item in incoming:
-                key = (("imdb", str(item["imdb_id"])) if item.get("imdb_id") else
-                       ("tmdb", str(item["tmdb_id"])) if item.get("tmdb_id") else
-                       ("title", re.sub(r"\W+", "", str(item["original_title"]).lower()), str(item.get("year") or "")))
-                if key in keys:
+                if any(key in keys for key in item_identity_keys(item)):
                     continue
-                keys.add(key)
+                keys.update(item_identity_keys(item))
                 max_rank += 1
                 additions.append({**item, "playlist_id": playlist_id, "rank_no": max_rank})
             if additions:
@@ -273,26 +322,77 @@ def _automation_capacity_full() -> bool:
     return active >= MAX_RUNNING_AUTOMATION_TASKS
 
 
-async def start_playlist_automation(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
+def _claim_automation_run(run_id: int) -> bool:
+    """Atomically claim a queued run before creating its process-local task.
+
+    The partial unique index prevents duplicate active runs per playlist; this
+    conditional update additionally prevents two scheduler instances from
+    starting the same queued row at the same time.
+    """
     with connect() as conn:
-        playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-        if not playlist:
-            raise HTTPException(404, "片单不存在")
-        active = conn.execute(
-            "SELECT id FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1", (playlist_id,),
+        conn.execute("BEGIN IMMEDIATE")
+        updated = conn.execute(
+            """UPDATE automation_runs
+               SET status='running',stage='queued',updated_at=?
+               WHERE id=? AND status='queued'""", (utc_now(), run_id),
+        ).rowcount
+    return updated == 1
+
+
+def _active_automation_run(playlist_id: int) -> Any:
+    with connect() as conn:
+        return conn.execute(
+            """SELECT id,status FROM automation_runs
+               WHERE playlist_id=? AND status IN ('queued','running')
+               ORDER BY id DESC LIMIT 1""", (playlist_id,),
         ).fetchone()
+
+
+async def start_playlist_automation(playlist_id: int, trigger: str = "manual") -> dict[str, Any]:
+    try:
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
+            if not playlist:
+                raise HTTPException(404, "片单不存在")
+            active = conn.execute(
+                """SELECT id,status FROM automation_runs
+                   WHERE playlist_id=? AND status IN ('queued','running')
+                   ORDER BY id DESC LIMIT 1""", (playlist_id,),
+            ).fetchone()
+            if active:
+                status = str(active["status"])
+                return {
+                    "id": int(active["id"]), "status": status,
+                    "message": "新增影片处理任务已排队" if status == "queued" else "新增影片处理任务正在运行",
+                }
+            now = utc_now()
+            run_cursor = conn.execute(
+                "INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                (playlist_id, trigger, "queued", "queued", now, now),
+            )
+            run_lastrowid = run_cursor.lastrowid
+            if run_lastrowid is None:
+                raise RuntimeError("自动化任务写入失败")
+            run_id = run_lastrowid
+    except sqlite3.IntegrityError as _integrity:
+        # A second process may have won the unique-index race between its
+        # transaction and ours.  Return the existing run instead of 500.
+        active = _active_automation_run(playlist_id)
         if active:
-            return {"id": int(active["id"]), "status": "running", "message": "新增影片处理任务正在运行"}
-        now = utc_now()
-        run_id = int(conn.execute(
-            "INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-            (playlist_id, trigger, "queued", "queued", now, now),
-        ).lastrowid)
+            status = str(active["status"])
+            return {
+                "id": int(active["id"]), "status": status,
+                "message": "新增影片处理任务已排队" if status == "queued" else "新增影片处理任务正在运行",
+            }
+        raise
     if _automation_capacity_full():
         # 容量满时不报错：任务保持 queued，由调度器在容量释放后自动启动。
         return {"id": run_id, "status": "queued", "message": "自动化任务已排队，容量释放后自动执行"}
-    running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
-    return {"id": run_id, "status": "queued", "message": "已开始识别并搜索未入库影片；不会自动下载"}
+    if _claim_automation_run(run_id):
+        running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
+    # claim 成功后数据库状态已是 running，返回值必须与真实状态一致。
+    return {"id": run_id, "status": "running", "message": "已开始识别并搜索未入库影片；不会自动下载"}
 
 
 async def consume_queued_automation_runs() -> int:
@@ -306,35 +406,79 @@ async def consume_queued_automation_runs() -> int:
             "SELECT id,playlist_id FROM automation_runs WHERE status='queued' ORDER BY id LIMIT 8",
         ).fetchall()
     for row in queued:
-        run_id = int(row["id"])
+        try:
+            run_id = int(row["id"])
+        except (TypeError, ValueError) as exc:
+            event_logger().error("automation_run_invalid_id", extra={"error": safe_error(exc)})
+            continue
         if run_id in running_automation_tasks or _automation_capacity_full():
             continue
-        with connect() as conn:
-            competing = conn.execute(
-                "SELECT 1 FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running') AND id!=? LIMIT 1",
-                (row["playlist_id"], run_id),
-            ).fetchone()
-        if competing:
+        if not _claim_automation_run(run_id):
             continue
         running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
         started += 1
     return started
 
 
-async def sync_scheduler() -> None:
+SCHEDULER_HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+
+async def _scheduler_heartbeat_loop() -> None:
+    """Keep the liveness heartbeat independent from a potentially long tick.
+
+    A source refresh, account probe, or cleanup operation can legitimately take
+    longer than the health timeout.  The scheduler task is still alive in that
+    case, so heartbeat updates must not depend on the tick reaching its next
+    loop iteration.
+    """
     while True:
-        await asyncio.sleep(60)
-        cleanup_old_data()
-        await refresh_stale_site_account_stats()
-        await consume_queued_automation_runs()
-        now = utc_now()
-        with connect() as conn:
-            due = [int(row["id"]) for row in conn.execute(
-                """SELECT id FROM playlists WHERE sync_enabled=1 AND source_url IS NOT NULL AND source_url!=''
-                   AND (next_sync_at IS NULL OR next_sync_at<=?)""", (now,),
-            ).fetchall()]
-        for playlist_id in due:
+        state.mark_scheduler_heartbeat(utc_now())
+        await asyncio.sleep(SCHEDULER_HEARTBEAT_INTERVAL_SECONDS)
+
+
+async def sync_scheduler() -> None:
+    state.mark_scheduler_started(utc_now())
+    heartbeat_task = asyncio.create_task(_scheduler_heartbeat_loop())
+    try:
+        while True:
+            state.mark_scheduler_heartbeat(utc_now())
+            tick_errors: list[str] = []
             try:
-                await sync_playlist_incremental(playlist_id, "schedule")
-            except Exception:
-                continue
+                # Run the synchronous cleanup off the event loop so it cannot
+                # starve the independent heartbeat during a slow SQLite pass.
+                await asyncio.to_thread(cleanup_old_data)
+                await refresh_stale_site_account_stats()
+                await consume_queued_automation_runs()
+                now = utc_now()
+                with connect() as conn:
+                    due = [int(row["id"]) for row in conn.execute(
+                        """SELECT id FROM playlists WHERE sync_enabled=1 AND source_url IS NOT NULL AND source_url!=''
+                           AND (next_sync_at IS NULL OR next_sync_at<=?)""", (now,),
+                    ).fetchall()]
+                for playlist_id in due:
+                    try:
+                        await sync_playlist_incremental(playlist_id, "schedule")
+                    except asyncio.CancelledError as _cancel:
+                        raise
+                    except Exception as exc:
+                        reason = safe_error(exc)
+                        tick_errors.append(reason)
+                        event_logger().warning("scheduler_playlist_sync_failed", extra={"error": reason})
+            except asyncio.CancelledError as _cancel:
+                raise
+            except Exception as exc:
+                reason = safe_error(exc)
+                tick_errors.append(reason)
+                event_logger().error("scheduler_tick_failed", extra={"error": reason})
+            if tick_errors:
+                state.mark_scheduler_error("；".join(tick_errors[:3]))
+            else:
+                state.mark_scheduler_success(utc_now())
+            await asyncio.sleep(60)
+    finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        state.mark_scheduler_stopped()

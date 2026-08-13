@@ -20,6 +20,24 @@ def canonical_item_year(item: sqlite3.Row | dict[str, Any]) -> int | None:
     return int(value) if value else None
 
 
+def normalized_title_key(title: str) -> str:
+    """统一标题归一化：去除标点/空白后小写折叠（审计 2-6）。"""
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(title or "").casefold())
+
+
+def item_identity_keys(value: dict[str, Any]) -> list[tuple[str, str]]:
+    """影片身份键（imdb/tmdb/title+year），全仓统一归一化规则（审计 2-6）。"""
+    keys: list[tuple[str, str]] = []
+    if value.get("imdb_id"):
+        keys.append(("imdb", str(value["imdb_id"]).casefold()))
+    if value.get("tmdb_id"):
+        keys.append(("tmdb", str(value["tmdb_id"])))
+    normalized_title = normalized_title_key(value.get("original_title"))
+    if normalized_title:
+        keys.append(("title", f"{normalized_title}:{value.get('year') or ''}"))
+    return keys
+
+
 def normalized_title_text(value: Any) -> str:
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value or "").casefold())
 

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import concurrent.futures
 import gzip
 import hashlib
 import json
@@ -20,7 +21,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
-from app import main
+from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
+from app.healthcheck import validate_scheduler_health
 from app.api import playlists as playlist_routes
 from app.api import search as search_routes
 from app.api import sites as site_routes
@@ -29,18 +31,17 @@ from app.candidate_policy import DEFAULT_POLICY, release_group_catalog
 from app.clients import MoviePilotClient, TransmissionClient
 from app.database import config_values
 from app.services.imports import MAX_XLSX_ENTRIES
-from app.schemas import RuntimeSettingsPayload
 from app.state import MAX_RUNNING_AUTOMATION_TASKS, MAX_RUNNING_RECOGNITION_TASKS, running_automation_tasks, running_recognition_tasks
-from app.config import settings
+from app.config import save_runtime_settings, settings
 from app.cookiecloud import cookie_for_host
-from app.database import cleanup_old_data, connect, initialize
+from app.database import SCHEMA_VERSION, cleanup_old_data, connect, initialize
 from app.list_sources import validate_source_url
 from app.security import sanitize_sensitive_text
 from app.services.automation import run_playlist_automation
 from app.services.history import clear_download_history, projected_download_history
 from app.services.sites import apply_cookie_groups, refresh_stale_site_account_stats
 from app.services.sites import test_site_config as _test_site_config  # noqa: F401 —— 别名导入避免 pytest 将其收集为测试用例
-from app.util import secret_free
+from app.util import secret_free, to_int
 
 
 class SecurityTests(unittest.TestCase):
@@ -113,8 +114,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.14.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.14.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.16.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.16.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -128,14 +129,17 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('id="settings-reduced-motion"', html)
         self.assertIn('class="theme-copy theme-copy-archive"', html)
         self.assertIn("滚轮或双指缩放", html)
-        self.assertIn('data-site-map-zoom="in"', (static_dir / "app.js").read_text(encoding="utf-8"))
-        self.assertIn("siteMapViewportStorageKey", (static_dir / "app.js").read_text(encoding="utf-8"))
-        self.assertIn("site-map-canvas", (static_dir / "app.js").read_text(encoding="utf-8"))
+        site_map_js = (static_dir / "js" / "site-map.js").read_text(encoding="utf-8")
+        app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+        # 3-10 拆分后：地图计算层在 js/site-map.js，app.js 通过 ES 模块导入。
+        self.assertIn('data-site-map-zoom="in"', app_js)
+        self.assertIn("siteMapViewportStorageKey", site_map_js)
+        self.assertIn("site-map-canvas", app_js)
         self.assertIn('id="reset-site-layout"', html)
         self.assertIn('id="toggle-site-orientation"', html)
-        self.assertIn('siteMapOrientationStorageKey', (static_dir / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("siteMapOrientationStorageKey", site_map_js)
         self.assertIn('class="nav-item-label"', html)
-        self.assertIn('siteNodePositionStorageKey', (static_dir / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("siteNodePositionStorageKey", site_map_js)
         self.assertNotIn('document.documentElement.dataset.theme = "light"', (static_dir / "app.js").read_text(encoding="utf-8"))
 
     def test_theme_variants_have_structural_layout_and_contrast_contracts(self) -> None:
@@ -216,10 +220,9 @@ class SecurityTests(unittest.TestCase):
         previous = settings.cookiecloud_key
         settings.cookiecloud_key = "configured-key"
         try:
-            with self.assertRaises(HTTPException) as raised:
-                main.require_configured_cookiecloud_uuid("other-key")
-            self.assertEqual(raised.exception.status_code, 403)
-            main.require_configured_cookiecloud_uuid("configured-key")
+            rejection = main.require_configured_cookiecloud_uuid("other-key")
+            self.assertEqual(rejection[0], 403)
+            self.assertIsNone(main.require_configured_cookiecloud_uuid("configured-key"))
         finally:
             settings.cookiecloud_key = previous
 
@@ -236,9 +239,8 @@ class SecurityTests(unittest.TestCase):
         previous = settings.cookiecloud_key
         settings.cookiecloud_key = ""
         try:
-            with self.assertRaises(HTTPException) as raised:
-                main.require_configured_cookiecloud_uuid("any-key")
-            self.assertEqual(raised.exception.status_code, 503)
+            rejection = main.require_configured_cookiecloud_uuid("any-key")
+            self.assertEqual(rejection[0], 503)
         finally:
             settings.cookiecloud_key = previous
 
@@ -262,9 +264,9 @@ class SecurityTests(unittest.TestCase):
         try:
             for index in range(main.MAX_RUNNING_SEARCH_TASKS):
                 main.running_tasks[index] = Alive()  # type: ignore[assignment]
-            with self.assertRaises(HTTPException) as raised:
-                main.enforce_search_task_capacity()
-            self.assertEqual(raised.exception.status_code, 429)
+            rejection = main.enforce_search_task_capacity()
+            self.assertIsNotNone(rejection)
+            self.assertIn("搜索任务", rejection or "")
         finally:
             main.running_tasks.clear()
             main.running_tasks.update(previous)
@@ -316,6 +318,20 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(index.headers.get("cache-control"), "no-cache, must-revalidate")
         self.assertEqual(favicon.headers.get("cache-control"), "no-cache, must-revalidate")
 
+    def test_healthcheck_rejects_stopped_or_stale_scheduler_only(self) -> None:
+        for status in ("starting", "degraded", "ok"):
+            with self.subTest(status=status):
+                validate_scheduler_health({
+                    "scheduler": {"status": status, "last_heartbeat_age_seconds": 10},
+                })
+        for payload in (
+            {"scheduler": {"status": "stopped", "last_heartbeat_age_seconds": None}},
+            {"scheduler": {"status": "stale", "last_heartbeat_age_seconds": 181}},
+            {"scheduler": {"status": "degraded", "last_heartbeat_age_seconds": 181}},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(RuntimeError):
+                validate_scheduler_health(payload)
+
 
 class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -326,12 +342,14 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         settings.dashboard_random_posters = False
         main.raw_candidates.clear()
         main.poster_cache.clear()
+        from app.services import search as search_module
+        search_module._transmission_snapshot_cache.clear()
         initialize()
         with connect() as conn:
             playlist_id = conn.execute(
                 "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)", ("测试片单", 1, main.utc_now()),
             ).lastrowid
-            self.playlist_id = int(playlist_id)
+            self.playlist_id = to_int(playlist_id)
             conn.executemany(
                 """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,library_state)
                    VALUES(?,?,?,?,?,?,?)""",
@@ -344,6 +362,8 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         main.raw_candidates.clear()
         main.poster_cache.clear()
+        from app.services import search as search_module
+        search_module._transmission_snapshot_cache.clear()
         settings.data_dir = self.previous_data_dir
         settings.dashboard_random_posters = self.previous_dashboard_random_posters
         self.temp.cleanup()
@@ -361,15 +381,108 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             site_columns = {row["name"] for row in conn.execute("PRAGMA table_info(pt_sites)")}
         self.assertTrue({"automation_enabled", "sync_enabled", "next_sync_at"}.issubset(playlist_columns))
         self.assertTrue({"parent_task_id", "trigger", "site_ids_json", "item_ids_json", "pair_scope_json"}.issubset(task_columns))
-        self.assertTrue({"playlist_item_id", "submission_hash", "playlist_item_snapshot_json"}.issubset(download_columns))
+        self.assertTrue({"playlist_item_id", "submission_hash", "playlist_item_snapshot_json", "resource_key"}.issubset(download_columns))
         self.assertTrue({
             "account_uploaded", "account_downloaded", "account_ratio",
             "account_stats_checked_at", "account_stats_error", "last_duration_ms",
         }.issubset(site_columns))
 
+    async def test_initialize_migrates_history_resource_key_and_rejects_future_schema(self) -> None:
+        item_id: int
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+            item_id = to_int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
+            ).fetchone()[0])
+            conn.execute(
+                """INSERT INTO candidates(
+                     id,task_id,playlist_item_id,candidate_index,title,site_name,size,ranking,metadata_json,resource_key,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                ("migration-candidate", task_id, item_id, 0, "Movie.2020.1080p", "迁移站", 1024, 1, "{}", "movie-key:16", main.utc_now()),
+            )
+            conn.execute("DROP TABLE download_history")
+            conn.execute(
+                """CREATE TABLE download_history(
+                     id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT, playlist_item_id INTEGER,
+                     playlist_item_snapshot_json TEXT, title TEXT NOT NULL, torrent_name TEXT NOT NULL,
+                     site_name TEXT, submission_hash TEXT, success INTEGER NOT NULL, message TEXT, created_at TEXT NOT NULL
+                   )""",
+            )
+            conn.execute(
+                """INSERT INTO download_history(
+                     candidate_id,playlist_item_id,title,torrent_name,site_name,success,created_at
+                   ) VALUES(?,?,?,?,?,?,?)""",
+                ("migration-candidate", item_id, "Movie 1", "Movie.2020.1080p", "迁移站", 1, main.utc_now()),
+            )
+            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION - 1}")
+        initialize()
+        with connect() as conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(download_history)")}
+            history = conn.execute("SELECT resource_key FROM download_history").fetchone()
+        self.assertIn("resource_key", columns)
+        self.assertEqual(history["resource_key"], "movie-key:16")
+
+        with connect() as conn:
+            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
+        with self.assertRaises(RuntimeError):
+            initialize()
+        with connect() as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION + 1)
+
+    async def test_runtime_settings_clear_protocol_invalidates_connection_cache(self) -> None:
+        previous_values = {
+            "tmdb_api_key": settings.tmdb_api_key,
+            "outbound_proxy_url": settings.outbound_proxy_url,
+        }
+        settings.tmdb_api_key = "tmdb-secret"
+        settings.outbound_proxy_url = "http://192.0.2.11:1080"
+        system_routes._connection_cache = (0.0, {"providers": {"stale": True}})
+        try:
+            with TestClient(main.app) as client:
+                response = client.put(
+                    "/api/settings",
+                    json={"clear_tmdb_api_key": True, "clear_outbound_proxy_url": True},
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(settings.tmdb_api_key)
+            self.assertFalse(settings.outbound_proxy_url)
+            self.assertIsNone(system_routes._connection_cache)
+        finally:
+            settings.tmdb_api_key = previous_values["tmdb_api_key"]
+            settings.outbound_proxy_url = previous_values["outbound_proxy_url"]
+
+    async def test_settings_test_endpoint_forces_connection_refresh(self) -> None:
+        with patch.object(
+            system_routes, "connection", new=AsyncMock(return_value={"providers": {"fresh": True}})
+        ) as connection_mock:
+            result = await system_routes.test_runtime_settings()
+        self.assertEqual(result, {"fresh": True})
+        connection_mock.assert_awaited_once_with(force_refresh=True)
+
+    async def test_runtime_settings_concurrent_partial_saves_are_atomic(self) -> None:
+        previous_language, previous_model = settings.tmdb_language, settings.ai_model
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(save_runtime_settings, {"tmdb_language": "en-US"}),
+                    executor.submit(save_runtime_settings, {"ai_model": "audit-model"}),
+                ]
+                for future in futures:
+                    future.result(timeout=3)
+            payload = json.loads((Path(self.temp.name) / "runtime-settings.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["tmdb_language"], "en-US")
+            self.assertEqual(payload["ai_model"], "audit-model")
+            self.assertEqual(list(Path(self.temp.name).glob("runtime-settings.json.*.tmp")), [])
+        finally:
+            settings.tmdb_language, settings.ai_model = previous_language, previous_model
+
     async def test_site_connection_records_slow_state_and_duration(self) -> None:
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
                 ("慢速站点", "nexusphp", "https://slow.example", main.utc_now()),
             ).lastrowid)
@@ -386,7 +499,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_site_connection_rejects_explicit_failed_result(self) -> None:
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 "INSERT INTO pt_sites(name,adapter,base_url,created_at) VALUES(?,?,?,?)",
                 ("失败响应站点", "nexusphp", "https://failed.example", main.utc_now()),
             ).lastrowid)
@@ -477,7 +590,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
         }):
-            result = await site_routes.refresh_site_cookie(int(site_id))
+            result = await site_routes.refresh_site_cookie(to_int(site_id))
         with connect() as conn:
             row = conn.execute("SELECT cookie,user_agent FROM pt_sites WHERE id=?", (site_id,)).fetchone()
         self.assertTrue(result["ok"])
@@ -486,7 +599,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cookie_groups_apply_automatically_without_overwriting_user_agent(self) -> None:
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 """INSERT INTO pt_sites(
                        name,adapter,base_url,cookie,user_agent,account_stats_checked_at,created_at
                    ) VALUES(?,?,?,?,?,?,?)""",
@@ -504,9 +617,9 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cookiecloud_upload_immediately_updates_matching_site(self) -> None:
         previous_key, previous_password = settings.cookiecloud_key, settings.cookiecloud_password
-        settings.cookiecloud_key, settings.cookiecloud_password = "upload-test", "end-to-end-password"
+        settings.cookiecloud_key, settings.cookiecloud_password = "upload-test-key-12", "end-to-end-password"
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 "INSERT INTO pt_sites(name,adapter,base_url,cookie,user_agent,created_at) VALUES(?,?,?,?,?,?)",
                 ("上传自动更新", "nexusphp", "https://upload.example", "old=1", "Keep UA", main.utc_now()),
             ).lastrowid)
@@ -518,7 +631,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             },
         }).encode()
         key = hashlib.md5(
-            b"upload-test-end-to-end-password", usedforsecurity=False,
+            b"upload-test-key-12-end-to-end-password", usedforsecurity=False,
         ).hexdigest()[:16].encode()
         encrypted = base64.b64encode(
             AES.new(key, AES.MODE_CBC, b"\0" * 16).encrypt(pad(plaintext, AES.block_size)),
@@ -526,7 +639,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         try:
             with TestClient(main.app) as client:
                 response = client.post("/cookiecloud/update", json={
-                    "uuid": "upload-test",
+                    "uuid": "upload-test-key-12",
                     "encrypted": encrypted,
                     "crypto_type": "aes-128-cbc-fixed",
                 })
@@ -541,7 +654,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_site_account_statistics_are_cached_between_scheduler_runs(self) -> None:
         with connect() as conn:
-            site_id = int(conn.execute(
+            site_id = to_int(conn.execute(
                 "INSERT INTO pt_sites(name,adapter,base_url,cookie,enabled,created_at) VALUES(?,?,?,?,?,?)",
                 ("统计站点", "nexusphp", "https://stats.example", "session=1", 1, main.utc_now()),
             ).lastrowid)
@@ -590,7 +703,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 "tmdb_year": 2002, "tmdb_imdb_id": "tt0000002",
             })
             now = main.utc_now()
-            run_id = int(conn.execute(
+            run_id = to_int(conn.execute(
                 """INSERT INTO automation_runs(playlist_id,trigger,status,stage,created_at,updated_at)
                    VALUES(?,?,?,?,?,?)""",
                 (self.playlist_id, "manual", "queued", "queued", now, now),
@@ -628,7 +741,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_overview_labels_latest_task_playlist_and_not_in_library_count(self) -> None:
         now = main.utc_now()
         with connect() as conn:
-            second_playlist_id = int(conn.execute(
+            second_playlist_id = to_int(conn.execute(
                 "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
                 ("第二片单", 2, now),
             ).lastrowid)
@@ -646,7 +759,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_history_projects_source_backed_lifecycle_states(self) -> None:
         with connect() as conn:
             items = {
-                int(row["rank_no"]): row
+                to_int(row["rank_no"]): row
                 for row in conn.execute(
                     "SELECT id,rank_no FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN 1 AND 5",
                     (self.playlist_id,),
@@ -701,7 +814,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         # 随机海报必须来自已入库影片集合，不依赖 fixture 的 rank 奇偶约定。
         with connect() as conn:
             in_library_ranks = {
-                int(row["rank_no"]) for row in conn.execute(
+                to_int(row["rank_no"]) for row in conn.execute(
                     "SELECT rank_no FROM playlist_items WHERE playlist_id=? AND library_state='in_library'",
                     (self.playlist_id,),
                 )
@@ -724,7 +837,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
 
         main.EmbyClient.poster = fake_poster
         try:
-            response = await main.playlist_item_poster(int(item_id), "tag1")
+            response = await main.playlist_item_poster(to_int(item_id), "tag1")
         finally:
             main.EmbyClient.poster = original
         self.assertEqual(response.media_type, "image/png")
@@ -778,7 +891,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             rows = conn.execute(
                 "SELECT * FROM playlist_items WHERE playlist_id=? AND rank_no IN (1,2)", (self.playlist_id,),
             ).fetchall()
-            retained_id, removed_id = int(rows[0]["id"]), int(rows[1]["id"])
+            retained_id, removed_id = to_int(rows[0]["id"]), to_int(rows[1]["id"])
             conn.execute(
                 "INSERT INTO download_history(playlist_item_id,title,torrent_name,success,created_at) VALUES(?,?,?,?,?)",
                 (removed_id, "Movie 2", "Movie 2 2002 1080p", 1, main.utc_now()),
@@ -799,7 +912,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT playlist_item_snapshot_json FROM download_history WHERE playlist_item_id=?",
                 (removed_id,),
             ).fetchone()[0]
-        self.assertEqual(int(retained["id"]), retained_id)
+        self.assertEqual(to_int(retained["id"]), retained_id)
         self.assertIn("Movie 2", snapshot)
         self.assertNotEqual(retained_id, removed_id)
         with patch(
@@ -819,7 +932,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 "INSERT INTO download_history(playlist_item_id,title,torrent_name,success,created_at) VALUES(?,?,?,?,?)",
                 (item["id"], "Movie 3", "Movie 3 2003 1080p", 1, main.utc_now()),
             )
-            item_id = int(item["id"])
+            item_id = to_int(item["id"])
         await playlist_routes.delete_playlist(self.playlist_id)
         with connect() as conn:
             snapshot = conn.execute(
@@ -919,11 +1032,11 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_archives_failed_search_without_deleting_candidates(self) -> None:
         with connect() as conn:
-            item_id = int(conn.execute(
+            item_id = to_int(conn.execute(
                 "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1",
                 (self.playlist_id,),
             ).fetchone()[0])
-            task_id = int(conn.execute(
+            task_id = to_int(conn.execute(
                 """INSERT INTO search_tasks(
                        playlist_id,range_start,range_end,status,total,created_at,updated_at
                    ) VALUES(?,?,?,?,?,datetime('now','-2 days'),datetime('now','-2 days'))""",
@@ -993,7 +1106,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                    VALUES(?,?,?,?,?,?,?,?,?)""",
                 ("damaged", task_id, item_id, 0, "Example 1080p", 9, 1, "not-json", main.utc_now()),
             )
-        result = await main.candidates(int(task_id))
+        result = await main.candidates(to_int(task_id))
         self.assertEqual(result[0]["metadata"], {})
 
     async def test_site_icon_blocks_cross_host_private_networks(self) -> None:
@@ -1031,7 +1144,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         # 队列不得包含已入库影片，且下载中的影片被排除。
         with connect() as conn:
             in_library_ranks = {
-                int(row["rank_no"]) for row in conn.execute(
+                to_int(row["rank_no"]) for row in conn.execute(
                     "SELECT rank_no FROM playlist_items WHERE playlist_id=? AND library_state='in_library'",
                     (self.playlist_id,),
                 )
@@ -1100,7 +1213,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                 (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
             ).lastrowid
-            item_id = int(conn.execute(
+            item_id = to_int(conn.execute(
                 "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
             ).fetchone()[0])
             now = main.utc_now()
@@ -1132,6 +1245,45 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["skipped"][0]["reason"], "该发布已提交过")
         download_mock.assert_not_awaited()
 
+    async def test_resource_key_history_blocks_duplicate_after_candidate_cleanup(self) -> None:
+        resource_key = "movie2020release:128"
+        with connect() as conn:
+            task_id = to_int(conn.execute(
+                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
+            ).lastrowid)
+            item_id = to_int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
+            ).fetchone()[0])
+            conn.execute(
+                """INSERT INTO candidates(
+                     id,task_id,playlist_item_id,candidate_index,title,site_name,size,eligibility,resource_key,ranking,metadata_json,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ("old-release", task_id, item_id, 0, "Movie.2020.1080p", "Alpha", 8 * 1024**3, "eligible", resource_key, 1, "{}", main.utc_now()),
+            )
+            conn.execute(
+                """INSERT INTO download_history(
+                     candidate_id,playlist_item_id,resource_key,title,torrent_name,site_name,success,created_at
+                   ) VALUES(?,?,?,?,?,?,1,?)""",
+                ("old-release", item_id, resource_key, "Movie 1", "Movie.2020.1080p", "Alpha", main.utc_now()),
+            )
+            # 模拟 30 天候选清理：历史快照必须独立保留去重 key。
+            conn.execute("DELETE FROM candidates WHERE id='old-release'")
+            conn.execute(
+                """INSERT INTO candidates(
+                     id,task_id,playlist_item_id,candidate_index,title,site_name,size,eligibility,resource_key,ranking,metadata_json,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ("new-release", task_id, item_id, 0, "Movie.2020.1080p", "Alpha", 8 * 1024**3, "eligible", resource_key, 1, "{}", main.utc_now()),
+            )
+            conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", ("new-release", main.utc_now()))
+        main.raw_candidates["new-release"] = {"media": {"id": 1}, "torrent": {"title": "Movie.2020.1080p"}}
+        with patch.object(main.MoviePilotClient, "download", new=AsyncMock()) as download_mock, \
+             patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[])):
+            result = await main.download_cart()
+        self.assertEqual(result["submitted"], 0)
+        self.assertEqual(result["skipped"][0]["reason"], "该发布已提交过")
+        download_mock.assert_not_awaited()
+
     async def test_download_cart_skips_release_already_downloading(self) -> None:
         """Transmission 已有同名活动任务时，提交自动跳过。"""
         with connect() as conn:
@@ -1139,7 +1291,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                 "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                 (self.playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
             ).lastrowid
-            item_id = int(conn.execute(
+            item_id = to_int(conn.execute(
                 "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no=1", (self.playlist_id,),
             ).fetchone()[0])
             conn.execute(
@@ -1237,7 +1389,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                     ("第二片单", 2, main.utc_now()),
                 ).lastrowid
             with self.assertRaises(HTTPException) as raised:
-                await playlist_routes.recognize_playlist(int(other_id))
+                await playlist_routes.recognize_playlist(to_int(other_id))
             self.assertEqual(raised.exception.status_code, 429)
         finally:
             for task in tasks:
@@ -1245,33 +1397,6 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             for key in list(running_recognition_tasks):
                 if key >= 9000:
                     running_recognition_tasks.pop(key, None)
-
-    async def test_runtime_settings_clear_and_keep_secret_semantics(self) -> None:
-        """null 保留原值，空字符串显式清除已配置密钥。"""
-        previous = {
-            key: getattr(settings, key) for key in ("mp_api_key", "tmdb_api_key", "emby_base_url")
-        }
-        try:
-            await system_routes.put_runtime_settings(RuntimeSettingsPayload(
-                mp_api_key="key-1", tmdb_api_key="key-2", emby_base_url="http://emby.local:8096",
-            ))
-            self.assertEqual(settings.mp_api_key, "key-1")
-            self.assertEqual(settings.tmdb_api_key, "key-2")
-            # null = 不修改，保留原值
-            await system_routes.put_runtime_settings(RuntimeSettingsPayload(
-                mp_api_key=None, tmdb_api_key=None, emby_base_url="",
-            ))
-            self.assertEqual(settings.mp_api_key, "key-1")
-            self.assertEqual(settings.tmdb_api_key, "key-2")
-            # 空字符串 = 显式清除
-            await system_routes.put_runtime_settings(RuntimeSettingsPayload(
-                mp_api_key="", tmdb_api_key="",
-            ))
-            self.assertEqual(settings.mp_api_key, "")
-            self.assertEqual(settings.tmdb_api_key, "")
-        finally:
-            for key, value in previous.items():
-                setattr(settings, key, value)
 
     async def test_automation_queues_when_capacity_full_and_consumes_later(self) -> None:
         from app.services.automation import consume_queued_automation_runs, start_playlist_automation
@@ -1307,21 +1432,27 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         """启用访问令牌时，出站地址域名必须全部解析到公网；白名单与 IP 字面量规则生效。"""
         previous_token = os.environ.get("AUTOLIST_ACCESS_TOKEN")
         os.environ["AUTOLIST_ACCESS_TOKEN"] = "test-token"
+        previous_hosts = os.environ.get("AUTOLIST_ALLOW_PRIVATE_HOSTS")
         try:
-            with patch("app.api.system.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("192.168.1.5", 0))]):
+            with patch("app.util.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("192.168.1.5", 0))]):
                 with self.assertRaises(HTTPException) as raised:
                     system_routes.validated_base_url("https://private.example", "站点地址", True)
                 self.assertEqual(raised.exception.status_code, 422)
-            with patch("app.api.system.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]):
+            with patch("app.util.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]):
                 result = system_routes.validated_base_url("https://public.example", "站点地址", True)
             self.assertEqual(result, "https://public.example")
-            with patch("app.api.system.socket.getaddrinfo", side_effect=socket.gaierror("nxdomain")):
+            with patch("app.util.socket.getaddrinfo", side_effect=socket.gaierror("nxdomain")):
                 with self.assertRaises(HTTPException):
                     system_routes.validated_base_url("https://nx.example", "站点地址", True)
-            with patch.object(system_routes, "ALLOWED_PRIVATE_HOSTS", {"prowlarr.lan"}):
+            os.environ["AUTOLIST_ALLOW_PRIVATE_HOSTS"] = "prowlarr.lan"
+            with patch("app.util.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("192.168.1.9", 0))]):
                 result = system_routes.validated_base_url("https://prowlarr.lan", "站点地址", True)
             self.assertEqual(result, "https://prowlarr.lan")
         finally:
+            if previous_hosts is None:
+                os.environ.pop("AUTOLIST_ALLOW_PRIVATE_HOSTS", None)
+            else:
+                os.environ["AUTOLIST_ALLOW_PRIVATE_HOSTS"] = previous_hosts
             if previous_token is None:
                 os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
             else:
@@ -1390,7 +1521,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                      "1080p", "x265", "FRDS", 1, 90, "[]", index, "preferred", "", "movie20241080px265frds:0",
                      "unknown", 0, "eligible", None, "primary_x265", "{}", main.utc_now()),
                 )
-        result = await main.candidates(int(task_id))
+        result = await main.candidates(to_int(task_id))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["site_name"], "聚合测试站B")
         self.assertEqual(result[0]["seeders"], 80)
@@ -1496,6 +1627,29 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client._parse_publish_time(["", "昨天"]), (_dt.date.today() - _dt.timedelta(days=1)).isoformat())
         self.assertEqual(client._parse_publish_time(["", "3 小时前"]), _dt.date.today().isoformat())
 
+
+
+class FrontendContractTests(unittest.TestCase):
+    """2-25：前端契约从字符串计数升级为引用一致性——app.js 的 ES 模块导入必须可解析。"""
+
+    def test_frontend_module_contract_js_imports_resolve(self) -> None:
+        from pathlib import Path
+        import re
+
+        app_js = Path("app/static/app.js").read_text(encoding="utf-8")
+        import_line = next(line for line in app_js.splitlines() if line.startswith("import {"))
+        imported = [name.strip() for name in import_line.split("{", 1)[1].split("}", 1)[0].split(",")]
+        core_js = Path("app/static/js/core.js").read_text(encoding="utf-8")
+        missing = [name for name in imported if f"export const {name}" not in core_js and f"export function {name}" not in core_js]
+        self.assertEqual(missing, [])
+
+        module_imports = re.findall(r'^import\s*\{(.*?)\}\s*from\s*"([^"]+)";', app_js, re.M | re.S)
+        site_body = next((body for body, path in module_imports if path == "./js/site-map.js"), None)
+        self.assertIsNotNone(site_body)
+        site_imported = [name.strip() for name in site_body.split(",") if name.strip()]
+        site_map_js = Path("app/static/js/site-map.js").read_text(encoding="utf-8")
+        site_exports = set(re.findall(r"export (?:const|let|function) ([A-Za-z_$][\w$]*)", site_map_js))
+        self.assertEqual([name for name in site_imported if name not in site_exports], [])
 
 
 if __name__ == "__main__":

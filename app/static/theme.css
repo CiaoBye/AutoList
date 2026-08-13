@@ -483,11 +483,13 @@ html[data-theme="cinema"] .task-log p,
 html[data-theme="cinema"] .logs-filters label,
 html[data-theme="cinema"] .log-row time,
 html[data-theme="cinema"] .log-meta,
-html[data-theme="cinema"] .log-error-text,
-html[data-theme="cinema"] .inline-message,
 html[data-theme="cinema"] .theme-settings-note {
   color: var(--muted);
 }
+/* 状态文字保持语义色：错误提示与日志错误文字不得降级为 muted。 */
+html[data-theme="cinema"] .inline-message.error { color: #ffb9b2; }
+html[data-theme="cinema"] .inline-message.warning { color: #f4d488; }
+html[data-theme="cinema"] .log-error-text { color: #ffb9b2; }
 
 html[data-theme="cinema"] .tag,
 html[data-theme="cinema"] .recommendation-badge,
@@ -639,7 +641,7 @@ html[data-theme] .candidate-index { display: none; }
   html[data-theme="cinema"] body[data-page="playlists"] .playlist-card-main { min-height: 0; flex: 1; padding: 18px; }
   html[data-theme="cinema"] body[data-page="playlists"] .playlist-card-main strong { margin-top: 14px; }
   html[data-theme="cinema"] body[data-page="playlists"] .playlist-card-actions { margin-top: auto; padding: 9px; border-top-color: var(--line); }
-  html[data-theme="cinema"] body[data-page="playlists"] .playlist-card-actions button { min-height: 36px; border-radius: 1px; color: var(--muted); background: #1b3036; }
+  html[data-theme="cinema"] body[data-page="playlists"] .playlist-card-actions button { min-height: 44px; border-radius: 1px; color: var(--muted); background: #1b3036; }
   html[data-theme="cinema"] body[data-page="playlists"] .playlist-detail-panel .table-wrap { margin: 0 24px; padding: 0; border: 1px solid var(--line); }
   html[data-theme="cinema"] body[data-page="playlists"] .playlist-table th { color: var(--subtle); background: #0e1d22; }
   html[data-theme="cinema"] body[data-page="playlists"] .playlist-table td { padding-block: 13px; }
@@ -703,7 +705,7 @@ html[data-theme] .candidate-index { display: none; }
   html[data-theme="ledger"] body[data-page="playlists"] .playlist-card-main strong { margin: 9px 0 5px; font-size: 15px; }
   html[data-theme="ledger"] body[data-page="playlists"] .playlist-card-main i { margin-top: 10px; }
   html[data-theme="ledger"] body[data-page="playlists"] .playlist-card-actions { padding: 7px 9px; }
-  html[data-theme="ledger"] body[data-page="playlists"] .playlist-card-actions button { min-height: 34px; padding-inline: 8px; border-radius: 1px; }
+  html[data-theme="ledger"] body[data-page="playlists"] .playlist-card-actions button { min-height: 44px; padding-inline: 8px; border-radius: 1px; }
   html[data-theme="ledger"] body[data-page="playlists"] .playlist-detail-panel .table-wrap { margin: 0 22px; padding: 0; border: 1px solid var(--line); }
   html[data-theme="ledger"] body[data-page="playlists"] .playlist-table { font-variant-numeric: tabular-nums; }
   html[data-theme="ledger"] body[data-page="playlists"] .playlist-table th { background: #e9e1d4; }
@@ -731,7 +733,7 @@ html[data-theme] .candidate-index { display: none; }
   html[data-theme="ledger"] body[data-page="search"] .candidate-row.is-best { box-shadow: inset 4px 0 0 var(--rust); background: #fbf1e6; }
   html[data-theme="ledger"] body[data-page="search"] .candidate-score { padding-left: 10px; border-left: 1px solid var(--line); }
   html[data-theme="ledger"] body[data-page="search"] .candidate-score strong { font-size: 22px; }
-  html[data-theme="ledger"] body[data-page="search"] .candidate-action { min-height: 38px; padding-inline: 8px; border-radius: 1px; }
+  html[data-theme="ledger"] body[data-page="search"] .candidate-action { min-height: 44px; padding-inline: 8px; border-radius: 1px; }
 
   html[data-theme="ledger"] body[data-page="cart"] .cart-page-panel { display: grid; grid-template-columns: minmax(0,1fr) 254px; overflow: hidden; }
   html[data-theme="ledger"] body[data-page="cart"] .cart-page-heading { grid-column: 1 / -1; }
@@ -780,6 +782,20 @@ html[data-theme="ledger"] body[data-page="sites"] .site-map-zoom-tools button:ho
   html[data-theme="ledger"] body[data-page="dashboard"] .screening-progress-card p { grid-column: 1 / -1; }
   html[data-theme="archive"] body[data-page="dashboard"] .screening-mission-grid { grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
   html[data-theme="archive"] body[data-page="dashboard"] .screening-mission.selected { grid-row: auto; min-height: 205px; }
+  /* 窄桌面下候选列改为可收缩轨道，避免 Cinema 5 列 / Ledger 6 列产生横向溢出。 */
+  html[data-theme="cinema"] body[data-page="search"] .candidate-labels,
+  html[data-theme="cinema"] body[data-page="search"] .candidate-row {
+    grid-template-columns: minmax(0,1.25fr) minmax(0,.75fr) minmax(0,1.05fr) 60px 96px;
+    gap: 12px;
+    padding-inline: 20px;
+  }
+  html[data-theme="ledger"] body[data-page="search"] .candidate-labels,
+  html[data-theme="ledger"] body[data-page="search"] .candidate-row {
+    grid-template-columns: 46px minmax(0,1.4fr) minmax(0,.8fr) minmax(0,1.1fr) 58px 96px;
+    gap: 8px;
+    padding-inline: 16px;
+  }
+  html[data-theme="ledger"] body[data-page="search"] .candidate-score { padding-left: 6px; }
 }
 
 @media (max-width: 900px) {

@@ -1,5 +1,12 @@
 /** Shared browser helpers for AutoList UI. */
 export const $ = (selector) => document.querySelector(selector);
+
+export const safeStorageGet = (key) => {
+  try { return window.localStorage.getItem(key); } catch (_error) { return null; }
+};
+export const safeStorageSet = (key, value) => {
+  try { window.localStorage.setItem(key, value); } catch (_error) { /* 浏览器禁用存储时保留当前会话值 */ }
+};
 export const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 export const escapeHtml = (value) => String(value ?? "")
@@ -46,6 +53,29 @@ export const promptAccessToken = (message) => {
 };
 
 const DEFAULT_API_TIMEOUT_MS = 30000;
+const requestLocationKeys = new Set(["body", "query", "path", "header", "cookie"]);
+
+export const parseValidationErrors = (detail) => {
+  if (!Array.isArray(detail)) return [];
+  return detail.map((item) => {
+    const location = Array.isArray(item?.loc) ? item.loc : [];
+    const path = location
+      .filter((part) => !requestLocationKeys.has(String(part)))
+      .map((part) => String(part))
+      .join(".");
+    return {
+      path,
+      message: String(item?.msg || "输入内容不符合要求"),
+      type: String(item?.type || ""),
+    };
+  });
+};
+
+export const validationErrorSummary = (errors) =>
+  (Array.isArray(errors) ? errors : [])
+    .map((item) => item?.message || "")
+    .filter(Boolean)
+    .join("；");
 
 export const api = async (path, options = {}, allowRetry = true) => {
   const method = String(options.method || "GET").toUpperCase();
@@ -112,10 +142,19 @@ export const api = async (path, options = {}, allowRetry = true) => {
   if (!response.ok) {
     // pydantic 校验错误 detail 是数组，提取可读信息避免显示 [object Object]。
     let detail = data.detail;
-    if (Array.isArray(detail)) {
-      detail = detail.map((item) => (item && item.msg) || String(item)).join("；");
-    }
-    throw new Error(detail || data.message || `请求失败（${response.status}）`);
+    const validationErrors = parseValidationErrors(detail);
+    if (Array.isArray(detail)) detail = validationErrorSummary(validationErrors);
+    const requestError = new Error(detail || data.message || `请求失败（${response.status}）`);
+    requestError.status = response.status;
+    requestError.detail = data.detail;
+    requestError.validationErrors = validationErrors;
+    requestError.fieldErrors = validationErrors.reduce((result, item) => {
+      if (!item.path) return result;
+      result[item.path] ||= [];
+      result[item.path].push(item.message);
+      return result;
+    }, {});
+    throw requestError;
   }
   return data;
 };
@@ -184,13 +223,16 @@ export const lifecycleStatusClass = (status) => ({
 }[status] || "pending");
 
 export const lifecycleStatusIcon = (status) => ({
-  organized: "✓",
-  downloading: "↓",
-  pending_library: "◌",
-  pending_confirmation: "?",
-  submitted: "→",
-  failed: "×",
-}[status] || "?");
+  organized: "check",
+  downloading: "download",
+  pending_library: "pending",
+  pending_confirmation: "help",
+  submitted: "arrow-right",
+  failed: "close",
+}[status] || "help");
+
+export const iconSvg = (name, className = "inline-icon") =>
+  `<svg class="${escapeHtml(className)}" aria-hidden="true" focusable="false"><use href="#icon-${escapeHtml(name)}"></use></svg>`;
 
 export const HISTORY_STATUS_OPTIONS = [
   {value: "all", label: "全部状态"},
@@ -206,7 +248,7 @@ export function historyRowHtml(item) {
   const status = item.lifecycle_status || (item.success ? "submitted" : "failed");
   const label = item.status_label || (item.success ? "已提交" : "失败");
   const detail = item.status_reason || item.message;
-  return `<tr data-history-status="${escapeHtml(status)}"><td><span class="history-status ${lifecycleStatusClass(status)}" aria-label="${escapeHtml(label)}">${lifecycleStatusIcon(status)}</span><small class="history-status-label">${escapeHtml(label)}</small></td><td class="history-title"><strong>${escapeHtml(item.title)}</strong><small title="${escapeHtml(item.torrent_name)}">${escapeHtml(item.torrent_name)}</small>${detail ? `<small class="history-message ${status === "failed" ? "failed" : ""}">${escapeHtml(detail)}</small>` : ""}</td><td>${escapeHtml(item.site_name || "—")}</td><td>${formatTime(item.created_at)}</td></tr>`;
+  return `<tr data-history-status="${escapeHtml(status)}"><td><span class="history-status ${lifecycleStatusClass(status)}" aria-label="${escapeHtml(label)}">${iconSvg(lifecycleStatusIcon(status))}</span><small class="history-status-label">${escapeHtml(label)}</small></td><td class="history-title"><strong>${escapeHtml(item.title)}</strong><small title="${escapeHtml(item.torrent_name)}">${escapeHtml(item.torrent_name)}</small>${detail ? `<small class="history-message ${status === "failed" ? "failed" : ""}">${escapeHtml(detail)}</small>` : ""}</td><td>${escapeHtml(item.site_name || "—")}</td><td>${formatTime(item.created_at)}</td></tr>`;
 }
 
 export function filterHistoryItems(list, statusFilter) {

@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 from ..candidate_policy import normalized_policy
 from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, TorznabClient, TransmissionClient
+from ..schemas import MAX_SEARCH_ITEMS
 from ..database import config_values, connect, json_value
 from ..logs import event_logger
 from ..domain.titles import (
@@ -32,11 +33,32 @@ from ..state import (
     remember_raw_candidate,
     running_tasks,
 )
-from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, secret_free, utc_now
+from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, secret_free, to_float, to_int, utc_now
 from .library import library_details
 from .recognition import analyze_candidate, persist_tmdb_item, recognize_movie
 
-MAX_SEARCH_ITEMS = 2000
+
+# Transmission 下载列表短 TTL 缓存（审计 3-25）：避免片单每次刷新重复 RPC。
+_transmission_snapshot_cache: dict[int, tuple[float, list[dict[str, Any]], str]] = {}
+TRANSMISSION_SNAPSHOT_TTL_SECONDS = 10
+
+
+async def _current_downloads_cached() -> tuple[list[dict[str, Any]], str]:
+    import time as _time
+
+    now = _time.monotonic()
+    cached = _transmission_snapshot_cache.get(0)
+    if cached is not None and now - cached[0] < TRANSMISSION_SNAPSHOT_TTL_SECONDS:
+        return cached[1], cached[2]
+    transmission = TransmissionClient()
+    try:
+        torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
+        state = "known_present" if torrents else "known_empty"
+    except Exception:
+        torrents = []
+        state = "unknown"
+    _transmission_snapshot_cache[0] = (_time.monotonic(), torrents, state)
+    return torrents, state
 
 
 async def searchable_playlist_items(playlist_id: int, limit: int | None = None) -> dict[str, Any]:
@@ -67,20 +89,11 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
                JOIN playlist_items p ON p.id=c.playlist_item_id
                WHERE p.playlist_id=?""", (playlist_id,),
         ).fetchall()
-    transmission = TransmissionClient()
-    transmission_state = "known_empty"
-    try:
-        torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
-        transmission_state = "known_present" if torrents else "known_empty"
-    except Exception:
-        # A configured but unavailable Transmission must not look like an
-        # empty list; callers should avoid selecting items for download.
-        torrents = []
-        transmission_state = "unknown"
+    torrents, transmission_state = await _current_downloads_cached()
     if transmission_state == "unknown":
         return {
             "playlist_id": playlist_id, "playlist_name": playlist["name"],
-            "total_count": int(stats["total"] or 0), "in_library_count": int(stats["in_library"] or 0),
+            "total_count": to_int(stats["total"] or 0), "in_library_count": to_int(stats["in_library"] or 0),
             "downloading_count": None, "download_state": "unknown", "pending_count": 0, "items": [],
         }
     downloading = [torrent for torrent in torrents if is_transmission_downloading(torrent)]
@@ -91,7 +104,7 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
         for name in (row["torrent_name"], row["title"], row["candidate_title"]):
             normalized = normalized_download_name(name)
             if normalized:
-                related_names[normalized] = int(item_id)
+                related_names[normalized] = to_int(item_id)
     downloading_ids: set[int] = set()
     for name in download_names:
         if name in related_names:
@@ -99,14 +112,14 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
     for torrent in downloading:
         torrent_title = str(first_value(torrent, ("name", "torrent_name"), ""))
         for item in rows:
-            if int(item["id"]) not in downloading_ids and torrent_matches_item(item, torrent_title):
-                downloading_ids.add(int(item["id"]))
-    queue = [item for item in rows if int(item["id"]) not in downloading_ids]
-    safe_limit = min(max(1, int(limit)), MAX_SEARCH_ITEMS) if limit is not None else MAX_SEARCH_ITEMS
+            if to_int(item["id"]) not in downloading_ids and torrent_matches_item(item, torrent_title):
+                downloading_ids.add(to_int(item["id"]))
+    queue = [item for item in rows if to_int(item["id"]) not in downloading_ids]
+    safe_limit = min(max(1, to_int(limit)), MAX_SEARCH_ITEMS) if limit is not None else MAX_SEARCH_ITEMS
     selected = queue[:safe_limit]
     return {
         "playlist_id": playlist_id, "playlist_name": playlist["name"],
-        "total_count": int(stats["total"] or 0), "in_library_count": int(stats["in_library"] or 0),
+        "total_count": to_int(stats["total"] or 0), "in_library_count": to_int(stats["in_library"] or 0),
         "downloading_count": len(downloading), "download_state": transmission_state,
         "pending_count": len(queue), "items": rows_to_dicts(selected),
     }
@@ -159,10 +172,12 @@ def task_log(task_id: int, level: str, stage: str, message: str) -> None:
 def begin_search_task_slot(conn: sqlite3.Connection) -> None:
     """Lock task admission and enforce the process-wide persisted capacity."""
     conn.execute("BEGIN IMMEDIATE")
-    active = int(conn.execute(
+    active = to_int(conn.execute(
         "SELECT COUNT(*) FROM search_tasks WHERE status IN ('queued','running')",
     ).fetchone()[0])
-    enforce_search_task_capacity(active)
+    capacity_rejection = enforce_search_task_capacity(active)
+    if capacity_rejection is not None:
+        raise HTTPException(429, capacity_rejection)
 
 
 SEARCH_ERROR_MESSAGES = {
@@ -241,8 +256,8 @@ async def search_one_site(
                     continue
                 for torrent in rows:
                     torrent = dict(torrent)
-                    torrent["_site_priority"] = int(site.get("priority") or 100)
-                    torrent["_site_id"] = int(site["id"])
+                    torrent["_site_priority"] = to_int(site.get("priority") or 100)
+                    torrent["_site_id"] = to_int(site["id"])
                     key = str(torrent.get("enclosure") or resource_fingerprint(
                         str(first_value(torrent, ("title", "torrent_name", "name"), "")),
                         first_value(torrent, ("size", "size_bytes")),
@@ -251,17 +266,17 @@ async def search_one_site(
             torrents = list(unique.values())
             if not torrents and errors and len(errors) == query_count:
                 raise errors[-1]
-            duration_ms = max(0, int((time.monotonic() - started) * 1000))
+            duration_ms = max(0, to_int((time.monotonic() - started) * 1000))
             record_search_attempt(
-                task_id, int(item["id"]), site, 1, "success", len(torrents), duration_ms,
+                task_id, to_int(item["id"]), site, 1, "success", len(torrents), duration_ms,
                 query_count=query_count,
             )
             return site, torrents, None, query_count
         except Exception as exc:
             error_code, reason = classify_search_error(exc)
-            duration_ms = max(0, int((time.monotonic() - started) * 1000))
+            duration_ms = max(0, to_int((time.monotonic() - started) * 1000))
             record_search_attempt(
-                task_id, int(item["id"]), site, 1, "failed", 0, duration_ms, error_code, safe_error(exc),
+                task_id, to_int(item["id"]), site, 1, "failed", 0, duration_ms, error_code, safe_error(exc),
                 query_count=max(1, query_count),
             )
             return site, [], reason, max(1, query_count)
@@ -276,7 +291,7 @@ def _snapshot_ids(raw_value: Any, label: str) -> list[int] | None:
         raise RuntimeError(f"任务保存的{label}快照无效") from exc
     if not isinstance(values, list) or any(isinstance(value, bool) or not str(value).isdigit() for value in values):
         raise RuntimeError(f"任务保存的{label}快照无效")
-    return list(dict.fromkeys(int(value) for value in values))
+    return list(dict.fromkeys(to_int(value) for value in values))
 
 
 async def run_search(task_id: int) -> None:
@@ -297,7 +312,7 @@ async def run_search(task_id: int) -> None:
         if not isinstance(raw_pairs, list):
             raise ValueError
         pair_scope = {
-            (int(pair[0]), int(pair[1]))
+            (to_int(pair[0]), to_int(pair[1]))
             for pair in raw_pairs
             if isinstance(pair, list) and len(pair) == 2
         }
@@ -315,7 +330,7 @@ async def run_search(task_id: int) -> None:
                     f"SELECT * FROM playlist_items WHERE playlist_id=? AND id IN ({item_placeholders}) ORDER BY rank_no",  # nosec B608
                     (task["playlist_id"], *selected_item_ids),
                 ).fetchall())
-                missing_items = set(selected_item_ids) - {int(item["id"]) for item in items}
+                missing_items = set(selected_item_ids) - {to_int(item["id"]) for item in items}
                 if missing_items:
                     raise RuntimeError(f"任务快照中的影片已不存在：{', '.join(str(value) for value in sorted(missing_items))}")
             if selected_site_ids is None:
@@ -331,7 +346,7 @@ async def run_search(task_id: int) -> None:
                     selected_site_ids,
                 ).fetchall()
                 sites = rows_to_dicts(site_rows)
-                missing_sites = set(selected_site_ids) - {int(site["id"]) for site in site_rows}
+                missing_sites = set(selected_site_ids) - {to_int(site["id"]) for site in site_rows}
                 if missing_sites:
                     raise RuntimeError(f"任务快照中的站点已不存在：{', '.join(str(value) for value in sorted(missing_sites))}")
             if not items:
@@ -356,7 +371,7 @@ async def run_search(task_id: int) -> None:
                 tmdb_media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
                 if not tmdb_media:
                     raise RuntimeError("TMDB 未返回匹配结果")
-                tmdb_id = int(tmdb_media["id"])
+                tmdb_id = to_int(tmdb_media["id"])
                 media = {
                     "source": "themoviedb",
                     "tmdb_id": tmdb_id,
@@ -368,10 +383,10 @@ async def run_search(task_id: int) -> None:
                     "type": "电影",
                     "poster_path": tmdb_media.get("poster_path"),
                 }
-                persist_tmdb_item(int(item["id"]), tmdb_media, item["imdb_id"])
+                persist_tmdb_item(to_int(item["id"]), tmdb_media, item["imdb_id"])
                 task_log(task_id, "info", "recognize", f"识别完成 {label} → TMDB {tmdb_id}")
                 state, emby_item_id, image_tag = await library_details(
-                    emby, str(media["title"]), int(media["year"]) if media.get("year") else item["year"],
+                    emby, str(media["title"]), to_int(media["year"]) if media.get("year") else item["year"],
                     tmdb_id, media.get("imdb_id"),
                 )
                 with connect() as conn:
@@ -391,7 +406,7 @@ async def run_search(task_id: int) -> None:
                 task_log(task_id, "info", "search", "检索词：" + " → ".join(query[2] for query in queries))
                 item_sites = [
                     site for site in sites
-                    if not pair_scope or (int(item["id"]), int(site["id"])) in pair_scope
+                    if not pair_scope or (to_int(item["id"]), to_int(site["id"])) in pair_scope
                 ]
                 site_results = await asyncio.gather(*(
                     search_one_site(task_id, item, site, clients, site_semaphore, queries) for site in item_sites
@@ -409,12 +424,13 @@ async def run_search(task_id: int) -> None:
                         continue
                     pairs.extend((media, torrent) for torrent in torrents)
                     task_log(task_id, "info", "search", f"{site['name']} 返回 {len(torrents)} 个资源（{query_count} 个检索词）")
-                pairs.sort(key=lambda pair: analyze_candidate(str(first_value(pair[1], ("title", "torrent_name", "name"), "")), 0, config, pair[1])["ranking"])
                 try:
-                    policy = normalized_policy(json.loads(config.get("candidate_policy") or "{}"))
+                    raw_policy = json.loads(config.get("candidate_policy") or "{}")
                 except (TypeError, json.JSONDecodeError):
-                    policy = normalized_policy({})
-                limit = int(policy["candidate_limit"])
+                    raw_policy = {}
+                policy = normalized_policy(raw_policy)
+                pairs.sort(key=lambda pair: analyze_candidate(str(first_value(pair[1], ("title", "torrent_name", "name"), "")), 0, config, pair[1], policy)["ranking"])
+                limit = to_int(policy["candidate_limit"])
                 eligible_keys: list[str] = []
                 excluded_keys: list[str] = []
                 selected_pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
@@ -423,7 +439,7 @@ async def run_search(task_id: int) -> None:
                 for pair in pairs:
                     torrent = pair[1]
                     analysis = analyze_candidate(
-                        str(first_value(torrent, ("title", "torrent_name", "name"), "")), 0, config, torrent,
+                        str(first_value(torrent, ("title", "torrent_name", "name"), "")), 0, config, torrent, policy,
                     )
                     identity_ok, identity_reason = candidate_identity(
                         item, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
@@ -464,10 +480,12 @@ async def run_search(task_id: int) -> None:
                     "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
                     "results": len(pairs), "kept": kept, "excluded": len(excluded_keys),
                 })
+                # 候选写入合并为单个事务（审计 3-29）：避免每候选独立 SQLite 事务的写放大。
+                candidate_rows: list[tuple[Any, ...]] = []
                 for index, (source_media, torrent) in enumerate(selected_pairs):
                     candidate_id = uuid.uuid4().hex
                     title = str(first_value(torrent, ("title", "torrent_name", "name"), "未知资源"))
-                    analyzed = analyze_candidate(title, index, config, torrent)
+                    analyzed = analyze_candidate(title, index, config, torrent, policy)
                     identity_ok, identity_reason = candidate_identity(item, source_media, title)
                     if not identity_ok:
                         analyzed = dict(analyzed)
@@ -481,18 +499,22 @@ async def run_search(task_id: int) -> None:
                         "source": analyzed["source"], "profile_label": analyzed.get("profile_label"),
                     })
                     fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))
+                    candidate_rows.append((
+                        candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
+                        first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],
+                        analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
+                        analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
+                        to_int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
+                        analyzed.get("exclusion_reason"), analyzed.get("profile_id"), safe_detail_url(first_value(torrent, ("detail_url",))), json_value(metadata), utc_now()),
+                    )
+                    remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
+                if candidate_rows:
                     with connect() as conn:
-                        conn.execute(
+                        conn.executemany(
                             """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,profile_id,detail_url,metadata_json,created_at)
                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
-                             first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],
-                             analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
-                             analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
-                             int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
-                             analyzed.get("exclusion_reason"), analyzed.get("profile_id"), safe_detail_url(first_value(torrent, ("detail_url",))), json_value(metadata), utc_now()),
+                            candidate_rows,
                         )
-                    remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
                 matched += len(eligible_keys)
                 task_log(
                     task_id, "info", "candidate",
@@ -540,22 +562,22 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
                 """SELECT DISTINCT site_id,playlist_item_id FROM search_attempts
                    WHERE task_id=? AND status='failed' AND site_id IS NOT NULL""", (task_id,),
             ).fetchall()
-            site_ids = sorted({int(row["site_id"]) for row in failed})
-            item_ids = sorted({int(row["playlist_item_id"]) for row in failed})
+            site_ids = sorted({to_int(row["site_id"]) for row in failed})
+            item_ids = sorted({to_int(row["playlist_item_id"]) for row in failed})
             pair_scope = sorted([
-                [int(row["playlist_item_id"]), int(row["site_id"])]
+                [to_int(row["playlist_item_id"]), to_int(row["site_id"])]
                 for row in failed
             ])
             if not failed:
                 raise HTTPException(422, "该任务没有可重试的站点失败记录")
         else:
             try:
-                site_ids = [int(value) for value in json.loads(source["site_ids_json"] or "[]")]
-                item_ids = [int(value) for value in json.loads(source["item_ids_json"] or "[]")]
+                site_ids = [to_int(value) for value in json.loads(source["site_ids_json"] or "[]")]
+                item_ids = [to_int(value) for value in json.loads(source["item_ids_json"] or "[]")]
                 pair_scope = json.loads(source["pair_scope_json"] or "[]")
             except (TypeError, ValueError, json.JSONDecodeError):
                 site_ids, item_ids, pair_scope = [], [], []
-        total = len(item_ids) if item_ids else int(source["total"])
+        total = len(item_ids) if item_ids else to_int(source["total"])
         now = utc_now()
         new_id = conn.execute(
             """INSERT INTO search_tasks(
@@ -566,4 +588,4 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
              "retry" if failed_only else "restart", json_value(site_ids) if site_ids else None,
              json_value(item_ids) if item_ids else None, json_value(pair_scope) if pair_scope else None, now, now),
         ).lastrowid
-    return int(new_id), total
+    return to_int(new_id), total

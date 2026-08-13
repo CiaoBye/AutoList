@@ -20,9 +20,10 @@ from ..database import connect
 from ..schemas import SitePayload
 from ..services.cookiecloud_store import stored_cookiecloud_payload
 from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_site_config
+from ..security import signed_media_url
 from ..state import remember_site_icon, site_icon_cache
-from ..util import raster_image_media_type, rows_to_dicts, safe_request, utc_now, validate_remote_icon_url
-from .system import validated_base_url
+from ..util import raster_image_media_type, rows_to_dicts, safe_request, to_int, utc_now, validate_remote_icon_url
+from ..util import validated_base_url
 
 router = APIRouter()
 MAX_SITE_ICON_BYTES = 512 * 1024
@@ -71,18 +72,19 @@ async def sites() -> list[dict[str, Any]]:
                       MAX(a.finished_at) AS search_last_attempt_at
                FROM pt_sites s
                LEFT JOIN search_attempts a ON a.site_id=s.id
+                 AND datetime(a.finished_at) >= datetime('now', '-30 days')
                GROUP BY s.id
                ORDER BY s.id"""
         ).fetchall())
     for item in rows:
-        total = int(item.pop("search_total") or 0)
-        succeeded = int(item.pop("search_succeeded") or 0)
+        total = to_int(item.pop("search_total") or 0)
+        succeeded = to_int(item.pop("search_succeeded") or 0)
         item["local_stats"] = {
             "total": total,
             "succeeded": succeeded,
             "success_rate": round(succeeded / total * 100, 1) if total else None,
-            "average_ms": int(item.pop("search_average_ms") or 0) if total else None,
-            "result_count": int(item.pop("search_result_count") or 0),
+            "average_ms": to_int(item.pop("search_average_ms") or 0) if total else None,
+            "result_count": to_int(item.pop("search_result_count") or 0),
             "last_attempt_at": item.pop("search_last_attempt_at"),
         }
         item["account_stats"] = {
@@ -101,7 +103,9 @@ async def sites() -> list[dict[str, Any]]:
         item["cookie"] = ""
         item["rss_url_configured"] = bool(item.get("rss_url"))
         item["rss_url"] = ""
-        item["icon_endpoint"] = f"/api/sites/{item['id']}/icon?v={SITE_ICON_ENDPOINT_VERSION}"
+        endpoint = signed_media_url(f"/api/sites/{item['id']}/icon")
+        separator = "&" if "?" in endpoint else "?"
+        item["icon_endpoint"] = f"{endpoint}{separator}v={SITE_ICON_ENDPOINT_VERSION}"
     return rows
 
 @router.get("/api/sites/{site_id}/icon")
@@ -145,9 +149,12 @@ async def site_icon(site_id: int) -> Response:
                 proxy=site_proxy(site),
             ) as client:
                 await validate_remote_icon_url(source, str(row["base_url"]))
-                upstream = await safe_request(client, "GET", source, headers=request_headers, label="图标地址")
+                upstream = await safe_request(
+                    client, "GET", source, headers=request_headers, label="图标地址",
+                    max_response_bytes=MAX_SITE_ICON_BYTES, proxy_mode=bool(site_proxy(site)),
+                )
                 upstream.raise_for_status()
-                if int(upstream.headers.get("content-length") or 0) > MAX_SITE_ICON_BYTES:
+                if to_int(upstream.headers.get("content-length") or 0) > MAX_SITE_ICON_BYTES:
                     raise RuntimeError("图标文件过大")
                 content = upstream.content
                 if len(content) > MAX_SITE_ICON_BYTES:
@@ -181,8 +188,8 @@ async def site_health_history(site_id: int, limit: int = 50) -> dict[str, Any]:
                FROM search_attempts WHERE site_id=?""", (site_id,),
         ).fetchone()
     result = dict(summary)
-    total = int(result["total"] or 0)
-    result["success_rate"] = round(int(result["succeeded"] or 0) / total * 100, 1) if total else None
+    total = to_int(result["total"] or 0)
+    result["success_rate"] = round(to_int(result["succeeded"] or 0) / total * 100, 1) if total else None
     return {"site": dict(site), "summary": result, "items": rows_to_dicts(rows)}
 
 @router.post("/api/sites")
@@ -196,8 +203,8 @@ async def add_site(payload: SitePayload) -> dict[str, Any]:
                 """INSERT INTO pt_sites(name,adapter,base_url,api_key,cookie,user_agent,priority,timeout_seconds,rss_url,icon_url,proxy,render,limit_interval,limit_count,enabled,search_enabled,created_at)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (payload.name.strip(), adapter, base_url, payload.api_key or "", payload.cookie or "", payload.user_agent,
-                 payload.priority, payload.timeout_seconds, rss_url, payload.icon_url, int(payload.proxy), int(payload.render),
-                 payload.limit_interval, payload.limit_count, int(payload.enabled), int(payload.search_enabled), utc_now()),
+                 payload.priority, payload.timeout_seconds, rss_url, payload.icon_url, to_int(payload.proxy), to_int(payload.render),
+                 payload.limit_interval, payload.limit_count, to_int(payload.enabled), to_int(payload.search_enabled), utc_now()),
             ).lastrowid
     except sqlite3.IntegrityError as exc:
         raise HTTPException(409, "站点名称已存在") from exc
@@ -215,14 +222,17 @@ async def update_site(site_id: int, payload: SitePayload) -> dict[str, Any]:
             (validated_base_url(payload.rss_url, "RSS 地址", False) if payload.rss_url.strip() else str(current["rss_url"] or ""))
         )
         adapter = resolve_site_adapter(base_url, rss_url)
-        conn.execute(
-            """UPDATE pt_sites SET name=?,adapter=?,base_url=?,api_key=?,cookie=?,user_agent=?,priority=?,timeout_seconds=?,rss_url=?,icon_url=?,proxy=?,render=?,limit_interval=?,limit_count=?,enabled=?,search_enabled=?,migration_note=NULL WHERE id=?""",
-            (payload.name.strip(), adapter, base_url,
-             "" if payload.clear_api_key else (payload.api_key or current["api_key"]),
-             "" if payload.clear_cookie else (payload.cookie or current["cookie"]),
-             payload.user_agent, payload.priority, payload.timeout_seconds, rss_url, payload.icon_url, int(payload.proxy),
-             int(payload.render), payload.limit_interval, payload.limit_count, int(payload.enabled), int(payload.search_enabled), site_id),
-        )
+        try:
+            conn.execute(
+                """UPDATE pt_sites SET name=?,adapter=?,base_url=?,api_key=?,cookie=?,user_agent=?,priority=?,timeout_seconds=?,rss_url=?,icon_url=?,proxy=?,render=?,limit_interval=?,limit_count=?,enabled=?,search_enabled=?,migration_note=NULL WHERE id=?""",
+                (payload.name.strip(), adapter, base_url,
+                 "" if payload.clear_api_key else (payload.api_key or current["api_key"]),
+                 "" if payload.clear_cookie else (payload.cookie or current["cookie"]),
+                 payload.user_agent, payload.priority, payload.timeout_seconds, rss_url, payload.icon_url, to_int(payload.proxy),
+                 to_int(payload.render), payload.limit_interval, payload.limit_count, to_int(payload.enabled), to_int(payload.search_enabled), site_id),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "站点名称已存在") from exc
     site_icon_cache.pop(site_id, None)
     return {"id": site_id, "name": payload.name, "adapter": adapter, "enabled": payload.enabled, "search_enabled": payload.search_enabled}
 
@@ -280,7 +290,7 @@ async def refresh_site_cookie(site_id: int) -> dict[str, Any]:
         raise HTTPException(404, f"CookieCloud 中没有匹配 {row['name']} 域名的 Cookie")
     return {
         "ok": True,
-        "id": int(row["id"]),
+        "id": to_int(row["id"]),
         "name": str(row["name"]),
         "message": f"已从 AutoList CookieCloud 刷新 {row['name']} 的 Cookie；UA 保留现有配置",
     }

@@ -5,15 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # 供应链加固：actions 固定到已验证 SHA，checkout 不持久化凭据（zizmor artipacked/unpinned-uses）。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
       - name: Install Python dependencies
@@ -23,6 +33,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check app/static/app.js
+          node --check app/static/js/core.js
           node --check app/static/js/theme-init.js
           node --check docs/prototypes/autolist-directions.js
       - name: Run unit tests
@@ -38,7 +49,7 @@ jobs:
           from xml.etree import ElementTree
 
           root = ElementTree.parse("unraid/my-Autolist.xml").getroot()
-          assert root.findtext("Repository") == "autolist:1.14"
+          assert root.findtext("Repository") == "autolist:1.16"
           assert root.findtext("Icon", "").endswith("/unraid/autolist-icon.png")
           assert "10001" in root.findtext("Requires", "")
           assert root.find("./Config[@Target='/data']") is not None
@@ -60,10 +71,11 @@ jobs:
       - name: Run Docker health smoke test
         run: |
           set -euo pipefail
+          AUTOLIST_CI_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
           docker volume create autolist-ci-data
           docker run --rm --user 0:0 -v autolist-ci-data:/data autolist:ci sh -c 'chown 10001:10001 /data'
           docker run --detach --name autolist-ci --publish 18085:8080 \
-            --env AUTOLIST_ACCESS_TOKEN=ci-only-token \
+            --env AUTOLIST_ACCESS_TOKEN="$AUTOLIST_CI_TOKEN" \
             --env DATA_DIR=/data \
             --volume autolist-ci-data:/data \
             autolist:ci
@@ -80,8 +92,22 @@ jobs:
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' autolist-ci)" = "healthy"
           curl --fail --silent --show-error http://127.0.0.1:18085/api/health
-          curl --fail --silent --show-error http://127.0.0.1:18085/assets/autolist-icon.png \
-            | python -c 'import sys; data=sys.stdin.buffer.read(); assert data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) > 1000'
+          curl --fail --silent --show-error \
+            --header "X-AutoList-Token: $AUTOLIST_CI_TOKEN" \
+            http://127.0.0.1:18085/api/settings -o /tmp/autolist-settings.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/autolist-settings.json").read_text(encoding="utf-8"))
+          secret_fields = (
+              "mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key",
+              "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_password",
+          )
+          assert all(payload.get(field) == "" for field in secret_fields), payload
+          PY
+          curl --fail --silent --show-error http://127.0.0.1:18085/assets/autolist-icon.png -o /tmp/autolist-icon.png
+          python -c 'import sys; data=open("/tmp/autolist-icon.png","rb").read(); assert data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) > 1000'
           docker exec autolist-ci python -c 'import sqlite3; db=sqlite3.connect("/data/playlist-autodown.db"); result=db.execute("PRAGMA integrity_check").fetchall(); assert result == [("ok",)], result; assert not db.execute("PRAGMA foreign_key_check").fetchall()'
       - name: Cleanup Docker smoke test
         if: always()

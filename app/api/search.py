@@ -19,7 +19,7 @@ from ..services.search import (
     update_task,
 )
 from ..state import prune_raw_candidates, raw_candidates, running_tasks
-from ..util import resource_fingerprint, rows_to_dicts, safe_detail_url, utc_now, volume_factor_value
+from ..util import resource_fingerprint, rows_to_dicts, safe_detail_url, to_int, utc_now, volume_factor_value
 
 router = APIRouter()
 MAX_CANDIDATE_RESPONSE = 5000
@@ -33,41 +33,50 @@ async def create_task(payload: TaskPayload) -> dict[str, Any]:
         queue = await searchable_playlist_items(payload.playlist_id, payload.count)
         if queue.get("download_state") == "unknown":
             raise HTTPException(503, "无法确认 Transmission 当前下载任务，已暂停创建搜索任务")
-        item_ids = [int(item["id"]) for item in queue["items"]]
+        item_ids = [to_int(item["id"]) for item in queue["items"]]
         if not item_ids:
             raise HTTPException(422, "当前片单没有可搜索的未入库影片")
-        range_start = min(int(item["rank_no"]) for item in queue["items"])
-        range_end = max(int(item["rank_no"]) for item in queue["items"])
+        range_start = min(to_int(item["rank_no"]) for item in queue["items"])
+        range_end = max(to_int(item["rank_no"]) for item in queue["items"])
     else:
         range_start, range_end = payload.range_start, payload.range_end
     with connect() as conn:
         begin_search_task_slot(conn)
-        selected_items = conn.execute(
-            "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ? ORDER BY rank_no",
-            (payload.playlist_id, range_start, range_end),
-        ).fetchall()
-        total = len(selected_items)
-        if not total:
-            raise HTTPException(422, "所选范围没有影片")
+        if payload.scope == "pending":
+            # pending 容量按已过滤队列计数（审计 3-1），避免区间内已入库条目误报 413。
+            total = len(item_ids)
+            selected_items = []
+        else:
+            selected_items = conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ? ORDER BY rank_no",
+                (payload.playlist_id, range_start, range_end),
+            ).fetchall()
+            total = len(selected_items)
+            if not total:
+                raise HTTPException(422, "所选范围没有影片")
         if total > MAX_SEARCH_ITEMS:
             raise HTTPException(413, f"单次搜索最多处理 {MAX_SEARCH_ITEMS} 部影片")
         site_ids = [
-            int(row["id"]) for row in conn.execute(
+            to_int(row["id"]) for row in conn.execute(
                 "SELECT id FROM pt_sites WHERE enabled=1 AND search_enabled=1 ORDER BY priority,id",
             ).fetchall()
         ]
         if not site_ids:
             raise HTTPException(422, "请先在站点配置中选择至少一个参与搜索的站点")
         if not item_ids:
-            item_ids = [int(row["id"]) for row in selected_items]
-        task_id = conn.execute(
+            item_ids = [to_int(row["id"]) for row in selected_items]
+        task_cursor = conn.execute(
             """INSERT INTO search_tasks(
                  playlist_id,range_start,range_end,status,total,trigger,site_ids_json,item_ids_json,created_at,updated_at
                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (payload.playlist_id, range_start, range_end, "queued", len(item_ids),
              "pending" if payload.scope == "pending" else "manual", json_value(site_ids), json_value(item_ids),
              utc_now(), utc_now()),
-        ).lastrowid
+        )
+        task_lastrowid = task_cursor.lastrowid
+        if task_lastrowid is None:
+            raise RuntimeError("搜索任务写入失败")
+        task_id = task_lastrowid
     running_tasks[task_id] = asyncio.create_task(run_search(task_id))
     return {"id": task_id, "status": "queued", "total": len(item_ids) or total, "scope": payload.scope}
 
@@ -86,14 +95,24 @@ async def search_tasks(playlist_id: int | None = None, limit: int = 20) -> list[
                 (playlist_id, safe_limit),
             ).fetchall()
         result = rows_to_dicts(rows)
-        for task in result:
-            summary = conn.execute(
-                """SELECT COUNT(*) AS total,
-                          SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS succeeded,
-                          SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
-                   FROM search_attempts WHERE task_id=?""", (task["id"],),
-            ).fetchone()
-            task["attempt_summary"] = dict(summary)
+        if result:
+            # 一次 IN 查询合并各任务聚合，避免逐任务 N+1（审计 3-23）。
+            task_ids = [task["id"] for task in result]
+            placeholders = ",".join("?" for _ in task_ids)
+            summaries = {
+                row["task_id"]: dict(row)
+                for row in conn.execute(
+                    f"""SELECT task_id, COUNT(*) AS total,
+                              SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS succeeded,
+                              SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+                       FROM search_attempts WHERE task_id IN ({placeholders}) GROUP BY task_id""",  # nosec B608
+                    task_ids,
+                ).fetchall()
+            }
+            for task in result:
+                task["attempt_summary"] = summaries.get(
+                    task["id"], {"total": 0, "succeeded": 0, "failed": 0},
+                )
     return result
 
 @router.post("/api/search-tasks/{task_id}/cancel")
@@ -185,7 +204,7 @@ async def task_logs(task_id: int, limit: int = 200) -> list[dict[str, Any]]:
 @router.get("/api/candidates")
 async def candidates(task_id: int, limit: int = MAX_CANDIDATE_RESPONSE) -> list[dict[str, Any]]:
     prune_raw_candidates()
-    safe_limit = max(1, min(int(limit), MAX_CANDIDATE_RESPONSE))
+    safe_limit = max(1, min(to_int(limit), MAX_CANDIDATE_RESPONSE))
     with connect() as conn:
         task = conn.execute("SELECT id,parent_task_id FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         if not task:
@@ -197,7 +216,7 @@ async def candidates(task_id: int, limit: int = MAX_CANDIDATE_RESPONSE) -> list[
             seen_task_ids.add(current_task_id)
             task_ids.append(current_task_id)
             parent = conn.execute("SELECT parent_task_id FROM search_tasks WHERE id=?", (current_task_id,)).fetchone()
-            current_task_id = int(parent["parent_task_id"]) if parent and parent["parent_task_id"] else None
+            current_task_id = to_int(parent["parent_task_id"]) if parent and parent["parent_task_id"] else None
         placeholders = ",".join("?" for _ in task_ids)
         rows = conn.execute(
             f"""SELECT c.*, p.rank_no, p.original_title, p.year, p.chinese_title,
@@ -222,11 +241,11 @@ async def candidates(task_id: int, limit: int = MAX_CANDIDATE_RESPONSE) -> list[
             item["metadata"] = {}
         try:
             item["score_breakdown"] = json.loads(item.get("score_breakdown") or "[]")
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as _decode:
             item["score_breakdown"] = []
         item["resource_key"] = item.get("resource_key") or resource_fingerprint(item["title"], item.get("size"))
         profile = site_profiles.get(str(item.get("site_name") or "").lower(), {})
-        item["site_priority"] = int(profile.get("priority") or 100)
+        item["site_priority"] = to_int(profile.get("priority") or 100)
         item["site_icon"] = profile.get("icon_url") or ""
         factor = volume_factor_value(item["metadata"].get("volume_factor"))
         labels = [str(label).lower() for label in item["metadata"].get("labels", [])]
@@ -234,14 +253,14 @@ async def candidates(task_id: int, limit: int = MAX_CANDIDATE_RESPONSE) -> list[
         item["is_free"] = factor == 0 or any(label in ("free", "免费", "freeleech") for label in labels)
     groups: dict[tuple[int, str], list[dict[str, Any]]] = {}
     for item in result:
-        groups.setdefault((int(item["playlist_item_id"]), item["resource_key"]), []).append(item)
+        groups.setdefault((to_int(item["playlist_item_id"]), item["resource_key"]), []).append(item)
     grouped: list[dict[str, Any]] = []
     for options in groups.values():
         # 同资源跨站点折叠：优先展示做种人数最多的发布（用户可实际下载），
         # 再做种相同或缺失时按站点优先级/免费/优惠排序作为次级规则。
         options.sort(key=lambda item: (
-            -int(item.get("seeders") or 0), item["site_priority"], 0 if item["is_free"] else 1,
-            item["volume_factor"], int(item.get("ranking") or 0),
+            -to_int(item.get("seeders") or 0), item["site_priority"], 0 if item["is_free"] else 1,
+            item["volume_factor"], to_int(item.get("ranking") or 0),
         ))
         primary = dict(options[0])
         primary["site_count"] = len(options)
@@ -252,11 +271,11 @@ async def candidates(task_id: int, limit: int = MAX_CANDIDATE_RESPONSE) -> list[
             "in_cart": option.get("in_cart", 0), "context_available": option["context_available"],
             "detail_url": safe_detail_url(option.get("detail_url")), "publish_time": option["metadata"].get("publish_time"),
         } for option in options]
-        factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
+        factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {to_int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
         primary["site_selection_reason"] = (
-            f"站点优先级 {primary['site_priority']} · {factor_label} · {int(primary.get('seeders') or 0)} 做种"
+            f"站点优先级 {primary['site_priority']} · {factor_label} · {to_int(primary.get('seeders') or 0)} 做种"
         )
-        primary["in_cart"] = int(any(option.get("in_cart") for option in options))
+        primary["in_cart"] = to_int(any(option.get("in_cart") for option in options))
         grouped.append(primary)
-    grouped.sort(key=lambda item: (int(item["rank_no"] or 0), int(item.get("ranking") or 0)))
+    grouped.sort(key=lambda item: (to_int(item["rank_no"] or 0), to_int(item.get("ranking") or 0)))
     return grouped

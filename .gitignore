@@ -26,3 +26,6 @@ venv/
 *.xlsx
 .idea/
 .vscode/
+
+# Pi subagent session artifacts (tool output, never committed)
+.pi-subagents/

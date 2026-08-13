@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app import main
+from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
 from app.config import (
     ACCESS_TOKEN_MIN_LENGTH,
     access_token_is_strong,
@@ -22,7 +22,7 @@ from app.config import (
 from app.database import connect, initialize
 from app.schemas import ImportPayload, TaskPayload
 from app.services import automation
-from app.util import safe_detail_url, safe_request, validate_outbound_url
+from app.util import safe_detail_url, safe_request, to_int, validate_outbound_url
 
 
 class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
@@ -44,6 +44,8 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self) -> None:
         main.raw_candidates.clear()
+        from app.services import search as search_module
+        search_module._transmission_snapshot_cache.clear()
         settings.data_dir = self.previous_data_dir
         settings.tr_base_url = self.previous_tr
         settings.emby_base_url, settings.emby_api_key = self.previous_emby
@@ -71,8 +73,10 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
             with patch("app.clients.safe_request", new=AsyncMock(return_value=response)) as request:
                 result = await main.TMDBClient().check()
             self.assertEqual(result, {"ok": True, "configured": True})
-            self.assertEqual(request.await_args.args[2], "configuration")
-            self.assertEqual(str(request.await_args.args[0].base_url), "https://api.themoviedb.org/3/")
+            call = request.await_args
+            assert call is not None
+            self.assertEqual(call.args[2], "configuration")
+            self.assertEqual(str(call.args[0].base_url), "https://api.themoviedb.org/3/")
         finally:
             settings.tmdb_api_key = previous_key
             settings.outbound_proxy_url = previous_proxy
@@ -80,16 +84,16 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
 
     def _seed_cart(self, candidate_id: str = "hardening-candidate") -> int:
         with connect() as conn:
-            playlist_id = int(conn.execute(
+            playlist_id = to_int(conn.execute(
                 "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
                 ("Hardening", 1, main.utc_now()),
             ).lastrowid)
-            item_id = int(conn.execute(
+            item_id = to_int(conn.execute(
                 """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,chinese_title,library_state)
                    VALUES(?,?,?,?,?,?)""",
                 (playlist_id, 1, "Hardening Movie", 2020, "测试电影", "not_found"),
             ).lastrowid)
-            task_id = int(conn.execute(
+            task_id = to_int(conn.execute(
                 """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at)
                    VALUES(?,?,?,?,?,?,?)""",
                 (playlist_id, 1, 1, "completed", 1, main.utc_now(), main.utc_now()),
@@ -135,7 +139,11 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(health.json()["access_token_strength"], "weak")
             blocked = client.get("/api/settings", headers={"X-AutoList-Token": "short-token"})
         self.assertEqual(blocked.status_code, 503)
-        self.assertEqual(blocked.json()["code"], "weak_access_token")
+        # 审计 3-12：503 只返回统一提示，不泄露鉴权配置明细。
+        self.assertEqual(blocked.json()["detail"], "服务端访问令牌强度不足，请更换至少 32 个字符的随机令牌")
+        self.assertNotIn("code", blocked.json())
+        self.assertNotIn("configured", blocked.json())
+        self.assertNotIn("validation", blocked.json())
 
     def test_token_strength_is_enforced_by_default_when_token_is_configured(self) -> None:
         os.environ["AUTOLIST_ACCESS_TOKEN"] = "short-token"
@@ -200,7 +208,7 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def test_candidate_response_has_a_hard_upper_bound(self) -> None:
         task_id = self._seed_cart("candidate-limit-seed")
         with connect() as conn:
-            item_id = int(conn.execute("SELECT playlist_item_id FROM candidates WHERE id=?", ("candidate-limit-seed",)).fetchone()[0])
+            item_id = to_int(conn.execute("SELECT playlist_item_id FROM candidates WHERE id=?", ("candidate-limit-seed",)).fetchone()[0])
             now = main.utc_now()
             conn.executemany(
                 """INSERT INTO candidates(
@@ -238,7 +246,7 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_search_queue_distinguishes_unknown_from_known_empty_transmission(self) -> None:
         with connect() as conn:
-            playlist_id = int(conn.execute(
+            playlist_id = to_int(conn.execute(
                 "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
                 ("Queue", 1, main.utc_now()),
             ).lastrowid)
@@ -252,6 +260,8 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unknown["download_state"], "unknown")
         self.assertEqual(unknown["items"], [])
         settings.tr_base_url = ""
+        from app.services import search as search_module
+        search_module._transmission_snapshot_cache.clear()
         with patch.object(main.TransmissionClient, "current_downloads", new=AsyncMock(return_value=[])):
             empty = await main.searchable_playlist_items(playlist_id, limit=10)
         self.assertEqual(empty["download_state"], "known_empty")

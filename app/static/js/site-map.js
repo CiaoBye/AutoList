@@ -170,10 +170,9 @@ export function resetSiteNodePositions() {
   persistSiteNodePositions();
 }
 
-// 默认排布采用向日葵序列（黄金角等面积分布）：同一站点在列表顺序稳定时
-// 位置可复现，且站点数量增减不会让既有节点整体漂移；小幅哈希抖动打破严格对称。
-const GOLDEN_ANGLE = 2.399963229728653;
-
+// 默认排布为自适应编目网格：列数随站点数收敛（宽画布取约 1.6:1 的格距比），
+// 每格叠加站点哈希微抖动避免呆板；列表顺序稳定时位置可复现，增删站点只影响
+// 后续槽位。手动排布覆盖与“恢复视野与排布”行为不受影响。
 export function siteNodePosition(siteId, index = null, total = null) {
   const key = String(siteId);
   if (siteNodePositionOverrides.has(key)) return siteNodePositionOverrides.get(key);
@@ -182,17 +181,22 @@ export function siteNodePosition(siteId, index = null, total = null) {
   for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
   let position;
   if (Number.isFinite(index) && Number.isFinite(total) && total > 0) {
-    const ratio = (index + 0.5) / Math.max(total, 6);
-    const radius = Math.sqrt(ratio);
-    const angle = index * GOLDEN_ANGLE + ((hash % 97) / 97 - 0.5) * 0.22;
-    const jitterX = ((hash >>> 3) % 100) / 100 - 0.5;
-    const jitterY = ((hash >>> 11) % 100) / 100 - 0.5;
+    const cols = Math.min(7, Math.max(3, Math.ceil(Math.sqrt(total * 1.6))));
+    const rows = Math.ceil(total / cols);
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    // 网格区域：横向 12%–88%，纵向 16%–84%，末行不满也保持居中观感。
+    const cellW = 76 / cols;
+    const cellH = 68 / rows;
+    const jitterX = (((hash % 100) / 100) - 0.5) * Math.min(3.2, cellW * 0.22);
+    const jitterY = ((((hash >>> 7) % 100) / 100) - 0.5) * Math.min(2.8, cellH * 0.24);
+    const x = 12 + cellW * (col + 0.5) + jitterX;
+    const y = 16 + cellH * (row + 0.5) + jitterY;
     position = [
-      Math.round(Math.min(88, Math.max(12, 50 + Math.cos(angle) * radius * 34 + jitterX * 2.4)) * 10) / 10,
-      Math.round(Math.min(84, Math.max(16, 50 + Math.sin(angle) * radius * 28 + jitterY * 2.2)) * 10) / 10,
+      Math.round(Math.min(90, Math.max(10, x)) * 10) / 10,
+      Math.round(Math.min(86, Math.max(14, y)) * 10) / 10,
     ];
   } else {
-    // 无序号上下文时的回退：沿用原哈希散点边界。
     position = [14 + (hash % 7201) / 100, 17 + (((hash >>> 8) % 6601) / 100)];
   }
   siteNodePositionCache.set(key, position);

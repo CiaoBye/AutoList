@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <script src="/assets/js/theme-init.js?v=1.20.0"></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.20.0">
+  <script src="/assets/js/theme-init.js?v=1.21.0"></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.21.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.20.0">
-  <link rel="stylesheet" href="/assets/theme.css?v=1.20.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.21.0">
+  <link rel="stylesheet" href="/assets/theme.css?v=1.21.0">
 </head>
 <body data-page="dashboard">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -44,7 +44,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.20.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.21.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -61,7 +61,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg><span class="nav-item-label">来源网络</span></a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg><span class="nav-item-label">操作日志</span></a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.20</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.21</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -271,7 +271,7 @@
             <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary"><svg class="button-svg" aria-hidden="true"><use href="#icon-plus"></use></svg>添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-orientation="horizontal" aria-label="站点筛选"><button id="site-filter-all" class="site-filter active" type="button" role="tab" aria-selected="true" aria-controls="sites-list" data-site-filter="all">全部</button><button id="site-filter-active" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="active">已启用</button><button id="site-filter-inactive" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="inactive">已停用</button><button id="site-filter-normal" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="normal">正常</button><button id="site-filter-slow" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="slow">缓慢</button><button id="site-filter-failed" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="failed">失败</button><button id="site-filter-unknown" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="unknown">未知</button></div>
-              <div class="site-workspace site-constellation-workspace"><div class="site-map-column"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><div class="site-map-action-strip" role="note"><span class="site-map-action-copy"><strong>来源地图</strong> 滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。<small>移动端默认保留单指页面滚动，需要拖动画布时先开启地图操作。</small></span><span class="site-map-action-controls"><button id="toggle-site-map-interaction" class="button button-secondary" type="button" aria-pressed="false">进入地图操作</button><button id="toggle-site-orientation" class="button button-secondary" type="button" aria-pressed="false">切换为纵向排布</button><button id="toggle-site-layout-edit" class="button button-secondary" type="button" aria-pressed="false">编辑节点排布</button><button id="reset-site-layout" class="button button-secondary" type="button">恢复视野与排布</button></span></div></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭来源档案"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="来源档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一座来源档案室</strong><p>点击节点进入档案；滚轮或双指缩放、拖动画布可浏览整张来源图。</p></div></div></aside></div>
+              <div class="site-workspace site-constellation-workspace"><div class="site-map-column"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><div class="site-map-action-strip" role="note"><span class="site-map-action-copy"><strong>来源地图</strong> 滚轮缩放、拖动浏览，点击节点查看档案。<small>移动端请先点「拖动画布」。</small></span><span class="site-map-action-controls"><button id="toggle-site-map-interaction" class="button button-secondary" type="button" aria-pressed="false">拖动画布</button><button id="toggle-site-orientation" class="button button-secondary" type="button" aria-pressed="false">纵向排列</button><button id="toggle-site-layout-edit" class="button button-secondary" type="button" aria-pressed="false">整理布局</button><button id="reset-site-layout" class="button button-secondary" type="button">重置</button></span></div></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭来源档案"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="来源档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一座来源档案室</strong><p>点击节点进入档案；滚轮或双指缩放、拖动画布可浏览整张来源图。</p></div></div></aside></div>
         </section>
       </section>
 
@@ -410,7 +410,7 @@
               <p class="theme-settings-note">主题只改变页面的色彩搭配与对比度，不改变文字、导航、布局或片单、搜索、下载和站点数据。关闭页面场景化后仍保留主题颜色。</p>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.20.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.21.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
@@ -443,6 +443,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label">藏馆</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label">片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label">来源</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label">待入馆</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span class="nav-item-label">更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.20.0"></script>
+  <script type="module" src="/assets/app.js?v=1.21.0"></script>
 </body>
 </html>

@@ -20,7 +20,7 @@
 - `python3 -m compileall -q app` 通过；`node --check` 对 `app.js`、`core.js`、`theme-init.js`、`site-map.js` 四个前端文件全部通过。
 - `.venv/bin/python -m unittest discover -s tests`：174 项全部通过（含主题结构契约、前端模块导入与 UI 业务钩子断言）；清理前后 CSS 花括号配平校验通过。
 - 版本同步核对：`APP_VERSION`、`compose.yml` 镜像标签、Unraid 模板 `<Repository>` 与 CI 断言、README 当前版本与构建示例、index.html 缓存参数与侧栏标识均为 `1.19`；同步 `tests/test_regressions.py` 中硬编码的静态资源缓存参数断言至 `1.19.0`。
-- 本批次为静态修复与样式治理，未引入新依赖；尚未执行真实浏览器矩阵验收与生产容器部署，发布前需按既有流程补做。
+- 本批次为静态修复与样式治理，未引入新依赖；GitHub `main` 提交 `b6bae23` 后已在 Unraid 切换唯一 `Autolist` 容器至 `autolist:1.19`：切换前完成 SQLite `.backup` 与 runtime-settings 备份（`backups/pre-119-*.tar.gz`），沿用原端口/数据卷/环境变量与 healthcheck 参数重建容器，验收通过后删除旧容器与 `autolist:1.18` 镜像及历史构建快照，仅保留当前业务镜像；Unraid 模板 `<Repository>` 已同步 `autolist:1.19`。生产验证：`/api/health` 返回 1.19 且 scheduler ok、设置接口密钥仅返回 configured 布尔、首页 HTTP 200、数据完整（1 片单 / 500 影片 / 26 历史，quick_check ok）、日志无异常。浏览器矩阵 UI 验收仍待后续批次补做。
 
 ## 1.18 - 2026-08-14
 

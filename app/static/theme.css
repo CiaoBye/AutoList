@@ -331,7 +331,6 @@ html[data-theme="cinema"] .site-map-heading h2 { color: var(--theme-site-ink); }
 html[data-theme="cinema"] .site-map-heading p, html[data-theme="cinema"] .site-map-heading .section-kicker, html[data-theme="cinema"] .site-map-updated, html[data-theme="cinema"] .site-node-state, html[data-theme="cinema"] .site-constellation-legend { color: var(--theme-site-muted); }
 html[data-theme="cinema"] .site-star-node { color: #d9ebf3; }
 html[data-theme="cinema"] .site-linear-list summary, html[data-theme="cinema"] .site-linear-list-items button { color: #d9ebf3; border-color: rgba(182, 208, 226, .18); }
-html[data-theme="cinema"] .dialog::backdrop { background: var(--theme-backdrop); }
 html[data-theme="cinema"] .settings-tabs { background: #182a2f; }
 html[data-theme="cinema"] .settings-tab:hover { background: rgba(255, 255, 255, .06); }
 html[data-theme="cinema"] .settings-tab.active { background: var(--surface); }

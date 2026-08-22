@@ -775,30 +775,56 @@ function renderSearchQueue() {
 		: "";
 }
 
+// 每类列表同时只有一个"有效"请求：发起新请求前取消旧的，且只有仍是
+// 最新一次的响应才允许写入缓存并渲染（防止快速翻页/筛选时旧响应覆盖）。
+let searchableQueueAbort = null;
 async function loadSearchableQueue() {
 	if (!currentSearchPlaylistId) return;
-	searchQueueCache = await api(
-		`/api/playlists/${currentSearchPlaylistId}/searchable-items`,
-	);
-	renderSearchQueue();
+	if (searchableQueueAbort) searchableQueueAbort.abort();
+	const controller = new AbortController();
+	searchableQueueAbort = controller;
+	try {
+		const result = await api(
+			`/api/playlists/${currentSearchPlaylistId}/searchable-items`,
+			{signal: controller.signal},
+		);
+		if (searchableQueueAbort !== controller) return;
+		searchQueueCache = result;
+		renderSearchQueue();
+	} catch (error) {
+		if (searchableQueueAbort !== controller || error?.name === "AbortError") return;
+		throw error;
+	}
 }
 
+let playlistItemsAbort = null;
 async function loadPlaylistItems(
 	playlistId,
 	query = $("#playlist-item-query").value,
 ) {
+	if (playlistItemsAbort) playlistItemsAbort.abort();
+	const controller = new AbortController();
+	playlistItemsAbort = controller;
 	const params = new URLSearchParams({
 		page: String(playlistPage),
 		page_size: playlistPageSize,
 		query: query.trim(),
 		library_state: playlistLibraryFilter,
 	});
-	const result = await api(`/api/playlists/${playlistId}/items?${params}`);
-	playlistItemsCache = result.items;
-	playlistItemTotal = Number(result.total || 0);
-	playlistPage = Number(result.page || 1);
-	playlistPageCount = Number(result.pages || 1);
-	renderPlaylistItems();
+	try {
+		const result = await api(`/api/playlists/${playlistId}/items?${params}`, {
+			signal: controller.signal,
+		});
+		if (playlistItemsAbort !== controller) return;
+		playlistItemsCache = result.items;
+		playlistItemTotal = Number(result.total || 0);
+		playlistPage = Number(result.page || 1);
+		playlistPageCount = Number(result.pages || 1);
+		renderPlaylistItems();
+	} catch (error) {
+		if (playlistItemsAbort !== controller || error?.name === "AbortError") return;
+		throw error;
+	}
 }
 
 function renderPlaylistItems() {
@@ -2992,7 +3018,7 @@ $("#open-settings").addEventListener("click", async (event) => {
 		await loadSettings();
 		await testSettings();
 	} catch (error) {
-		const fieldSummary = showFieldErrors($("#site-dialog"), error, siteFieldIds);
+		const fieldSummary = showFieldErrors(dialog, error, settingFieldIds);
 		output.textContent = fieldSummary || error.message;
 		output.className = "inline-message error";
 	} finally {
@@ -3010,7 +3036,6 @@ $("#service-status").addEventListener("click", async () => {
 		showToast(error.message);
 	} finally {
 		setButtonLoading(button, false);
-		renderPlaylistItems();
 	}
 });
 

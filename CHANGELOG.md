@@ -2,6 +2,26 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 1.19 - 2026-08-21
+
+### 修复与调整
+
+- 修复设置弹窗读取失败时字段级错误被错误路由到“添加站点”弹窗的问题；现在正确显示在 `#settings-dialog` 并使用设置页字段表高亮对应输入。
+- 移除顶栏「服务状态」按钮点击后 `finally` 中无关的片单明细重绘，避免把过期明细画回表格。
+- 删除 `app/api/system.py` 中从未被引用的模块级 `ALLOWED_PRIVATE_HOSTS` 集合及配套 `os` 导入（实际生效的内网放行走 `util.configured_private_hosts()` 请求时读取），避免误改无效配置。
+- 片单明细与可搜索队列接入请求取消：发起新请求前中止旧请求（AbortController），且仅允许最新一次响应写入缓存并渲染，消除快速翻页／切换筛选时旧响应覆盖新数据的竞态。
+- 为 `[aria-busy]` 补齐视觉加载态：页面切换与候选轮询期间容器轻微降低不透明度并柔和呼吸（呼吸动画仅在未启用减少动效时运行）。
+- 清理 `style.css` 约 140 行旧工作台／旧站点卡片体系死代码（`.archive-dashboard`、`.poster-shelf`、`.mp-site-card`、`.site-card-grid` 等在当前 DOM 与脚本中均无引用），并保留仍在使用的 `.collection-progress-bar` 与 `.site-logo`。
+- 「重新加载」错误横幅边框由硬编码浅色改为 `color-mix(in srgb, var(--danger) …, var(--line))` 推导，修复午夜放映等深色主题下边框突兀的问题。
+- 弹窗遮罩统一读取 `--theme-backdrop` 令牌（三套主题均已定义），删除 Cinema 的冗余覆盖特例，Ledger 弹窗遮罩随之与主题一致。
+
+### 验证
+
+- `python3 -m compileall -q app` 通过；`node --check` 对 `app.js`、`core.js`、`theme-init.js`、`site-map.js` 四个前端文件全部通过。
+- `.venv/bin/python -m unittest discover -s tests`：174 项全部通过（含主题结构契约、前端模块导入与 UI 业务钩子断言）；清理前后 CSS 花括号配平校验通过。
+- 版本同步核对：`APP_VERSION`、`compose.yml` 镜像标签、Unraid 模板 `<Repository>` 与 CI 断言、README 当前版本与构建示例、index.html 缓存参数与侧栏标识均为 `1.19`；同步 `tests/test_regressions.py` 中硬编码的静态资源缓存参数断言至 `1.19.0`。
+- 本批次为静态修复与样式治理，未引入新依赖；尚未执行真实浏览器矩阵验收与生产容器部署，发布前需按既有流程补做。
+
 ## 1.18 - 2026-08-14
 
 ### 修复与调整

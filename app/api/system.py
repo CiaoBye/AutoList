@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
-import os
 import re
 import secrets
 import socket
@@ -50,14 +49,6 @@ from ..state import (
 from ..util import decode_cookiecloud_body, read_request_body_limited, secret_free, validated_base_url
 
 router = APIRouter()
-
-# 显式允许使用内网地址的域名白名单（后缀匹配），供 Prowlarr/Jackett 等内网部署使用。
-ALLOWED_PRIVATE_HOSTS = {
-    host.strip().lower().lstrip(".")
-    for host in os.getenv("AUTOLIST_ALLOW_PRIVATE_HOSTS", "").split(",")
-    if host.strip()
-}
-
 
 # Populated by app.main after router registration.
 @router.get("/api/health")

@@ -347,18 +347,18 @@ const pageMeta = {
 		lead: "",
 	},
 	rules: {
-		eyebrow: "CURATION / SELECTION NOTES",
-		title: "选片标准",
+		eyebrow: "INTAKE / CRITERIA",
+		title: "入馆标准",
 		lead: "",
 	},
 	sites: {
-		eyebrow: "SOURCE ROOM / PT NETWORK",
+		eyebrow: "SOURCE NETWORK",
 		title: "来源网络",
 		lead: "",
 	},
 	history: {
-		eyebrow: "ARCHIVE / INTAKE RECORD",
-		title: "入馆记录",
+		eyebrow: "INTAKE / FEED",
+		title: "入馆动态",
 		lead: "",
 	},
 	logs: {
@@ -1845,14 +1845,14 @@ function renderSites() {
 			site.icon_url ||
 			`${site.base_url.replace(/\/$/, "")}/favicon.ico`;
 		const state = siteConnectionState(site);
-		const [left, top] = siteNodePosition(site.id);
+		const [left, top] = siteNodePosition(site.id, list.indexOf(site), list.length);
 		const selected = selectedSiteId === site.id;
 		const stateLabel = siteStateLabel(state);
 		const editHint = siteMapLayoutEdit ? "；编辑模式下方向键移动，Enter确认，Escape撤销" : "";
 		return `<button class="site-star-node ${state}${selected ? " selected" : ""}" type="button" data-open-site="${site.id}" ${nodeButtonAttributes(selected)} aria-label="查看 ${escapeHtml(site.name)}，${stateLabel}${editHint}" title="${escapeHtml(site.name)} · ${stateLabel}" style="--node-left:${left}%;--node-top:${top}%;--node-delay:${list.indexOf(site) * 35}ms"><span class="site-node-core site-logo" data-site-logo><img src="${escapeHtml(icon)}" alt=""><b>${escapeHtml(siteMonogram(site.name))}</b></span><strong class="site-node-name">${escapeHtml(site.name)}</strong><span class="site-node-state">${stateLabel}</span></button>`;
 	};
 	$("#sites-list").innerHTML = list.length
-		? `<header class="site-map-heading"><div><p class="section-kicker">SOURCE ROOM / ARCHIVE NETWORK</p><h2>${list.length} 个来源档案室</h2><p>滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="来源档案地图" aria-describedby="site-map-help site-map-announcer" tabindex="0"><div class="site-map-viewport"><div class="site-map-canvas"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}</div></div><div class="site-map-zoom-tools" role="group" aria-label="地图缩放"><button type="button" data-site-map-zoom="out" aria-label="缩小地图" title="缩小地图">${iconSvg("minus")}</button><output class="site-map-zoom-value" aria-live="polite">100%</output><button type="button" data-site-map-zoom="in" aria-label="放大地图" title="放大地图">${iconSvg("plus")}</button><button type="button" data-site-map-zoom="reset" aria-label="重置地图视野" title="重置地图视野">重置</button></div><div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div><p id="site-map-help" class="site-map-help">移动端默认保留单指页面滚动；需要拖动画布时先开启“地图操作”。编辑排布可用方向键与 Shift 大步移动节点。</p><div class="site-map-announcer" aria-live="polite" aria-atomic="true"></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list
+		? `<header class="site-map-heading"><div><p class="section-kicker">SOURCE NETWORK</p><h2>${list.length} 个来源档案室</h2><p>滚轮或双指缩放，拖动画布平移；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。</p></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="来源档案地图" aria-describedby="site-map-announcer" tabindex="0"><div class="site-map-viewport"><div class="site-map-canvas"><span class="site-map-orbit orbit-a" aria-hidden="true"></span><span class="site-map-orbit orbit-b" aria-hidden="true"></span><span class="site-map-link link-a" aria-hidden="true"></span><span class="site-map-link link-b" aria-hidden="true"></span><span class="site-map-link link-c" aria-hidden="true"></span>${list.map(nodeHtml).join("")}</div></div><div class="site-map-zoom-tools" role="group" aria-label="地图缩放"><button type="button" data-site-map-zoom="out" aria-label="缩小地图" title="缩小地图">${iconSvg("minus")}</button><output class="site-map-zoom-value" aria-live="polite">100%</output><button type="button" data-site-map-zoom="in" aria-label="放大地图" title="放大地图">${iconSvg("plus")}</button><button type="button" data-site-map-zoom="reset" aria-label="重置地图视野" title="重置地图视野">重置</button></div><div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div><div class="site-map-announcer" aria-live="polite" aria-atomic="true"></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list
 				.map((site) => {
 					const selected = selectedSiteId === site.id;
 					return `<button type="button" data-open-site="${site.id}"${selected ? ' aria-current="true" class="selected"' : ""} aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`;

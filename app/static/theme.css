@@ -378,7 +378,6 @@ html[data-theme="ledger"] .site-live-map { color: var(--theme-site-ink); backgro
 html[data-theme="ledger"] .site-map-field { background: var(--theme-site-field); }
 html[data-theme="ledger"] body[data-page="sites"] .site-live-map { color: var(--ink); background: var(--surface-strong); }
 html[data-theme="ledger"] body[data-page="sites"] .site-map-field { border-color: var(--line); background: linear-gradient(180deg, rgba(167, 96, 56, .06), transparent 36%), repeating-linear-gradient(90deg, transparent 0 72px, rgba(38, 52, 58, .055) 73px), var(--surface-soft); }
-html[data-theme="ledger"] body[data-page="sites"] .site-map-canvas::before, html[data-theme="ledger"] body[data-page="sites"] .site-map-canvas::after { border-color: rgba(167, 96, 56, .14); }
 html[data-theme="ledger"] body[data-page="sites"] .site-map-orbit { border-color: rgba(61, 104, 116, .18); }
 html[data-theme="ledger"] body[data-page="sites"] .site-map-link { background: rgba(61, 104, 116, .32); }
 html[data-theme="ledger"] body[data-page="sites"] .site-star-node { color: var(--ink); }

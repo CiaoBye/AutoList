@@ -114,8 +114,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.19.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.19.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.20.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.20.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)
@@ -135,7 +135,7 @@ class SecurityTests(unittest.TestCase):
             with self.subTest(stale_copy=stale_copy):
                 self.assertNotIn(stale_copy, html)
         self.assertIn("来源档案室", (static_dir / "app.js").read_text(encoding="utf-8"))
-        for label in ("电影藏馆", "馆藏片单", "来源检索", "待入馆", "选片标准", "入馆记录", "来源网络", "操作日志"):
+        for label in ("电影藏馆", "馆藏片单", "来源检索", "待入馆", "入馆标准", "入馆动态", "来源网络", "操作日志"):
             with self.subTest(label=label):
                 self.assertIn(label, html)
         self.assertIn("滚轮或双指缩放", html)

@@ -157,7 +157,7 @@ export function focusSiteNode(siteId) {
 
 export function siteMapCopy() {
   return {
-    kicker: "SOURCE ROOM / ARCHIVE NETWORK",
+    kicker: "SOURCE NETWORK",
     heading: "来源档案室",
     description: "滚轮或双指缩放，拖动画布浏览来源；点击节点进入来源档案。打开“编辑节点排布”后可直接拖动节点。",
     ariaLabel: "可操作的来源档案地图",
@@ -170,24 +170,31 @@ export function resetSiteNodePositions() {
   persistSiteNodePositions();
 }
 
-export function siteNodePosition(siteId) {
+// 默认排布采用向日葵序列（黄金角等面积分布）：同一站点在列表顺序稳定时
+// 位置可复现，且站点数量增减不会让既有节点整体漂移；小幅哈希抖动打破严格对称。
+const GOLDEN_ANGLE = 2.399963229728653;
+
+export function siteNodePosition(siteId, index = null, total = null) {
   const key = String(siteId);
   if (siteNodePositionOverrides.has(key)) return siteNodePositionOverrides.get(key);
   if (siteNodePositionCache.has(key)) return siteNodePositionCache.get(key);
   let hash = 2166136261;
   for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
-  const occupied = [...siteNodePositionCache.values()];
-  let position = null;
-  for (let attempt = 0; attempt < 96; attempt += 1) {
-    const mixed = Math.imul(hash ^ Math.imul(attempt + 1, 0x9e3779b9), 2654435761) >>> 0;
-    const x = 14 + (mixed % 7201) / 100;
-    const y = 17 + (((mixed >>> 8) % 6601) / 100);
-    if (occupied.every(([otherX, otherY]) => Math.hypot(x - otherX, y - otherY) >= 8.5)) {
-      position = [x, y];
-      break;
-    }
+  let position;
+  if (Number.isFinite(index) && Number.isFinite(total) && total > 0) {
+    const ratio = (index + 0.5) / Math.max(total, 6);
+    const radius = Math.sqrt(ratio);
+    const angle = index * GOLDEN_ANGLE + ((hash % 97) / 97 - 0.5) * 0.22;
+    const jitterX = ((hash >>> 3) % 100) / 100 - 0.5;
+    const jitterY = ((hash >>> 11) % 100) / 100 - 0.5;
+    position = [
+      Math.round(Math.min(88, Math.max(12, 50 + Math.cos(angle) * radius * 34 + jitterX * 2.4)) * 10) / 10,
+      Math.round(Math.min(84, Math.max(16, 50 + Math.sin(angle) * radius * 28 + jitterY * 2.2)) * 10) / 10,
+    ];
+  } else {
+    // 无序号上下文时的回退：沿用原哈希散点边界。
+    position = [14 + (hash % 7201) / 100, 17 + (((hash >>> 8) % 6601) / 100)];
   }
-  position ||= [14 + (hash % 7201) / 100, 17 + (((hash >>> 8) % 6601) / 100)];
   siteNodePositionCache.set(key, position);
   return position;
 }

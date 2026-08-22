@@ -4,7 +4,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.19`。AutoList 的首页是“电影藏馆”总览：用馆藏进度、下一步任务、来源摘录和入馆记录组织全局。馆藏档案、午夜放映、编目索引是三套视觉主题预设，只改变色彩搭配与对比度；页面标题、左侧导航、正文、ARIA 文案和布局始终统一，不随主题切换产品概念。来源网络统一使用“来源档案室”语义，支持滚轮／双指缩放、空白处拖动画布、点击节点进入档案，以及独立的节点排布编辑；地图视野、排布和横向／纵向布局只保存在当前浏览器。
+当前版本：`1.20`。AutoList 的首页是“电影藏馆”总览：用馆藏进度、下一步任务、来源摘录和入馆动态组织全局。馆藏档案、午夜放映、编目索引是三套视觉主题预设，只改变色彩搭配与对比度；页面标题、左侧导航、正文、ARIA 文案和布局始终统一，不随主题切换产品概念。来源网络统一使用“来源档案室”语义，支持滚轮／双指缩放、空白处拖动画布、点击节点进入档案，以及独立的节点排布编辑；地图视野、排布和横向／纵向布局只保存在当前浏览器。
 
 片名、年份与外部编号以 TMDB 识别结果为准；独立站点搜索会组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，并在候选入库前校验高信息量片名、年份及合集标记。资源搜索默认只处理未入库且不在 Transmission 下载中的影片，可按过滤后的片单队列选择前 N 部，也可按序号范围搜索。电影候选采用硬门槛策略：只允许 `x265 + ADE/FRDS/HDS/CHD`，无首选时提供 `x264 + CMCT` 人工保底；DIY、REMUX、WEB 与完整原盘资源会明确排除。站点配置、搜索统计、CookieCloud 自动更新、User-Agent、图标代理、账户统计与制作组规则由 AutoList 独立维护；MoviePilot 只作为下载分类与整理下游。
 
@@ -57,7 +57,7 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ## 页面结构
 
-- **电影藏馆**：以馆藏总览组织片单进度、最近检索、候选流水线、待入馆资源和服务状态；完整业务功能仍在片单、来源检索和入馆记录等独立页面处理，主题只改变色彩搭配。
+- **电影藏馆**：以馆藏总览组织片单进度、最近检索、候选流水线、待入馆资源和服务状态；完整业务功能仍在片单、来源检索和入馆动态等独立页面处理，主题只改变色彩搭配。
 - **片单**：查看片单和影片明细、TMDB 识别结果及 Emby 实体/.strm 状态；只有真实媒体文件算已入库，`.strm` 归入未完成。明细使用服务端分页，超大片单不会一次性传到浏览器。
 - **资源搜索**：查看片单总数、入库数、Transmission 下载中数和待搜索数；按“未下载”队列或序号范围创建搜索任务，筛选候选并加入或移出下载列表。片单补全和新片自动搜索也在此页面配置。
 - **待入馆**：检查已选资源、单项移除，并固定经 MoviePilot 分类后提交到 Transmission；容器重启后失效的搜索上下文会明确标记并引导重新搜索。提交前自动跳过已成功提交过、正在 Transmission 下载或已入库的相同发布，避免重复下载。
@@ -87,13 +87,13 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ### Unraid 7.3.2
 
-将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.19`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
+将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.20`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
 
 ```bash
 docker build \
   --build-arg PYTHON_IMAGE=python:3.12-slim \
   --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-  -t autolist:1.19 .
+  -t autolist:1.20 .
 ```
 
 首次创建容器前，先只读检查持久化目录权限。镜像以非 root UID `10001` 运行，目录必须允许该 UID 读写：
@@ -103,7 +103,7 @@ DATA_DIR=/mnt/user/appdata/Autolist/data
 mkdir -p "$DATA_DIR"
 stat -c '%u:%g %a' "$DATA_DIR"
 docker run --rm --user 10001:10001 \
-  -v "$DATA_DIR:/data:rw" autolist:1.19 \
+  -v "$DATA_DIR:/data:rw" autolist:1.20 \
   python -c 'import os; assert os.access("/data", os.W_OK | os.X_OK)'
 ```
 

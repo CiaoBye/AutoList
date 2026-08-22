@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <script src="/assets/js/theme-init.js?v=1.19.0"></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.19.0">
+  <script src="/assets/js/theme-init.js?v=1.20.0"></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.20.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.19.0">
-  <link rel="stylesheet" href="/assets/theme.css?v=1.19.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.20.0">
+  <link rel="stylesheet" href="/assets/theme.css?v=1.20.0">
 </head>
 <body data-page="dashboard">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -44,7 +44,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.19.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.20.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -55,13 +55,13 @@
         <span class="nav-group-label">排片</span>
         <a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label">来源检索</span></a>
         <a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label">待入馆</span> <em id="nav-cart-count">0</em></a>
-        <a class="nav-item" href="#rules" data-route="rules"><svg><use href="#icon-rules"></use></svg><span class="nav-item-label">选片标准</span></a>
-        <a class="nav-item" href="#history" data-route="history"><svg><use href="#icon-history"></use></svg><span class="nav-item-label">入馆记录</span></a>
+        <a class="nav-item" href="#rules" data-route="rules"><svg><use href="#icon-rules"></use></svg><span class="nav-item-label">入馆标准</span></a>
+        <a class="nav-item" href="#history" data-route="history"><svg><use href="#icon-history"></use></svg><span class="nav-item-label">入馆动态</span></a>
         <span class="nav-group-label">管理</span>
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg><span class="nav-item-label">来源网络</span></a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg><span class="nav-item-label">操作日志</span></a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.19</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.20</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -97,7 +97,7 @@
         <div class="screening-dashboard">
           <header class="screening-hero">
             <div class="screening-hero-copy">
-              <p class="section-kicker">COLLECTION ROOM · ARCHIVE NOTE</p>
+              <p class="section-kicker">COLLECTION ROOM</p>
               <h2>留住一部，<em>讲清一部</em></h2>
               <p class="screening-hero-lead">从片单到入馆，每部电影都留下片名、来源与版本档案。馆内现有 <strong id="dashboard-new-count">— 部电影</strong> 已入馆，尚有 <strong id="dashboard-pending">—</strong> 部待整理。</p>
               <div class="screening-hero-actions"><button class="button button-primary" data-route-target="search">打开馆藏台 →</button><button class="button button-secondary" data-route-target="playlists">浏览片目</button></div>
@@ -113,13 +113,13 @@
             <div class="screening-mission-grid">
               <article class="screening-mission selected"><header><span>01 / ARCHIVE GAP</span><span id="dashboard-task-pill" class="pill pill-neutral">暂无任务</span></header><strong id="dashboard-task-title">还没有搜索记录</strong><p id="dashboard-task-copy">导入片单后，可以按序号范围批量搜索资源。</p><div class="progress-track dashboard-progress" role="progressbar" aria-label="最近搜索进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-task-bar"></i></div><button class="text-link" data-route-target="search">打开馆藏台 →</button></article>
               <article class="screening-mission"><header><span>02 / SOURCE NOTES</span><span class="screening-mission-mark">来源摘录</span></header><strong id="metric-candidates">0</strong><p>最近一次检索留下的合格来源，按编码与制作组留档。</p><button class="text-link" data-route-target="search">查看来源 →</button></article>
-              <article class="screening-mission"><header><span>03 / INTAKE RECORD</span><span class="screening-mission-mark" id="metric-search-state">暂无任务</span></header><strong id="metric-search">—</strong><p>最近一次入馆动作的处理进度与片目数量。</p><button class="text-link" data-route-target="search">查看入馆记录 →</button></article>
+              <article class="screening-mission"><header><span>03 / INTAKE RECORD</span><span class="screening-mission-mark" id="metric-search-state">暂无任务</span></header><strong id="metric-search">—</strong><p>最近一次入馆动作的处理进度与片目数量。</p><button class="text-link" data-route-target="search">查看入馆动态 →</button></article>
             </div>
           </section>
 
           <section class="screening-collection" aria-labelledby="screening-collection-title">
             <div class="screening-section-heading"><div><p class="section-kicker">CATALOGUE STATUS</p><h2 id="screening-collection-title">馆藏索引</h2></div><button class="text-link" data-route-target="playlists">打开馆藏目录 →</button></div>
-            <div class="screening-collection-body"><div class="screening-stat-grid"><div><strong id="metric-items">—</strong><span>片目总数</span></div><div><strong id="dashboard-recognized">—</strong><span>已建档</span></div><div><strong id="dashboard-in-library">—</strong><span>已入馆</span></div><div><strong id="dashboard-history-count">0</strong><span>入馆记录</span></div><div><strong id="metric-cart">0</strong><span>待入馆片目</span></div><div><strong id="metric-cart-size">0 GB</strong><span>待入馆体积</span></div></div><div class="screening-progress-card"><div><span>馆藏完成度</span><strong><b id="dashboard-in-library-progress">—</b> / <b id="metric-items-progress">—</b></strong></div><div class="collection-progress-bar" role="progressbar" aria-label="馆藏完成度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-library-bar"></i></div><p>识别、选源与入馆都会为这份档案留下新页。</p></div></div>
+            <div class="screening-collection-body"><div class="screening-stat-grid"><div><strong id="metric-items">—</strong><span>片目总数</span></div><div><strong id="dashboard-recognized">—</strong><span>已建档</span></div><div><strong id="dashboard-in-library">—</strong><span>已入馆</span></div><div><strong id="dashboard-history-count">0</strong><span>入馆动态</span></div><div><strong id="metric-cart">0</strong><span>待入馆片目</span></div><div><strong id="metric-cart-size">0 GB</strong><span>待入馆体积</span></div></div><div class="screening-progress-card"><div><span>馆藏完成度</span><strong><b id="dashboard-in-library-progress">—</b> / <b id="metric-items-progress">—</b></strong></div><div class="collection-progress-bar" role="progressbar" aria-label="馆藏完成度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-library-bar"></i></div><p>识别、选源与入馆都会为这份档案留下新页。</p></div></div>
           </section>
 
         </div>
@@ -157,7 +157,7 @@
         <div class="page-stack">
           <section class="panel search-console">
             <div class="panel-heading">
-              <div><p class="section-kicker">SCREENING DESK</p><h2>选片台</h2></div>
+              <div><p class="section-kicker">SEARCH DESK</p><h2>检索台</h2></div>
               <span id="task-pill" class="pill pill-neutral" role="status" aria-live="polite">就绪</span>
             </div>
 
@@ -204,7 +204,7 @@
 
           <section class="panel candidates-panel">
             <div class="panel-heading candidate-heading">
-              <div><p class="section-kicker">SOURCE REELS</p><h2>候选片源</h2></div>
+              <div><p class="section-kicker">CANDIDATES</p><h2>候选片源</h2></div>
               <div class="filter-group" role="group" aria-label="候选筛选">
                 <button class="filter-chip active" type="button" aria-pressed="true" data-filter="all">全部</button>
                 <button class="filter-chip" type="button" aria-pressed="false" data-filter="preferred">优先</button>
@@ -225,7 +225,7 @@
       <section id="cart-page" class="app-page" data-page="cart" aria-label="待入馆">
         <section class="panel cart-page-panel">
           <div class="panel-heading cart-page-heading">
-            <div><p class="section-kicker">ARCHIVE INTAKE BAY</p><h2>待入馆资源</h2></div>
+            <div><p class="section-kicker">PENDING INTAKE</p><h2>待入馆资源</h2></div>
             <span id="cart-count" class="count-badge">0</span>
           </div>
           <div id="cart-list" class="cart-list cart-list-page">
@@ -240,10 +240,10 @@
         </section>
       </section>
 
-      <section id="rules-page" class="app-page" data-page="rules" aria-label="选片标准">
+      <section id="rules-page" class="app-page" data-page="rules" aria-label="入馆标准">
         <div class="page-stack">
           <section class="panel rules-editor-panel">
-            <div class="panel-heading candidate-heading"><div><p class="section-kicker">CURATION NOTES</p><h2>选片标准</h2><p class="panel-lead">先决定哪些版本值得进入馆藏，再按允许组合、来源和分辨率选出最合适的一份。</p></div><button id="save-rules" class="button button-primary">保存规则</button></div>
+            <div class="panel-heading candidate-heading"><div><p class="section-kicker">INTAKE CRITERIA</p><h2>入馆标准</h2><p class="panel-lead">先决定哪些版本值得进入馆藏，再按允许组合、来源和分辨率选出最合适的一份。</p></div><button id="save-rules" class="button button-primary">保存规则</button></div>
             <div class="rule-summary" aria-label="候选决策顺序"><span>硬性排除</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>允许组合</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>站点优先</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>分辨率</span><i aria-hidden="true"><svg><use href="#icon-chevron-right"></use></svg></i><span>做种与优惠</span></div>
             <div class="policy-layout">
               <section class="rule-card policy-card-wide"><div class="rule-card-head"><span class="rule-number">01</span><div><h3>硬性排除</h3><p>命中后不会进入下载列表；普通 BluRay 压制不受影响。</p></div></div><div id="hard-exclusion-options" class="exclusion-grid"></div></section>
@@ -267,7 +267,7 @@
             <article><img src="/assets/service-moviepilot.svg" alt="MoviePilot 标志"><span><strong>MoviePilot</strong><small id="rail-mp-status">检测中</small></span></article>
           </div>
           <div class="site-toolbar">
-            <div><p class="section-kicker">SOURCE ROOM / PT NETWORK</p><h2>来源网络</h2><p class="panel-lead">每个站点都是馆藏链上的一座来源档案室：可检测、可定位、可重新排布。</p></div>
+            <div><p class="section-kicker">SOURCE NETWORK</p><h2>来源网络</h2><p class="panel-lead">每个站点都是馆藏链上的一座来源档案室：可检测、可定位、可重新排布。</p></div>
             <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary"><svg class="button-svg" aria-hidden="true"><use href="#icon-plus"></use></svg>添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-orientation="horizontal" aria-label="站点筛选"><button id="site-filter-all" class="site-filter active" type="button" role="tab" aria-selected="true" aria-controls="sites-list" data-site-filter="all">全部</button><button id="site-filter-active" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="active">已启用</button><button id="site-filter-inactive" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="inactive">已停用</button><button id="site-filter-normal" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="normal">正常</button><button id="site-filter-slow" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="slow">缓慢</button><button id="site-filter-failed" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="failed">失败</button><button id="site-filter-unknown" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="unknown">未知</button></div>
@@ -275,10 +275,10 @@
         </section>
       </section>
 
-      <section id="history-page" class="app-page" data-page="history" aria-label="入馆记录">
+      <section id="history-page" class="app-page" data-page="history" aria-label="入馆动态">
         <section class="panel history-panel history-page-panel">
           <div class="panel-heading">
-            <div><p class="section-kicker">ARCHIVE INTAKE</p><h2>入馆记录</h2><p class="panel-lead">追踪提交、下载与入馆状态，确认每一部电影走到哪一页。</p></div>
+            <div><p class="section-kicker">INTAKE FEED</p><h2>入馆记录</h2><p class="panel-lead">追踪提交、下载与入馆状态，确认每一部电影走到哪一页。</p></div>
             <div class="panel-heading-actions" style="display:flex;gap:0.6rem;align-items:center">
               <label class="field" style="margin:0"><span class="sr-only">按状态筛选</span>
                 <select id="history-status-filter" aria-label="按生命周期状态筛选">
@@ -308,7 +308,7 @@
         <div class="page-stack">
           <section class="panel logs-panel">
             <div class="panel-heading logs-toolbar">
-              <div><p class="section-kicker">ARCHIVE LOG / EVENT RECORD</p><h2>操作日志</h2></div>
+              <div><p class="section-kicker">EVENT LOG</p><h2>操作日志</h2></div>
               <div class="logs-filters">
                 <label>级别 <select id="logs-level"><option value="">全部</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select></label>
                 <label>关键词 <input id="logs-query" type="search" placeholder="片名 / 站点 / 错误" aria-label="日志关键词"></label>
@@ -410,7 +410,7 @@
               <p class="theme-settings-note">主题只改变页面的色彩搭配与对比度，不改变文字、导航、布局或片单、搜索、下载和站点数据。关闭页面场景化后仍保留主题颜色。</p>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.19.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.20.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
@@ -443,6 +443,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label">藏馆</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label">片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label">来源</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label">待入馆</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span class="nav-item-label">更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.19.0"></script>
+  <script type="module" src="/assets/app.js?v=1.20.0"></script>
 </body>
 </html>

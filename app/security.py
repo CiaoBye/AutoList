@@ -4,7 +4,7 @@ import os
 import re
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 
 SENSITIVE_ASSIGNMENT = re.compile(
@@ -14,8 +14,11 @@ BEARER_TOKEN = re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]+")
 URL_USERINFO = re.compile(r"(?i)(https?://)([^/@\s:]+):([^/@\s]+)@")
 SENSITIVE_HEADER_LINE = re.compile(r"(?im)^(\s*(?:Authorization|Cookie|Set-Cookie)\s*:\s*).+$")
 # PT 站点下载/详情链接常用裸 key= 携带 passkey 类秘密，在 URL 上下文中统一脱敏（保留参数名）。
-URL_SENSITIVE_PARAM = re.compile(
-    r"(?i)(https?://[^\s<>\"']*[?&])(key|token|passkey|secret|apikey|api[_-]?key)=[^&\s<>\"']+"
+DIAGNOSTIC_URL = re.compile(r"https?://[^\s<>\"']+", re.I)
+URL_QUERY_PARAM = re.compile(r"([?&])([^=&#?]+)=([^&#]*)")
+SENSITIVE_QUERY_KEY = re.compile(
+    r"(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|token|cookie|passkey|authorization|password|passwd|secret|key)",
+    re.I,
 )
 MEDIA_SIGNATURE_TTL_SECONDS = 5 * 60
 MEDIA_PATH = re.compile(r"^/api/(?:sites/\d+/icon|playlist-items/\d+/poster)$")
@@ -25,7 +28,14 @@ def sanitize_sensitive_text(value: Any, limit: int = 500) -> str:
     """Return a user-safe diagnostic string without credentials or tracker secrets."""
     text = str(value or "")
     text = URL_USERINFO.sub(r"\1***:***@", text)
-    text = URL_SENSITIVE_PARAM.sub(r"\1\2=***", text)
+    def redact_url(match: re.Match[str]) -> str:
+        def redact_parameter(parameter: re.Match[str]) -> str:
+            if SENSITIVE_QUERY_KEY.fullmatch(unquote_plus(parameter.group(2)).strip()):
+                return f"{parameter.group(1)}{parameter.group(2)}=***"
+            return parameter.group(0)
+        return URL_QUERY_PARAM.sub(redact_parameter, match.group(0))
+
+    text = DIAGNOSTIC_URL.sub(redact_url, text)
     text = BEARER_TOKEN.sub(r"\1***", text)
     text = SENSITIVE_HEADER_LINE.sub(r"\1***", text)
 

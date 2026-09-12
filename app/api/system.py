@@ -266,7 +266,7 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request
             values[key] = validated_base_url(values[key], label, False)
     if values.get("outbound_proxy_url"):
         values["outbound_proxy_url"] = validated_base_url(str(values["outbound_proxy_url"]), "代理地址", True)
-    for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_password"):
+    for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_username", "tr_password"):
         if values.get(key) is None:
             values.pop(key, None)
         # API 客户端显式发送空字符串时清除；设置页留空字段则发送 null 并保留原值。

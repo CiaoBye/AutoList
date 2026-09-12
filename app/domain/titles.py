@@ -60,11 +60,18 @@ def informative_title_tokens(value: Any) -> set[str]:
     return title_tokens(value) - TITLE_STOP_WORDS
 
 
+def _torrent_year_conflicts(item: sqlite3.Row | dict[str, Any], torrent_title: str) -> bool:
+    identity = dict(item)
+    year = str(identity.get("tmdb_year") or identity.get("year") or "").strip()
+    years = set(re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", torrent_title))
+    return bool(year and years and year not in years)
+
+
 def strict_torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str) -> bool:
     """Require a meaningful title token so shared words cannot identify another movie."""
     candidate = normalized_title_text(torrent_title)
     candidate_tokens = title_tokens(torrent_title)
-    if not candidate or not candidate_tokens:
+    if not candidate or not candidate_tokens or _torrent_year_conflicts(item, torrent_title):
         return False
     variants = [
         item["tmdb_original_title"] if item["tmdb_original_title"] else None,
@@ -85,7 +92,7 @@ def strict_torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_titl
 
 def torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str) -> bool:
     candidate = normalized_title_text(torrent_title)
-    if not candidate:
+    if not candidate or _torrent_year_conflicts(item, torrent_title):
         return False
     variants = [
         item["tmdb_original_title"] if item["tmdb_original_title"] else None,

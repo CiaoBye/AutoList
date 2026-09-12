@@ -1444,7 +1444,8 @@ function syncClearSettingControl(setting, configured) {
 }
 
 function clearSettingSelected(setting) {
-	return Boolean(document.querySelector(`[data-clear-setting="${setting}"] input[type='checkbox']`)?.checked);
+	// 清除协议只接受 true 或省略；未勾选时让 JSON.stringify 省略字段。
+	return document.querySelector(`[data-clear-setting="${setting}"] input[type='checkbox']`)?.checked ? true : undefined;
 }
 
 async function loadSettings() {

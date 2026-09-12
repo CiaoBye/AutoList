@@ -384,6 +384,12 @@ async def run_search(task_id: int) -> None:
                     "poster_path": tmdb_media.get("poster_path"),
                 }
                 persist_tmdb_item(to_int(item["id"]), tmdb_media, item["imdb_id"])
+                # sqlite3.Row is a snapshot: use the just-recognized identity
+                # for this search's candidate filtering as well as future runs.
+                with connect() as conn:
+                    item = conn.execute("SELECT * FROM playlist_items WHERE id=?", (item["id"],)).fetchone()
+                if item is None:
+                    raise RuntimeError("搜索中的影片已不存在")
                 task_log(task_id, "info", "recognize", f"识别完成 {label} → TMDB {tmdb_id}")
                 state, emby_item_id, image_tag = await library_details(
                     emby, str(media["title"]), to_int(media["year"]) if media.get("year") else item["year"],

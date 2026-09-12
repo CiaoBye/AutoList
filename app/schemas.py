@@ -81,7 +81,7 @@ class RuntimeSettingsPayload(BaseModel):
     ai_api_key: str | None = Field(default=None, max_length=512)
     ai_model: str = Field(default="", max_length=120)
     tr_base_url: str = Field(default="", max_length=2048)
-    tr_username: str = Field(default="", max_length=120)
+    tr_username: str | None = Field(default=None, max_length=120)
     tr_password: str | None = Field(default=None, max_length=2048)
     dashboard_random_posters: bool = False
 

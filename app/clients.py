@@ -175,7 +175,7 @@ class AIRecognitionClient:
             "messages": [{"role": "user", "content": prompt}],
         }
         async with httpx.AsyncClient(base_url=settings.ai_base_url, headers=headers, timeout=settings.mp_timeout_seconds) as client:
-            response = await safe_request(client, "POST", "/chat/completions", headers=headers, json=payload, label="AI 地址")
+            response = await safe_request(client, "POST", "chat/completions", headers=headers, json=payload, label="AI 地址")
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
         match = re.search(r"\{.*\}", content, re.S)

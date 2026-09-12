@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.21"
+APP_VERSION = "1.22"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -178,6 +178,7 @@ class Settings:
             "outbound_proxy_url_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url": public_endpoint_url(self.outbound_proxy_url),
             "pt_proxy_enabled": self.pt_proxy_enabled,
+            "tmdb_proxy_enabled": self.tmdb_proxy_enabled,
             "ai_base_url": self.ai_base_url,
             "ai_api_key": "",
             "ai_api_key_configured": bool(self.ai_api_key),

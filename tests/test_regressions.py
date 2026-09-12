@@ -114,8 +114,8 @@ class SecurityTests(unittest.TestCase):
         theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
         theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.21.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.21.0"', html)
+        self.assertIn('src="/assets/js/theme-init.js?v=1.22.0"', html)
+        self.assertIn('href="/assets/theme.css?v=1.22.0"', html)
         for theme in ("archive", "cinema", "ledger"):
             with self.subTest(theme=theme):
                 self.assertIn(f'{theme}: Object.freeze', theme_init)

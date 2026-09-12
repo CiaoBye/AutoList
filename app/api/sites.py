@@ -23,11 +23,22 @@ from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_sit
 from ..security import signed_media_url
 from ..state import remember_site_icon, site_icon_cache
 from ..util import raster_image_media_type, rows_to_dicts, safe_request, to_int, utc_now, validate_remote_icon_url
-from ..util import validated_base_url
+from ..util import validated_base_url, validate_outbound_url
 
 router = APIRouter()
 MAX_SITE_ICON_BYTES = 512 * 1024
 SITE_ICON_ENDPOINT_VERSION = 2
+
+
+def validated_rss_url(value: str) -> str:
+    """Private feed query credentials stay server-side; retain outbound URL checks."""
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        return validate_outbound_url(normalized, label="RSS 地址")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def site_icon_fallback(name: str, base_url: str) -> bytes:
@@ -195,7 +206,7 @@ async def site_health_history(site_id: int, limit: int = 50) -> dict[str, Any]:
 @router.post("/api/sites")
 async def add_site(payload: SitePayload) -> dict[str, Any]:
     base_url = validated_base_url(payload.base_url, "站点地址", True)
-    rss_url = validated_base_url(payload.rss_url, "RSS 地址", False)
+    rss_url = validated_rss_url(payload.rss_url)
     adapter = resolve_site_adapter(base_url, rss_url)
     try:
         with connect() as conn:
@@ -219,7 +230,7 @@ async def update_site(site_id: int, payload: SitePayload) -> dict[str, Any]:
             raise HTTPException(404, "站点不存在")
         rss_url = (
             "" if payload.clear_rss_url else
-            (validated_base_url(payload.rss_url, "RSS 地址", False) if payload.rss_url.strip() else str(current["rss_url"] or ""))
+            (validated_rss_url(payload.rss_url) if payload.rss_url.strip() else str(current["rss_url"] or ""))
         )
         adapter = resolve_site_adapter(base_url, rss_url)
         try:

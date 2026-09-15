@@ -93,6 +93,7 @@ async def overview() -> dict[str, Any]:
         })
         cart_count = conn.execute("SELECT COUNT(*) FROM cart_items").fetchone()[0]
         history_count = conn.execute("SELECT COUNT(*) FROM download_history").fetchone()[0]
+        failed_history_count = conn.execute("SELECT COUNT(*) FROM download_history WHERE success=0").fetchone()[0]
     await hydrate_recent_emby_posters(recent_items)
     for item in recent_items:
         item["poster_url"] = (
@@ -115,6 +116,7 @@ async def overview() -> dict[str, Any]:
         "recent_items": recent_items,
         "cart_count": cart_count,
         "history_count": history_count,
+        "failed_history_count": failed_history_count,
         "latest_candidate_count": latest_candidate_count,
         "latest_task": dict(latest_task) if latest_task else None,
     }

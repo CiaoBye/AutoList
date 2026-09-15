@@ -131,6 +131,9 @@ let playlistCache = [];
 let currentSearchPlaylistId = null;
 let searchQueueCache = null;
 let siteCache = [];
+const savedSiteView = safeStorageGet("autolist-site-view");
+let siteView = ["map", "list"].includes(savedSiteView) ? savedSiteView : (window.matchMedia("(max-width: 900px)").matches ? "list" : "map");
+let overviewCache = null;
 let selectedSiteId = null;
 let siteFilter = "all";
 let importMode = "url";
@@ -419,7 +422,8 @@ async function refreshPageData(page) {
 		} else if (page === "playlists") {
 			await loadPlaylists(true);
 		} else if (page === "search") {
-			await loadPlaylists();
+			await Promise.all([loadPlaylists(), loadSites()]);
+			updateSearchSummary();
 			if (activeTask) await refreshCandidates(false);
 		} else if (page === "cart") {
 			await refreshCart();
@@ -535,7 +539,8 @@ async function loadConnection() {
 	const sidebarDot = $("#sidebar-status-dot");
 	try {
 		const status = await api(`/api/connection?at=${Date.now()}`);
-		const okClass = status.ok ? "ok" : "error";
+		const hasFailure = Object.values(status.providers || {}).some(value => !value?.ok && value?.configured !== false);
+		const okClass = status.ok ? "ok" : hasFailure ? "error" : "";
 		const providers = status.providers || {};
 		const names = [
 			["TMDB", providers.tmdb],
@@ -545,7 +550,7 @@ async function loadConnection() {
 		];
 		const onlineCount = names.filter(([, value]) => value?.ok).length;
 		const detail = names
-			.map(([name, value]) => `${name} ${value?.ok ? "正常" : "不可用"}`)
+			.map(([name, value]) => `${name} ${value?.ok ? "正常" : value?.configured === false ? "未配置" : "连接失败"}`)
 			.join(" · ");
 		topDot.className = `status-dot ${okClass}`;
 		sidebarDot.className = `status-dot ${okClass}`;
@@ -562,7 +567,7 @@ async function loadConnection() {
 		);
 		$("#sidebar-status-label").textContent = status.ok
 			? "系统运行正常"
-			: "部分服务异常";
+			: hasFailure ? "部分服务异常" : "服务尚未配置";
 		const rail = [
 			["#rail-tmdb-status", providers.tmdb],
 			["#rail-tr-status", providers.transmission],
@@ -629,6 +634,11 @@ function updateDashboardTask(task) {
 
 async function loadOverview() {
 	const overview = await api("/api/overview");
+	overviewCache = overview;
+	$("#next-recognition").textContent = overview.playlist_id ? `${Math.max(0, overview.item_count - overview.recognized_count)} 部影片待识别` : "导入第一份片单";
+	$("#next-recognition-context").textContent = overview.playlist_name ? `${overview.playlist_name} · 查看影片并识别` : "从文件或网址建立片单";
+	$("#next-candidates").textContent = `${Number(overview.latest_candidate_count || 0)} 个合格候选`;
+	$("#next-failed").textContent = `${Number(overview.failed_history_count || 0)} 次失败提交`;
 	$("#metric-items").textContent = overview.item_count.toLocaleString("zh-CN");
 	$("#metric-items-progress").textContent =
 		overview.item_count.toLocaleString("zh-CN");
@@ -741,6 +751,18 @@ function updateSearchScope() {
 	$("#search-range-arrow").hidden = pending;
 	$("#search-end-field").hidden = pending;
 	if (!pending && !$("#start").value) $("#start").value = 1;
+	updateSearchSummary();
+}
+
+function updateSearchSummary() {
+	const playlist = playlistCache.find(item => item.id === Number(currentSearchPlaylistId));
+	const node = $("#search-scope-summary");
+	if (!node) return;
+	if (!playlist) { node.textContent = "请先导入或选择片单。"; return; }
+	const pending = $("#search-scope").value === "pending";
+	const scope = pending ? `未下载队列前 ${Math.max(0, Math.min(Number($("#search-count").value || 0), Number(searchQueueCache?.pending_count || 0)))} 部` : `序号 ${$("#start").value || "—"}–${$("#end").value || "—"}`;
+	node.textContent = `${playlist.name} · ${scope} · ${siteCache.filter(site => site.enabled && site.search_enabled).length} 个站点参与搜索`;
+	if (searchQueueCache?.download_state === "unknown") node.textContent += " · 下载状态暂未确认，请检查 Transmission 连接";
 }
 
 function renderSearchQueue() {
@@ -751,15 +773,13 @@ function renderSearchQueue() {
 	$("#search-library-count").textContent = Number(
 		queue.in_library_count || 0,
 	).toLocaleString("zh-CN");
-	$("#search-downloading-count").textContent = Number(
-		queue.downloading_count || 0,
-	).toLocaleString("zh-CN");
+	$("#search-downloading-count").textContent = queue.download_state === "unknown" ? "待确认" : Number(queue.downloading_count || 0).toLocaleString("zh-CN");
 	$("#search-pending-count").textContent = Number(
 		queue.pending_count || 0,
 	).toLocaleString("zh-CN");
 	const count = $("#search-count");
 	if (count) {
-		count.max = String(Math.max(1, Number(queue.pending_count || 1)));
+		count.max = String(Math.min(2000, Math.max(1, Number(queue.pending_count || 1))));
 		count.value = Math.min(Number(count.value || 50), Number(count.max));
 	}
 	const playlist = playlistCache.find(
@@ -773,6 +793,7 @@ function renderSearchQueue() {
 			? "新片自动搜索：已开启"
 			: "新片自动搜索：未开启"
 		: "";
+	updateSearchSummary();
 }
 
 // 每类列表同时只有一个"有效"请求：发起新请求前取消旧的，且只有仍是
@@ -1072,6 +1093,7 @@ function renderCandidates() {
 		(item) => item.eligibility !== "excluded",
 	).length;
 	$("#metric-candidates").textContent = eligibleCount;
+	$("#candidate-result-summary").textContent = activeTaskState ? `${Number(activeTaskState.completed || 0)}/${Number(activeTaskState.total || 0)} 部已处理 · ${eligibleCount} 个合格候选 · ${candidateCache.length - eligibleCount} 个排除样本 · ${Number(activeTaskState.attempt_summary?.failed || 0)} 次站点尝试失败` : "尚未开始搜索。";
 	const signature = JSON.stringify({
 		filter: currentFilter,
 		task: activeTaskState?.status || "",
@@ -1339,7 +1361,7 @@ const setServiceStatus = (selector, result, optional = false) => {
 		element.classList.add("ok");
 		return;
 	}
-	if (optional && result?.configured === false) {
+	if (result?.configured === false) {
 		element.textContent = "未配置";
 		return;
 	}
@@ -1558,7 +1580,7 @@ async function testSettings() {
 				`${name} ${value?.ok ? "正常" : value?.configured === false ? "未配置" : "失败"}`,
 		)
 		.join(" · ");
-	output.className = `inline-message ${result.tmdb?.ok && result.moviepilot?.ok ? "" : "error"}`;
+	output.className = `inline-message ${Object.values(result).some(value => !value?.ok && value?.configured !== false) ? "error" : ""}`;
 	return result;
 }
 
@@ -1709,6 +1731,7 @@ async function saveRules() {
 async function loadSites() {
 	const list = await api("/api/sites");
 	siteCache = list;
+	updateSearchSummary();
 	if (selectedSiteId && !list.some((site) => site.id === selectedSiteId))
 		selectedSiteId = null;
 	renderSites();
@@ -1833,6 +1856,7 @@ function buildSiteMapZoomTools() {
 	return wrap;
 }
 function renderSites() {
+	const wasLinearOpen = $("#sites-list .site-linear-list")?.open || false;
 	const list = siteCache.filter(matchesSiteFilter);
 	if (selectedSiteId != null && !list.some((site) => site.id === selectedSiteId))
 		selectedSiteId = null;
@@ -1868,7 +1892,7 @@ function renderSites() {
 		? `<header class="site-map-heading"><div><p class="section-kicker">SOURCE NETWORK</p><h2>${list.length} 个来源档案室</h2></div><span class="site-map-updated" role="status" aria-live="polite">${normalCount} 正常 · ${slowCount} 缓慢 · ${failedCount} 失败 · ${unknownCount} 未知</span></header><div class="site-map-field" role="region" aria-label="来源档案地图" aria-describedby="site-map-announcer" tabindex="0"><div class="site-map-viewport"><div class="site-map-canvas">${list.map(nodeHtml).join("")}</div></div><div class="site-constellation-legend" role="group" aria-label="站点状态图例"><span><i class="normal"></i>正常连接</span><span><i class="slow"></i>连接缓慢</span><span><i class="failed"></i>连接失败</span><span><i class="unknown"></i>未知</span></div><div class="site-map-announcer" aria-live="polite" aria-atomic="true"></div></div><details class="site-linear-list"><summary>以线性列表查看全部来源</summary><div class="site-linear-list-items">${list
 				.map((site) => {
 					const selected = selectedSiteId === site.id;
-					return `<button type="button" data-open-site="${site.id}"${selected ? ' aria-current="true" class="selected"' : ""} aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"}</small></button>`;
+					return `<button type="button" data-open-site="${site.id}"${selected ? ' aria-current="true" class="selected"' : ""} aria-label="查看 ${escapeHtml(site.name)}，${siteStateLabel(siteConnectionState(site))}"><span class="site-linear-name">${escapeHtml(site.name)}</span><span class="site-linear-state ${siteConnectionState(site)}">${siteStateLabel(siteConnectionState(site))}</span><small>${site.enabled ? "已启用" : "已停用"} · ${site.search_enabled ? "参与搜索" : "不参与搜索"} · 优先级 ${Number(site.priority || 100)}</small><small>最近检测：${site.last_tested_at ? escapeHtml(formatTime(site.last_tested_at)) : "尚未检测"} · ${site.local_stats?.total ? `${Number(site.local_stats.success_rate || 0).toFixed(0)}% 搜索成功` : "暂无搜索样本"}</small></button>`;
 				})
 				.join("")}</div></details>`
 		: "<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
@@ -1881,7 +1905,9 @@ function renderSites() {
 		document.createTextNode("以列表查看全部来源"),
 	);
 	const linearList = $("#sites-list .site-linear-list");
-	if (linearList) linearList.open = false;
+	if (linearList) linearList.open = siteView === "list" || wasLinearOpen;
+	document.body.dataset.siteView = siteView;
+	$$("button[data-site-view]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.siteView === siteView)));
 	syncSiteMapOrientationControls();
 	syncSiteMapViewport();
 	renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
@@ -1890,7 +1916,7 @@ function renderSites() {
 function renderSiteInspector(site) {
 	if (!site) {
 		$("#site-inspector-content").innerHTML =
-			"<div class='empty-state compact'><strong>没有符合条件的站点</strong><p>切换筛选条件或添加新的站点来源。</p></div>";
+			"<div class='empty-state compact'><strong>选择一个来源查看详情</strong><p>点击列表或地图中的站点，查看状态、检测连接或编辑配置。</p></div>";
 		return;
 	}
 	const stats = site.local_stats || {},
@@ -2501,6 +2527,47 @@ $$("[data-import-mode]").forEach((button) => {
 });
 
 async function handleDocumentClick(event) {
+	const viewButton = event.target.closest("button[data-site-view]");
+	if (viewButton) {
+		siteView = viewButton.dataset.siteView === "list" ? "list" : "map";
+		safeStorageSet("autolist-site-view", siteView);
+		closeSiteInspector(false);
+		renderSites();
+		return;
+	}
+	const nextAction = event.target.closest("[data-dashboard-action]");
+	if (nextAction && overviewCache) {
+		const action = nextAction.dataset.dashboardAction;
+		if (action === "recognize") {
+			if (!overviewCache.playlist_id) { showDialog($("#import-dialog"), nextAction); return; }
+			selectedPlaylistId = expandedPlaylistId = overviewCache.playlist_id;
+			navigate("playlists");
+		} else if (action === "candidates") {
+			if (overviewCache.latest_task) {
+				activeTask = overviewCache.latest_task.id;
+				currentSearchPlaylistId = overviewCache.latest_task.playlist_id;
+			}
+			navigate("search");
+		} else {
+			historyStatusFilter = "failed";
+			navigate("history");
+		}
+		return;
+	}
+	const testProvider = event.target.closest("[data-test-provider]");
+	if (testProvider) {
+		setButtonLoading(testProvider, true, "检测中…");
+		try {
+			const provider = testProvider.dataset.testProvider;
+			const results = await api(`/api/settings/test?provider=${provider}`, {method: "POST"});
+			const selector = {tmdb: "tmdb", transmission: "tr", emby: "emby", moviepilot: "mp"}[provider];
+			setServiceStatus(`#settings-${selector}-status`, results[provider]);
+			$("#settings-result").textContent = `${provider}：${results[provider].message || (results[provider].ok ? "连接正常" : "连接失败")}`;
+			$("#settings-result").className = `inline-message ${!results[provider].ok && results[provider].configured !== false ? "error" : ""}`;
+		} catch (error) { showToast(error.message); }
+		finally { setButtonLoading(testProvider, false); }
+		return;
+	}
 	const routeRetry = event.target.closest("[data-route-retry]");
 	if (routeRetry) {
 		setButtonLoading(routeRetry, true, "读取中…");
@@ -2739,6 +2806,7 @@ async function handleDocumentClick(event) {
 			delete siteCard.dataset.suppressSiteOpen;
 			return;
 		}
+		const fromList = Boolean(siteCard.closest(".site-linear-list"));
 		selectedSiteId = Number(siteCard.dataset.openSite);
 		renderSites();
 		renderSiteInspector(siteCache.find((site) => site.id === selectedSiteId));
@@ -2748,13 +2816,13 @@ async function handleDocumentClick(event) {
 					`统计读取失败：${error.message}`;
 		});
 		const currentSiteButton =
-			[...($("#sites-list")?.querySelectorAll(".site-star-node") || [])].find(
+			[...($("#sites-list")?.querySelectorAll(fromList ? ".site-linear-list [data-open-site]" : ".site-star-node") || [])].find(
 				(button) => Number(button.dataset.openSite) === selectedSiteId,
 			) ||
 			$$("[data-open-site]").find(
 				(button) => Number(button.dataset.openSite) === selectedSiteId,
 			);
-		requestAnimationFrame(() => focusSiteNode(selectedSiteId));
+		requestAnimationFrame(() => fromList ? currentSiteButton?.focus() : focusSiteNode(selectedSiteId));
 		openSiteInspector(currentSiteButton);
 		return;
 	}
@@ -3695,6 +3763,7 @@ $("#playlist").addEventListener("change", async () => {
 });
 
 $("#search-scope").addEventListener("change", updateSearchScope);
+["#search-count", "#start", "#end"].forEach(selector => $(selector).addEventListener("input", updateSearchSummary));
 
 $("#run-playlist-completion").addEventListener("click", async () => {
 	if (!currentSearchPlaylistId) return;

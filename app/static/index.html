@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <script src="/assets/js/theme-init.js?v=1.22.0"></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.22.0">
+  <script src="/assets/js/theme-init.js?v=1.23.0"></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.23.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.22.0">
-  <link rel="stylesheet" href="/assets/theme.css?v=1.22.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.23.0">
+  <link rel="stylesheet" href="/assets/theme.css?v=1.23.0">
 </head>
 <body data-page="dashboard">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -44,7 +44,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.22.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.23.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -61,7 +61,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg><span class="nav-item-label">来源网络</span></a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg><span class="nav-item-label">操作日志</span></a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.22</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.23</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -99,8 +99,8 @@
             <div class="screening-hero-copy">
               <p class="section-kicker">COLLECTION ROOM</p>
               <h2>留住一部，<em>讲清一部</em></h2>
-              <p class="screening-hero-lead">从片单到入馆，每部电影都留下片名、来源与版本档案。馆内现有 <strong id="dashboard-new-count">— 部电影</strong> 已入馆，尚有 <strong id="dashboard-pending">—</strong> 部待整理。</p>
-              <div class="screening-hero-actions"><button class="button button-primary" data-route-target="search">打开馆藏台 →</button><button class="button button-secondary" data-route-target="playlists">浏览片目</button></div>
+              <p class="screening-hero-lead">记录片名、来源与版本。当前片单已有 <strong id="dashboard-new-count">— 部电影</strong> 已入馆，尚有 <strong id="dashboard-pending">—</strong> 部待整理。</p>
+              <div class="screening-hero-actions"><button class="button button-primary" data-route-target="search">搜索资源 →</button><button class="button button-secondary" data-route-target="playlists">查看片单</button></div>
             </div>
             <div class="screening-feature" aria-label="当前主片单">
               <span class="screening-feature-orbit" aria-hidden="true"></span><span class="screening-feature-glow" aria-hidden="true"></span>
@@ -108,17 +108,23 @@
             </div>
           </header>
 
+          <section class="dashboard-next-actions" aria-label="下一步操作">
+            <button type="button" data-dashboard-action="recognize"><strong id="next-recognition">读取识别进度…</strong><span id="next-recognition-context">主片单 · 查看影片并识别</span></button>
+            <button type="button" data-dashboard-action="candidates"><strong id="next-candidates">读取候选资源…</strong><span>最近一次搜索 · 查看候选资源</span></button>
+            <button type="button" data-dashboard-action="failed"><strong id="next-failed">读取提交记录…</strong><span>全部失败提交 · 查看最近历史</span></button>
+          </section>
+
           <section class="screening-program" aria-labelledby="screening-program-title">
-            <div class="screening-section-heading"><div><p class="section-kicker">CATALOGUE ROOM</p><h2 id="screening-program-title">馆藏目录</h2></div><span class="screening-section-note">按片目、来源与入馆状态阅读</span></div>
+            <div class="screening-section-heading"><div><p class="section-kicker">CATALOGUE ROOM</p><h2 id="screening-program-title">最近搜索</h2></div><span class="screening-section-note">确认搜索进度与可选资源</span></div>
             <div class="screening-mission-grid">
-              <article class="screening-mission selected"><header><span>01 / ARCHIVE GAP</span><span id="dashboard-task-pill" class="pill pill-neutral">暂无任务</span></header><strong id="dashboard-task-title">还没有搜索记录</strong><p id="dashboard-task-copy">导入片单后，可以按序号范围批量搜索资源。</p><div class="progress-track dashboard-progress" role="progressbar" aria-label="最近搜索进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-task-bar"></i></div><button class="text-link" data-route-target="search">打开馆藏台 →</button></article>
-              <article class="screening-mission"><header><span>02 / SOURCE NOTES</span><span class="screening-mission-mark">来源摘录</span></header><strong id="metric-candidates">0</strong><p>最近一次检索留下的合格来源，按编码与制作组留档。</p><button class="text-link" data-route-target="search">查看来源 →</button></article>
-              <article class="screening-mission"><header><span>03 / INTAKE RECORD</span><span class="screening-mission-mark" id="metric-search-state">暂无任务</span></header><strong id="metric-search">—</strong><p>最近一次入馆动作的处理进度与片目数量。</p><button class="text-link" data-route-target="search">查看入馆动态 →</button></article>
+              <article class="screening-mission selected"><header><span>LATEST SEARCH</span><span id="dashboard-task-pill" class="pill pill-neutral">暂无任务</span></header><strong id="dashboard-task-title">还没有搜索记录</strong><p id="dashboard-task-copy">导入片单后，可以按序号范围批量搜索资源。</p><div class="progress-track dashboard-progress" role="progressbar" aria-label="最近搜索进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-task-bar"></i></div><button class="text-link" data-route-target="search">搜索资源 →</button></article>
+              <article class="screening-mission"><header><span>CANDIDATES</span><span class="screening-mission-mark">来源摘录</span></header><strong id="metric-candidates">0</strong><p>最近一次检索留下的合格来源，按编码与制作组留档。</p><button class="text-link" data-route-target="search">查看候选资源 →</button></article>
+              <article class="screening-mission"><header><span>SEARCH PROGRESS</span><span class="screening-mission-mark" id="metric-search-state">暂无任务</span></header><strong id="metric-search">—</strong><p>最近一次搜索的处理进度；搜索完成不代表已提交或入库。</p><button class="text-link" data-route-target="search">查看搜索任务 →</button></article>
             </div>
           </section>
 
           <section class="screening-collection" aria-labelledby="screening-collection-title">
-            <div class="screening-section-heading"><div><p class="section-kicker">CATALOGUE STATUS</p><h2 id="screening-collection-title">馆藏索引</h2></div><button class="text-link" data-route-target="playlists">打开馆藏目录 →</button></div>
+            <div class="screening-section-heading"><div><p class="section-kicker">CATALOGUE STATUS</p><h2 id="screening-collection-title">馆藏索引</h2></div><button class="text-link" data-route-target="playlists">查看片单 →</button></div>
             <div class="screening-collection-body"><div class="screening-stat-grid"><div><strong id="metric-items">—</strong><span>片目总数</span></div><div><strong id="dashboard-recognized">—</strong><span>已建档</span></div><div><strong id="dashboard-in-library">—</strong><span>已入馆</span></div><div><strong id="dashboard-history-count">0</strong><span>入馆动态</span></div><div><strong id="metric-cart">0</strong><span>待入馆片目</span></div><div><strong id="metric-cart-size">0 GB</strong><span>待入馆体积</span></div></div><div class="screening-progress-card"><div><span>馆藏完成度</span><strong><b id="dashboard-in-library-progress">—</b> / <b id="metric-items-progress">—</b></strong></div><div class="collection-progress-bar" role="progressbar" aria-label="馆藏完成度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="dashboard-library-bar"></i></div><p>识别、选源与入馆都会为这份档案留下新页。</p></div></div>
           </section>
 
@@ -171,12 +177,13 @@
             <div class="search-form">
               <label class="field field-playlist"><span>片单</span><select id="playlist" aria-label="选择片单"></select></label>
               <label class="field field-search-scope"><span>搜索模式</span><select id="search-scope"><option value="pending">未下载</option><option value="range">序号范围</option></select></label>
-              <label id="search-count-field" class="field field-search-count"><span>本次搜索前 N 部</span><input id="search-count" type="number" min="1" max="10000" value="50" inputmode="numeric"></label>
+              <label id="search-count-field" class="field field-search-count"><span>本次搜索前 N 部</span><input id="search-count" type="number" min="1" max="2000" value="50" inputmode="numeric"></label>
               <label id="search-start-field" class="field field-search-start" hidden><span>起始序号</span><input id="start" type="number" min="1" inputmode="numeric" placeholder="1"></label>
                 <span id="search-range-arrow" class="range-arrow" aria-hidden="true" hidden><svg><use href="#icon-arrow-right"></use></svg></span>
               <label id="search-end-field" class="field field-search-end" hidden><span>结束序号</span><input id="end" type="number" min="1" inputmode="numeric" placeholder="50"></label>
               <button id="search" class="button button-primary" type="button"><svg class="button-svg" aria-hidden="true"><use href="#icon-search"></use></svg><span>开始搜索</span></button>
             </div>
+            <p id="search-scope-summary" class="search-scope-summary" role="status">选择片单后查看本次搜索范围。</p>
             <div class="search-automation-actions">
               <button id="run-playlist-completion" class="button button-secondary">搜索未下载影片</button>
               <button id="toggle-playlist-auto" class="button button-secondary">开启新片自动搜索</button>
@@ -214,6 +221,7 @@
                 <button class="filter-chip" type="button" aria-pressed="false" data-filter="excluded">已排除</button>
               </div>
             </div>
+            <p id="candidate-result-summary" class="search-scope-summary" role="status">尚未开始搜索。</p>
             <div class="candidate-labels" aria-hidden="true"><span>影片 / 资源</span><span>推荐依据</span><span>来源与规格</span><span>评分</span><span></span></div>
             <div id="candidates" class="candidate-list" aria-busy="false">
               <div class="empty-state"><span aria-hidden="true"><svg><use href="#icon-search"></use></svg></span><strong>等待搜索结果</strong><p>选择片单和序号范围，候选会在这里实时出现。</p></div>
@@ -225,7 +233,7 @@
       <section id="cart-page" class="app-page" data-page="cart" aria-label="待入馆">
         <section class="panel cart-page-panel">
           <div class="panel-heading cart-page-heading">
-            <div><p class="section-kicker">PENDING INTAKE</p><h2>待入馆资源</h2></div>
+            <div><p class="section-kicker">PENDING INTAKE</p><h2>待入馆资源</h2><p class="panel-lead">已选资源，确认后提交下载；提交成功不代表已入库。</p></div>
             <span id="cart-count" class="count-badge">0</span>
           </div>
           <div id="cart-list" class="cart-list cart-list-page">
@@ -267,8 +275,8 @@
             <article><img src="/assets/service-moviepilot.svg" alt="MoviePilot 标志"><span><strong>MoviePilot</strong><small id="rail-mp-status">检测中</small></span></article>
           </div>
           <div class="site-toolbar">
-            <div><p class="section-kicker">SOURCE NETWORK</p><h2>来源网络</h2><p class="panel-lead">每个站点都是馆藏链上的一座来源档案室：可检测、可定位、可重新排布。</p></div>
-            <div class="site-page-actions"><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary"><svg class="button-svg" aria-hidden="true"><use href="#icon-plus"></use></svg>添加站点</button></div>
+            <div><p class="section-kicker">SOURCE NETWORK</p><h2>来源网络</h2><p class="panel-lead">查看连接状态与搜索表现；列表便于管理，地图便于浏览。</p></div>
+            <div class="site-page-actions"><div class="site-view-switch" role="group" aria-label="来源显示方式"><button type="button" class="button button-secondary" data-site-view="map" aria-pressed="true">地图</button><button type="button" class="button button-secondary" data-site-view="list" aria-pressed="false">列表</button></div><button id="test-all-sites" class="button button-secondary">检测全部站点</button><button id="open-site-dialog" class="button button-primary"><svg class="button-svg" aria-hidden="true"><use href="#icon-plus"></use></svg>添加站点</button></div>
           </div>
           <div class="site-filterbar" role="tablist" aria-orientation="horizontal" aria-label="站点筛选"><button id="site-filter-all" class="site-filter active" type="button" role="tab" aria-selected="true" aria-controls="sites-list" data-site-filter="all">全部</button><button id="site-filter-active" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="active">已启用</button><button id="site-filter-inactive" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="inactive">已停用</button><button id="site-filter-normal" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="normal">正常</button><button id="site-filter-slow" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="slow">缓慢</button><button id="site-filter-failed" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="failed">失败</button><button id="site-filter-unknown" class="site-filter" type="button" role="tab" aria-selected="false" aria-controls="sites-list" tabindex="-1" data-site-filter="unknown">未知</button></div>
               <div class="site-workspace site-constellation-workspace"><div class="site-map-column"><div id="sites-list" class="site-live-map" role="tabpanel" aria-labelledby="site-filter-all" tabindex="0"></div><div class="site-map-action-strip" role="note"><span class="site-map-action-copy"><strong>来源地图</strong> 滚轮缩放、拖动浏览，点击节点查看档案。<small>移动端请先点「拖动画布」。</small></span><span class="site-map-action-controls"><button id="toggle-site-map-interaction" class="button button-secondary" type="button" aria-pressed="false">拖动画布</button><button id="toggle-site-orientation" class="button button-secondary" type="button" aria-pressed="false">纵向排列</button><button id="toggle-site-layout-edit" class="button button-secondary" type="button" aria-pressed="false">整理布局</button><button id="reset-site-layout" class="button button-secondary" type="button">重置</button></span></div></div><button id="site-inspector-backdrop" class="site-inspector-backdrop" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭来源档案"></button><aside id="site-inspector-panel" class="site-inspector-panel" role="complementary" aria-label="来源档案" inert><div id="site-inspector-content"><div class="empty-state compact"><strong>选择一座来源档案室</strong><p>点击节点进入档案；滚轮或双指缩放、拖动画布可浏览整张来源图。</p></div></div></aside></div>
@@ -278,7 +286,7 @@
       <section id="history-page" class="app-page" data-page="history" aria-label="入馆动态">
         <section class="panel history-panel history-page-panel">
           <div class="panel-heading">
-            <div><p class="section-kicker">INTAKE FEED</p><h2>入馆记录</h2><p class="panel-lead">追踪提交、下载与入馆状态，确认每一部电影走到哪一页。</p></div>
+            <div><p class="section-kicker">INTAKE FEED</p><h2>入馆动态</h2><p class="panel-lead">追踪提交、下载与入馆状态，确认每一部电影走到哪一页。</p></div>
             <div class="panel-heading-actions" style="display:flex;gap:0.6rem;align-items:center">
               <label class="field" style="margin:0"><span class="sr-only">按状态筛选</span>
                 <select id="history-status-filter" aria-label="按生命周期状态筛选">
@@ -357,7 +365,7 @@
         <div class="settings-panels">
           <div id="settings-panel-recognition" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-recognition" data-settings-panel="recognition">
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt=""></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt=""></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em><button type="button" class="text-button" data-test-provider="tmdb" aria-label="检测 TMDB 已保存连接">检测</button></div>
               <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-tmdb-key" type="password" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label><label class="clear-setting" data-clear-setting="clear_tmdb_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
               <label class="field"><span>语言</span><input id="settings-tmdb-language" value="zh-CN"></label>
             </section>
@@ -372,16 +380,16 @@
           </div>
           <div id="settings-panel-download" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-download" data-settings-panel="download" hidden>
             <section class="settings-section settings-section-wide settings-mp-section">
-              <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt=""></span><div><strong>MoviePilot</strong><small>仅负责下载分类与整理</small></div><em id="settings-mp-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt=""></span><div><strong>MoviePilot</strong><small>仅负责下载分类与整理</small></div><em id="settings-mp-status">检测中</em><button type="button" class="text-button" data-test-provider="moviepilot" aria-label="检测 MoviePilot 已保存连接">检测</button></div>
               <div class="settings-inline settings-inline-three"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.168.31.100:3000"></label><div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-mp-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_mp_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt=""></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt=""></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em><button type="button" class="text-button" data-test-provider="transmission" aria-label="检测 Transmission 已保存连接">检测</button></div>
               <label class="field"><span>RPC 地址</span><input id="settings-tr-url" type="url" placeholder="http://192.168.31.100:9191"></label>
               <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username" autocomplete="username"></label><div class="field-with-clear"><label class="field"><span>密码</span><input id="settings-tr-password" type="password" autocomplete="current-password"></label><label class="clear-setting" data-clear-setting="clear_tr_password" hidden><input type="checkbox"><span>清除已保存密码</span></label></div></div>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt=""></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt=""></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em><button type="button" class="text-button" data-test-provider="emby" aria-label="检测 Emby 已保存连接">检测</button></div>
               <label class="field"><span>服务地址</span><input id="settings-emby-url" type="url" placeholder="http://192.168.31.100:8096"></label>
               <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-emby-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_emby_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
             </section>
@@ -410,15 +418,16 @@
               <p class="theme-settings-note">主题只改变页面的色彩搭配与对比度，不改变文字、导航、布局或片单、搜索、下载和站点数据。关闭页面场景化后仍保留主题颜色。</p>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.22.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.23.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
           </div>
         </div>
       </div>
+      <p class="settings-help">连接检测使用已保存的配置；修改后请先保存设置。</p>
       <p id="settings-result" class="inline-message" aria-live="polite"></p>
-      <div class="dialog-actions settings-actions"><button id="test-settings" class="button button-secondary" type="button">测试连接</button><span class="settings-action-spacer"></span><button class="button button-secondary" value="cancel">取消</button><button id="save-settings" class="button button-primary" type="button">保存设置</button></div>
+      <div class="dialog-actions settings-actions"><button id="test-settings" class="button button-secondary" type="button">检测全部连接</button><span class="settings-action-spacer"></span><button class="button button-secondary" value="cancel">取消</button><button id="save-settings" class="button button-primary" type="button">保存设置</button></div>
     </form>
   </dialog>
 
@@ -443,6 +452,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label">藏馆</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label">片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label">来源</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label">待入馆</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span class="nav-item-label">更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.22.0"></script>
+  <script type="module" src="/assets/app.js?v=1.23.0"></script>
 </body>
 </html>

@@ -11,7 +11,7 @@ import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -278,7 +278,16 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request
     return settings.public_values()
 
 @router.post("/api/settings/test")
-async def test_runtime_settings() -> dict[str, Any]:
+async def test_runtime_settings(provider: Literal["tmdb", "emby", "transmission", "moviepilot"] | None = None) -> dict[str, Any]:
+    if provider is not None:
+        client = {"tmdb": TMDBClient, "emby": EmbyClient, "transmission": TransmissionClient, "moviepilot": MoviePilotClient}[provider]()
+        try:
+            result = await asyncio.wait_for(client.check(), timeout=6)
+        except TimeoutError:
+            result = {"ok": False, "configured": True, "message": "连接检测超时"}
+        except Exception as exc:
+            result = {"ok": False, "configured": True, "message": safe_error(exc)}
+        return {provider: result}
     return (await connection(force_refresh=True))["providers"]
 
 @router.put("/api/config")

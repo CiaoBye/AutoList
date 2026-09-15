@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,7 +50,7 @@ jobs:
           from xml.etree import ElementTree
 
           root = ElementTree.parse("unraid/my-Autolist.xml").getroot()
-          assert root.findtext("Repository") == "autolist:1.23"
+          assert root.findtext("Repository") == "autolist:1.24"
           assert root.findtext("Icon", "").endswith("/unraid/autolist-icon.png")
           assert "10001" in root.findtext("Requires", "")
           assert root.find("./Config[@Target='/data']") is not None
@@ -116,3 +117,50 @@ jobs:
           docker rm --force autolist-ci 2>/dev/null || true
           docker volume rm autolist-ci-data 2>/dev/null || true
           docker image rm autolist:ci 2>/dev/null || true
+
+  publish:
+    name: Publish Docker Hub image (amd64)
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: dockerhub-publish-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check publishing credentials
+        id: credentials
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo '::warning::Set repository secret DOCKERHUB_TOKEN, then rerun CI to publish ayuanaa/autolist.'
+          fi
+      - name: Login to Docker Hub
+        if: steps.credentials.outputs.available == 'true'
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login --username ayuanaa --password-stdin
+      - name: Build and push versioned image
+        if: steps.credentials.outputs.available == 'true'
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import re; from pathlib import Path; print(re.search(r"APP_VERSION = \"([0-9]+\.[0-9]+)\"", Path("app/config.py").read_text()).group(1))')"
+          docker build --platform linux/amd64 \
+            --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+            --label "org.opencontainers.image.source=https://github.com/CiaoBye/AutoList" \
+            --label "org.opencontainers.image.revision=$COMMIT_SHA" \
+            --tag "ayuanaa/autolist:$VERSION" \
+            --tag "ayuanaa/autolist:latest" .
+          docker push "ayuanaa/autolist:$VERSION"
+          docker push "ayuanaa/autolist:latest"
+      - name: Logout
+        if: always() && steps.credentials.outputs.available == 'true'
+        run: docker logout

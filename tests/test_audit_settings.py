@@ -80,3 +80,29 @@ context.saveSettings().catch(error => { console.error(error); process.exitCode =
                 await client.put("/api/settings", json={"tmdb_language": "zh-CN"})
                 public = (await client.get("/api/settings")).json()
                 self.assertIs(public.get("tmdb_proxy_enabled"), enabled)
+
+    def test_settings_html_and_js_integrated_clear_buttons(self) -> None:
+        """设置弹窗中的敏感字段使用输入框内嵌清除按钮，彻底消除换行 checkbox。"""
+        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+        # index.html 中不应再有独立的换行 clear-setting 复选框与外层包装
+        self.assertNotIn('class="clear-setting"', html)
+        self.assertNotIn('class="field-with-clear"', html)
+        # 必须存在 9 处内嵌清除按钮的 secret-field-wrap
+        for marker in (
+            "clear_tmdb_api_key",
+            "clear_mdblist_api_key",
+            "clear_ai_api_key",
+            "clear_mp_api_key",
+            "clear_tr_password",
+            "clear_emby_api_key",
+            "clear_cookiecloud_key",
+            "clear_cookiecloud_password",
+            "clear_outbound_proxy_url",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(f'data-clear-setting="{marker}"', html)
+        # app.js 中包含按钮清除状态与事件委托逻辑
+        self.assertIn('button[data-clear-setting]', app_js)
+        self.assertIn('.secret-field-wrap', app_js)

@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f0f3f2">
-  <script src="/assets/js/theme-init.js?v=1.24.0"></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.24.0">
+  <script src="/assets/js/theme-init.js?v=1.25.0"></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=1.25.0">
   <title>AutoList</title>
-  <link rel="stylesheet" href="/assets/style.css?v=1.24.0">
-  <link rel="stylesheet" href="/assets/theme.css?v=1.24.0">
+  <link rel="stylesheet" href="/assets/style.css?v=1.25.0">
+  <link rel="stylesheet" href="/assets/theme.css?v=1.25.0">
 </head>
 <body data-page="dashboard">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -44,7 +44,7 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <a class="brand" href="#dashboard" data-route="dashboard" aria-label="AutoList 总览">
-        <span class="brand-mark"><img src="/assets/logo.svg?v=1.24.0" alt=""></span>
+        <span class="brand-mark"><img src="/assets/logo.svg?v=1.25.0" alt=""></span>
         <span><strong>AutoList</strong><small>Collection System</small></span>
       </a>
 
@@ -61,7 +61,7 @@
         <a class="nav-item" href="#sites" data-route="sites"><svg><use href="#icon-settings"></use></svg><span class="nav-item-label">来源网络</span></a>
         <a class="nav-item" href="#logs" data-route="logs"><svg><use href="#icon-logs"></use></svg><span class="nav-item-label">操作日志</span></a>
       </nav>
-          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.24</small></div></div>
+          <div class="sidebar-status"><span class="status-dot" id="sidebar-status-dot"></span><div><strong id="sidebar-status-label">服务检测中</strong><small>AutoList · v1.25</small></div></div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航"></button>
 
@@ -366,42 +366,42 @@
           <div id="settings-panel-recognition" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-recognition" data-settings-panel="recognition">
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon tmdb"><img src="/assets/service-tmdb.svg" alt=""></span><div><strong>TMDB</strong><small>必填 · 影片识别</small></div><em id="settings-tmdb-status">检测中</em><button type="button" class="text-button" data-test-provider="tmdb" aria-label="检测 TMDB 已保存连接">检测</button></div>
-              <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-tmdb-key" type="password" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"></label><label class="clear-setting" data-clear-setting="clear_tmdb_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
+              <label class="field"><span>API Key</span><div class="secret-field-wrap"><input id="settings-tmdb-key" type="password" autocomplete="off" placeholder="支持 v3 Key 或 v4 Token"><button type="button" class="secret-action-btn" data-clear-setting="clear_tmdb_api_key" hidden aria-label="清除已保存 API Key">清除</button></div></label>
               <label class="field"><span>语言</span><input id="settings-tmdb-language" value="zh-CN"></label>
             </section>
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon"><img src="/assets/service-mdblist.svg" alt=""></span><div><strong>MDBList</strong><small>可选 · 私有片单与更高额度</small></div><em id="settings-mdblist-status">未配置</em></div>
-              <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-mdblist-key" type="password" autocomplete="off" placeholder="公开片单可留空"></label><label class="clear-setting" data-clear-setting="clear_mdblist_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
+              <label class="field"><span>API Key</span><div class="secret-field-wrap"><input id="settings-mdblist-key" type="password" autocomplete="off" placeholder="公开片单可留空"><button type="button" class="secret-action-btn" data-clear-setting="clear_mdblist_api_key" hidden aria-label="清除已保存 API Key">清除</button></div></label>
             </section>
             <section class="settings-section settings-section-wide">
               <div class="settings-section-title"><span class="settings-icon ai"><img src="/assets/service-ai.svg" alt=""></span><div><strong>AI 辅助识别</strong><small>可选 · OpenAI 兼容接口</small></div><em id="settings-ai-status">未配置</em></div>
-              <div class="settings-inline settings-inline-three"><label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label><div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-ai-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_ai_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div><label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>接口地址</span><input id="settings-ai-url" type="url" placeholder="https://api.example.com/v1"></label><label class="field"><span>API Key</span><div class="secret-field-wrap"><input id="settings-ai-key" type="password" autocomplete="off"><button type="button" class="secret-action-btn" data-clear-setting="clear_ai_api_key" hidden aria-label="清除已保存 API Key">清除</button></div></label><label class="field"><span>模型</span><input id="settings-ai-model" placeholder="gpt-4.1-mini"></label></div>
             </section>
           </div>
           <div id="settings-panel-download" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-download" data-settings-panel="download" hidden>
             <section class="settings-section settings-section-wide settings-mp-section">
               <div class="settings-section-title"><span class="settings-icon moviepilot"><img src="/assets/service-moviepilot.svg" alt=""></span><div><strong>MoviePilot</strong><small>仅负责下载分类与整理</small></div><em id="settings-mp-status">检测中</em><button type="button" class="text-button" data-test-provider="moviepilot" aria-label="检测 MoviePilot 已保存连接">检测</button></div>
-              <div class="settings-inline settings-inline-three"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.0.2.10:3000"></label><div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-mp-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_mp_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>服务地址</span><input id="settings-mp-url" type="url" placeholder="http://192.0.2.10:3000"></label><label class="field"><span>API Key</span><div class="secret-field-wrap"><input id="settings-mp-key" type="password" autocomplete="off"><button type="button" class="secret-action-btn" data-clear-setting="clear_mp_api_key" hidden aria-label="清除已保存 API Key">清除</button></div></label><label class="field"><span>请求超时（秒）</span><input id="settings-timeout" type="number" min="3" max="300" value="30"></label></div>
             </section>
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon transmission"><img src="/assets/service-transmission.svg" alt=""></span><div><strong>Transmission</strong><small>下载器连接</small></div><em id="settings-tr-status">检测中</em><button type="button" class="text-button" data-test-provider="transmission" aria-label="检测 Transmission 已保存连接">检测</button></div>
               <label class="field"><span>RPC 地址</span><input id="settings-tr-url" type="url" placeholder="http://192.0.2.10:9191"></label>
-              <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username" autocomplete="username"></label><div class="field-with-clear"><label class="field"><span>密码</span><input id="settings-tr-password" type="password" autocomplete="current-password"></label><label class="clear-setting" data-clear-setting="clear_tr_password" hidden><input type="checkbox"><span>清除已保存密码</span></label></div></div>
+              <div class="settings-inline"><label class="field"><span>用户名</span><input id="settings-tr-username" autocomplete="username"></label><label class="field"><span>密码</span><div class="secret-field-wrap"><input id="settings-tr-password" type="password" autocomplete="current-password"><button type="button" class="secret-action-btn" data-clear-setting="clear_tr_password" hidden aria-label="清除已保存密码">清除</button></div></label></div>
             </section>
             <section class="settings-section">
               <div class="settings-section-title"><span class="settings-icon emby"><img src="/assets/service-emby.svg" alt=""></span><div><strong>Emby</strong><small>入库与 .strm 检查</small></div><em id="settings-emby-status">检测中</em><button type="button" class="text-button" data-test-provider="emby" aria-label="检测 Emby 已保存连接">检测</button></div>
               <label class="field"><span>服务地址</span><input id="settings-emby-url" type="url" placeholder="http://192.0.2.10:8096"></label>
-              <div class="field-with-clear"><label class="field"><span>API Key</span><input id="settings-emby-key" type="password" autocomplete="off"></label><label class="clear-setting" data-clear-setting="clear_emby_api_key" hidden><input type="checkbox"><span>清除已保存 API Key</span></label></div>
+              <label class="field"><span>API Key</span><div class="secret-field-wrap"><input id="settings-emby-key" type="password" autocomplete="off"><button type="button" class="secret-action-btn" data-clear-setting="clear_emby_api_key" hidden aria-label="清除已保存 API Key">清除</button></div></label>
             </section>
           </div>
           <div id="settings-panel-sites" class="settings-tab-panel settings-content-grid" role="tabpanel" aria-labelledby="settings-tab-sites" data-settings-panel="sites" hidden>
             <section class="settings-section settings-section-wide cookiecloud-section">
               <div class="settings-section-title"><span class="settings-icon cookiecloud"><img src="/assets/service-cookiecloud.svg" alt=""></span><div><strong>CookieCloud</strong><small>上传后自动按域名更新站点 Cookie</small></div><em id="settings-cookiecloud-status">未配置</em></div>
-              <div class="settings-inline settings-inline-three"><div class="field-with-clear"><label class="field"><span>用户 KEY</span><input id="settings-cookiecloud-key" autocomplete="off" placeholder="与 Chrome 扩展保持一致"></label><label class="clear-setting" data-clear-setting="clear_cookiecloud_key" hidden><input type="checkbox"><span>清除已保存 KEY</span></label></div><div class="field-with-clear"><label class="field"><span>端对端加密密码</span><input id="settings-cookiecloud-password" type="password" autocomplete="off" placeholder="留空保留已配置密码"></label><label class="clear-setting" data-clear-setting="clear_cookiecloud_password" hidden><input type="checkbox"><span>清除已保存密码</span></label></div><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" readonly value="/cookiecloud"></label></div>
+              <div class="settings-inline settings-inline-three"><label class="field"><span>用户 KEY</span><div class="secret-field-wrap"><input id="settings-cookiecloud-key" autocomplete="off" placeholder="与 Chrome 扩展保持一致"><button type="button" class="secret-action-btn" data-clear-setting="clear_cookiecloud_key" hidden aria-label="清除已保存 KEY">清除</button></div></label><label class="field"><span>端对端加密密码</span><div class="secret-field-wrap"><input id="settings-cookiecloud-password" type="password" autocomplete="off" placeholder="留空保留已配置密码"><button type="button" class="secret-action-btn" data-clear-setting="clear_cookiecloud_password" hidden aria-label="清除已保存密码">清除</button></div></label><label class="field"><span>扩展服务器地址</span><input id="settings-cookiecloud-endpoint" readonly value="/cookiecloud"></label></div>
             </section>
             <section class="settings-section settings-section-wide">
               <div class="settings-section-title"><span class="settings-icon proxy"><img src="/assets/service-proxy.svg" alt=""></span><div><strong>网络与代理</strong><small>按服务独立分流</small></div><em id="settings-proxy-status">未配置</em></div>
-              <div class="field-with-clear"><label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><input id="settings-proxy-url" type="url" autocomplete="off" aria-describedby="settings-proxy-help" placeholder="http://127.0.0.1:7890"></label><label class="clear-setting" data-clear-setting="clear_outbound_proxy_url" hidden><input type="checkbox"><span>清除已保存代理地址</span></label></div>
+              <label class="field"><span>代理地址 <i id="settings-proxy-state"></i></span><div class="secret-field-wrap"><input id="settings-proxy-url" type="url" autocomplete="off" aria-describedby="settings-proxy-help" placeholder="http://127.0.0.1:7890"><button type="button" class="secret-action-btn" data-clear-setting="clear_outbound_proxy_url" hidden aria-label="清除已保存代理地址">清除</button></div></label>
               <div class="settings-inline setting-toggles"><label class="toggle-field"><input id="settings-tmdb-proxy" type="checkbox"><span>TMDB 走代理</span></label><label class="toggle-field"><input id="settings-pt-proxy" type="checkbox"><span>PT 站点允许代理</span></label></div>
               <p id="settings-proxy-help" class="settings-help">代理主机和端口会直接显示，方便排查连接；认证信息、API Key、Cookie 和 Token 不会显示。</p>
             </section>
@@ -418,7 +418,7 @@
               <p class="theme-settings-note">主题只改变页面的色彩搭配与对比度，不改变文字、导航、布局或片单、搜索、下载和站点数据。关闭页面场景化后仍保留主题颜色。</p>
             </section>
             <section class="settings-section">
-              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.24.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
+              <div class="settings-section-title"><span class="settings-icon autolist"><img src="/assets/logo.svg?v=1.25.0" alt=""></span><div><strong>本机访问令牌</strong><small>仅保存在当前浏览器</small></div><em id="settings-access-token-status">检测中</em></div>
               <label class="field"><span>浏览器令牌</span><input id="settings-access-token" type="password" autocomplete="off" placeholder="与 AUTOLIST_ACCESS_TOKEN 一致"></label>
               <div class="settings-inline setting-toggles"><button type="button" class="button button-secondary" id="settings-access-token-save">保存到本机</button><button type="button" class="button button-secondary" id="settings-access-token-clear">清除本机令牌</button></div>
             </section>
@@ -452,6 +452,6 @@
 
   <nav class="mobile-nav" aria-label="移动端导航"><a class="nav-item active" href="#dashboard" data-route="dashboard"><svg><use href="#icon-archive"></use></svg><span class="nav-item-label">藏馆</span></a><a class="nav-item" href="#playlists" data-route="playlists"><svg><use href="#icon-list"></use></svg><span class="nav-item-label">片单</span></a><a class="nav-item" href="#search" data-route="search"><svg><use href="#icon-search"></use></svg><span class="nav-item-label">来源</span></a><a class="nav-item" href="#cart" data-route="cart"><svg><use href="#icon-cart"></use></svg><span class="nav-item-label">待入馆</span></a><button id="mobile-more" class="nav-item" type="button" aria-label="打开更多导航" aria-controls="sidebar" aria-expanded="false"><svg><use href="#icon-menu"></use></svg><span class="nav-item-label">更多</span></button></nav>
 
-  <script type="module" src="/assets/app.js?v=1.24.0"></script>
+  <script type="module" src="/assets/app.js?v=1.25.0"></script>
 </body>
 </html>

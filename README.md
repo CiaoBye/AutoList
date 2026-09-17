@@ -4,7 +4,7 @@
 
 AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片单、站点、规则、候选、下载列表与历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责实体入库检查，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.24`。AutoList 的首页是“电影藏馆”总览：用馆藏进度、下一步任务、来源摘录和入馆动态组织全局。馆藏档案、午夜放映、编目索引是三套视觉主题预设，只改变色彩搭配与对比度；页面标题、左侧导航、正文、ARIA 文案和布局始终统一，不随主题切换产品概念。来源网络统一使用“来源档案室”语义，支持滚轮／双指缩放、空白处拖动画布、点击节点进入档案，以及独立的节点排布编辑；地图视野、排布和横向／纵向布局只保存在当前浏览器。
+当前版本：`1.25`。AutoList 的首页是“电影藏馆”总览：用馆藏进度、下一步任务、来源摘录和入馆动态组织全局。馆藏档案、午夜放映、编目索引是三套视觉主题预设，只改变色彩搭配与对比度；页面标题、左侧导航、正文、ARIA 文案和布局始终统一，不随主题切换产品概念。来源网络统一使用“来源档案室”语义，支持滚轮／双指缩放、空白处拖动画布、点击节点进入档案，以及独立的节点排布编辑；地图视野、排布和横向／纵向布局只保存在当前浏览器。
 
 1.23 增加首页下一步操作入口、搜索范围与结果摘要，以及常驻来源地图／列表切换。移动端首次访问默认来源列表；显示方式保存在当前浏览器。设置支持按服务检测连接，检测使用已保存配置，修改后请先保存。
 
@@ -14,7 +14,7 @@ AutoList 是独立运行的片单识别、PT 搜索与下载决策服务。片�
 
 ## 实际运行效果
 
-以下截图来自 Unraid 上实际运行的历史容器，展示真实片单数据、候选规则和响应式布局；1.18 继续完成了生产容器健康、数据完整性、Logo 资源、图标尺寸、地图交互和三套主题一致性验收。截图画廊保留为业务数据快照，公开文档不记录局域网地址；截图不包含设置页、访问令牌或其他敏感字段。
+以下截图来自实际运行的历史容器，展示真实片单数据、候选规则和响应式布局；1.18 继续完成了生产容器健康、数据完整性、Logo 资源、图标尺寸、地图交互和三套主题一致性验收。截图画廊保留为业务数据快照，公开文档不记录局域网地址；截图不包含设置页、访问令牌或其他敏感字段。
 
 新的视觉方向原型见 [`docs/prototypes/autolist-directions.html`](docs/prototypes/autolist-directions.html)，包含站点页和电影藏馆首页的方向方案；1.18 将主题边界收敛为纯色彩预设，并修复来源网络视野、节点图标和首页信息密度。
 
@@ -85,7 +85,7 @@ docker compose ps
 docker compose logs --tail=100 autolist
 ```
 
-打开 `http://<Docker 主机>:8585`，在设置中填写 TMDB、Emby、Transmission 和 MoviePilot，再检测连接。默认从 Docker Hub 拉取 `ayuanaa/autolist:1.24`，当前发布流程提供 `linux/amd64` 镜像，适用于 x86-64 飞牛主机。
+打开 `http://<Docker 主机>:8585`，在设置中填写 TMDB、Emby、Transmission 和 MoviePilot，再检测连接。默认从 Docker Hub 拉取 `ayuanaa/autolist:1.25`，当前发布流程提供 `linux/amd64` 镜像，适用于 x86-64 飞牛主机。
 
 - 数据持久化到命名卷 `autolist_data`，容器以 UID `10001` 运行。首次使用由 Docker 从镜像初始化卷目录；重建容器保留数据。
 - `.env` 不再是必需文件。如需修改端口或启用访问令牌，可在同目录 `.env` 设置 `APP_PORT=8585` 与 `AUTOLIST_ACCESS_TOKEN=你自己生成的长随机令牌`。默认 Compose 不再包含本地构建配置。
@@ -97,7 +97,7 @@ docker compose logs --tail=100 autolist
 
 目标仓库为 `ayuanaa/autolist`。在 Docker Hub 确保该仓库存在并选择所需可见性；公开仓库允许飞牛免登录拉取，私有仓库需要先登录。将具有该仓库写权限的 Docker Hub Personal Access Token 保存到 GitHub 仓库的 Actions Secret `DOCKERHUB_TOKEN`，用户名固定为 `ayuanaa`。
 
-推送 `main` 或手动运行 GitHub Actions 的 **CI**：Python 3.12 / 3.14 测试、Compose 校验、镜像构建及容器健康检查全部通过后，才执行 Docker Hub 发布。缺少令牌时跳过发布并输出警告，CI 检查成功不代表镜像已发布；请确认 `Publish Docker Hub image (amd64)` 的推送步骤成功。同一次构建发布版本标签（如 `1.24`）和 `latest` 两个标签；默认 Compose 固定版本号，升级可控。令牌只通过 GitHub Secrets 传入，不写入源码或构建参数。
+推送 `main` 或手动运行 GitHub Actions 的 **CI**：Python 3.12 / 3.14 测试、Compose 校验、镜像构建及容器健康检查全部通过后，才执行 Docker Hub 发布。缺少令牌时跳过发布并输出警告，CI 检查成功不代表镜像已发布；请确认 `Publish Docker Hub image (amd64)` 的推送步骤成功。同一次构建发布版本标签（如 `1.25`）和 `latest` 两个标签；默认 Compose 固定版本号，升级可控。令牌只通过 GitHub Secrets 传入，不写入源码或构建参数。
 
 ### Chrome CookieCloud
 
@@ -105,31 +105,9 @@ docker compose logs --tail=100 autolist
 2. Chrome CookieCloud 扩展的服务器地址填写 `http://<Docker 主机>:8585/cookiecloud`，KEY 和密码保持一致，并执行一次上传同步。
 3. 站点详情中的“刷新 Cookie”用于从最近一次 CookieCloud 数据手动重试。
 
-### Unraid 7.3.2
+### 容器健康检查
 
-将 `unraid/my-Autolist.xml` 复制到 `/boot/config/plugins/dockerMan/templates-user/my-Autolist.xml`，再从 Unraid 的“添加容器”选择 **Autolist**。模板继续使用本地 `autolist:1.24`，不会自动拉取或替换远程业务镜像；先在包含 Dockerfile 的目录构建：
-
-```bash
-docker build \
-  --build-arg PYTHON_IMAGE=python:3.12-slim \
-  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-  -t autolist:1.24 .
-```
-
-首次创建容器前，先只读检查持久化目录权限。镜像以非 root UID `10001` 运行，目录必须允许该 UID 读写：
-
-```bash
-DATA_DIR=/mnt/user/appdata/Autolist/data
-mkdir -p "$DATA_DIR"
-stat -c '%u:%g %a' "$DATA_DIR"
-docker run --rm --user 10001:10001 \
-  -v "$DATA_DIR:/data:rw" autolist:1.24 \
-  python -c 'import os; assert os.access("/data", os.W_OK | os.X_OK)'
-```
-
-如果预检失败，先停止容器并完成备份，再由 Unraid 管理员执行 `chown -R 10001:10001 /mnt/user/appdata/Autolist/data`，不要在未备份时递归修改生产目录。模板已提供访问令牌、TMDB/MDBList、CookieCloud、MoviePilot、Emby、Transmission、代理和 AI 的完整启动变量；密钥字段保持隐藏，未填写的可选服务不会影响本地 healthcheck。
-
-容器内置 `/app/app/static/logo.svg`、`/app/app/static/favicon.svg` 和 `/app/app/static/autolist-icon.png`，Web 端分别通过 `/assets/logo.svg`、`/assets/favicon.svg` 和 `/assets/autolist-icon.png` 提供。Docker label、Compose label 和模板 `<Icon>` 使用固定 commit 的 PNG 资源，避免 `main` 分支变更导致图标漂移；离线安装时可将 `unraid/autolist-icon.png` 复制到 `/mnt/user/appdata/Autolist/`，再把模板/label 的图标地址改为 `file:///mnt/user/appdata/Autolist/autolist-icon.png`。
+容器内置 `/app/app/static/logo.svg`、`/app/app/static/favicon.svg` 和 `/app/app/static/autolist-icon.png`，Web 端分别通过 `/assets/logo.svg`、`/assets/favicon.svg` 和 `/assets/autolist-icon.png` 提供。
 
 镜像和 Compose 都配置了轻量 healthcheck：它只请求 `http://127.0.0.1:8080/api/health`，以只读方式执行 SQLite `quick_check(1)` 和核心表检查，并确认本地调度器没有停止或长期失去心跳；不检测 TMDB、PT、Emby、Transmission 或 MoviePilot，所以下游临时故障不会触发容器重启。可用以下命令查看状态：
 

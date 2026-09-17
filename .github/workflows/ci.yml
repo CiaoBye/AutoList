@@ -39,7 +39,7 @@ jobs:
           node --check docs/prototypes/autolist-directions.js
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
-      - name: Validate Compose, Dockerfile, and Unraid XML
+      - name: Validate Compose and Dockerfile
         run: |
           set -euo pipefail
           trap 'rm -f .env' EXIT
@@ -47,21 +47,10 @@ jobs:
           docker compose config --quiet
           python - <<'PY'
           from pathlib import Path
-          from xml.etree import ElementTree
-
-          root = ElementTree.parse("unraid/my-Autolist.xml").getroot()
-          assert root.findtext("Repository") == "autolist:1.24"
-          assert root.findtext("Icon", "").endswith("/unraid/autolist-icon.png")
-          assert "10001" in root.findtext("Requires", "")
-          assert root.find("./Config[@Target='/data']") is not None
-          assert root.find("./Config[@Target='AUTOLIST_ACCESS_TOKEN']") is not None
-          assert root.find("./Config[@Target='AUTOLIST_REQUIRE_STRONG_TOKEN']") is not None
-          assert root.find("./Config[@Target='MP_BASE_URL']") is not None
-          assert root.find("./Config[@Target='TMDB_API_KEY']") is not None
 
           dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
           assert "HEALTHCHECK" in dockerfile
-          assert "AUTOLIST_ICON_URL" in dockerfile
+          assert "appuser" in dockerfile
 
           dockerignore = Path(".dockerignore").read_text(encoding="utf-8")
           for pattern in (".venv/", ".scratch/", "docs/", "tests/", "*.log", "*.db"):

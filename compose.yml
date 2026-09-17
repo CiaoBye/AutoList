@@ -1,6 +1,6 @@
 services:
   autolist:
-    image: ayuanaa/autolist:1.24
+    image: ayuanaa/autolist:latest
     container_name: Autolist
     restart: unless-stopped
     ports:

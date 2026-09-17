@@ -2,6 +2,22 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 1.25 - 2026-09-17
+
+### 调整与修复
+
+- 设置弹窗敏感字段排版重构：彻底移除 TMDB、MDBList、AI 辅助识别、MoviePilot、Transmission、Emby、CookieCloud 与代理设置下方的独立换行复选框 `[ ] 清除已保存...`，消除撑高行高导致的突兀空行、高度错位与大面积留白。
+- 一体化输入框状态与清除交互：9 处敏感字段重构为内嵌微型操作结构，当服务已配置时输入框内展示 `••••••••（已保存，留空保留）` 并在右侧内置轻量胶囊按钮；支持一键标记清除并切换为“撤销”与高亮提示，用户输入新值时自动覆盖。
+- 多列网格严格对齐：TMDB 与 MDBList 双列卡片高度自然紧凑，多列输入框（AI 识别、MoviePilot、Transmission、CookieCloud）单行高度恒定且底部严丝合缝，与全局电影藏馆主题视觉规范完全统一。
+- 移除 Unraid 支持并聚焦飞牛：删除 `unraid/` 目录与 Unraid 模板，移除 Dockerfile 中的 Unraid 专用标签与参数，CI 移除 Unraid XML 校验；默认 `compose.yml` 对齐飞牛生产部署，统一拉取 `ayuanaa/autolist:latest`。
+- 版本入口同步递增至 1.25，覆盖 `compose.yml`、`app/config.py`、`README.md`、前端静态资源缓存版本及自动化测试契约。
+
+### 验证
+
+- Python 编译检查 `python3 -m compileall -q app` 通过。
+- JavaScript 语法检查 `node --check app/static/app.js` 通过。
+- 完整自动化测试套件与新增契约测试（189 项）全部通过。
+
 ## 1.24 - 2026-09-15
 
 ### 部署调整

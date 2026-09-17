@@ -1460,14 +1460,54 @@ function secretValue(inputId) {
 function syncClearSettingControl(setting, configured) {
 	const control = document.querySelector(`[data-clear-setting="${setting}"]`);
 	if (!control) return;
+	const wrap = control.closest?.(".secret-field-wrap");
+	const input = wrap?.querySelector?.("input");
+	if (input && input.dataset && !input.dataset.defaultPlaceholder) {
+		input.dataset.defaultPlaceholder = input.placeholder || "";
+	}
+	if (control.tagName === "BUTTON") {
+		control.hidden = !configured;
+		control.textContent = "清除";
+		control.removeAttribute?.("data-state");
+		control.setAttribute?.("aria-label", "清除已保存配置");
+		if (input) {
+			input.removeAttribute?.("data-cleared");
+			if (configured) {
+				if (input.dataset) input.dataset.configured = "true";
+				if (input.type === "password" || setting.includes("key") || setting.includes("password")) {
+					input.placeholder = "••••••••（已保存，留空保留）";
+				} else {
+					input.placeholder = "已配置；留空保留原值";
+				}
+			} else {
+				if (input.dataset) delete input.dataset.configured;
+				if (input.dataset?.defaultPlaceholder) {
+					input.placeholder = input.dataset.defaultPlaceholder;
+				}
+			}
+		}
+		return;
+	}
 	control.hidden = !configured;
-	const checkbox = control.querySelector("input[type='checkbox']");
+	if (typeof control.checked === "boolean") control.checked = false;
+	const checkbox = control.querySelector?.("input[type='checkbox']");
 	if (checkbox) checkbox.checked = false;
 }
 
 function clearSettingSelected(setting) {
-	// 清除协议只接受 true 或省略；未勾选时让 JSON.stringify 省略字段。
-	return document.querySelector(`[data-clear-setting="${setting}"] input[type='checkbox']`)?.checked ? true : undefined;
+	const control = document.querySelector(`[data-clear-setting="${setting}"]`);
+	if (!control) return undefined;
+	if (control.tagName === "BUTTON") {
+		const wrap = control.closest?.(".secret-field-wrap");
+		const input = wrap?.querySelector?.("input");
+		if (input?.value?.trim()) return undefined;
+		return control.getAttribute?.("data-state") === "cleared" ? true : undefined;
+	}
+	if (typeof control.checked === "boolean") {
+		return control.checked ? true : undefined;
+	}
+	const checkbox = control.querySelector?.("input[type='checkbox']");
+	return checkbox?.checked ? true : undefined;
 }
 
 async function loadSettings() {
@@ -3207,6 +3247,60 @@ $("#save-settings").addEventListener("click", async () => {
 			output.className = "inline-message error";
 	} finally {
 		setButtonLoading(button, false);
+	}
+});
+
+$("#settings-dialog")?.addEventListener("click", (event) => {
+	const clearBtn = event.target.closest("button[data-clear-setting]");
+	if (!clearBtn) return;
+	event.preventDefault();
+	const wrap = clearBtn.closest(".secret-field-wrap");
+	const input = wrap?.querySelector("input");
+	const isCleared = clearBtn.getAttribute("data-state") === "cleared";
+	if (isCleared) {
+		clearBtn.removeAttribute("data-state");
+		clearBtn.textContent = "清除";
+		clearBtn.setAttribute("aria-label", "清除已保存配置");
+		if (input) {
+			input.removeAttribute("data-cleared");
+			if (input.type === "password" || clearBtn.dataset.clearSetting?.includes("key") || clearBtn.dataset.clearSetting?.includes("password")) {
+				input.placeholder = "••••••••（已保存，留空保留）";
+			} else {
+				input.placeholder = "已配置；留空保留原值";
+			}
+		}
+	} else {
+		clearBtn.setAttribute("data-state", "cleared");
+		clearBtn.textContent = "撤销";
+		clearBtn.setAttribute("aria-label", "撤销清除已保存配置");
+		if (input) {
+			input.value = "";
+			input.setAttribute("data-cleared", "true");
+			input.placeholder = "（保存后将清除）";
+		}
+	}
+});
+
+$("#settings-dialog")?.addEventListener("input", (event) => {
+	const input = event.target;
+	if (!input.matches(".secret-field-wrap input")) return;
+	const wrap = input.closest(".secret-field-wrap");
+	const clearBtn = wrap?.querySelector("button[data-clear-setting]");
+	if (!clearBtn) return;
+	if (input.value.trim().length > 0) {
+		input.removeAttribute("data-cleared");
+		clearBtn.removeAttribute("data-state");
+		clearBtn.hidden = true;
+	} else if (input.dataset.configured === "true") {
+		clearBtn.hidden = false;
+		clearBtn.removeAttribute("data-state");
+		clearBtn.textContent = "清除";
+		input.removeAttribute("data-cleared");
+		if (input.type === "password" || clearBtn.dataset.clearSetting?.includes("key") || clearBtn.dataset.clearSetting?.includes("password")) {
+			input.placeholder = "••••••••（已保存，留空保留）";
+		} else {
+			input.placeholder = "已配置；留空保留原值";
+		}
 	}
 });
 

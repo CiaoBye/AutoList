@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import unittest
@@ -13,7 +14,23 @@ import unittest
 from app.compat import main  # noqa: E402 (审计 2-12)
 from app import state
 from app.config import settings
-from app.database import initialize
+from app.database import connect, initialize
+
+
+def task_candidates(task_id: int) -> list[dict]:
+    """某次寻片涉及影片的当前候选（与影片详情、挑选页同一套聚合），按片单顺序。"""
+    from app.api.films import _latest_candidate_rows
+    from app.services.candidates import present_candidates
+    from app.util import rows_to_dicts
+
+    with connect() as conn:
+        item_ids = [row[0] for row in conn.execute(
+            """SELECT DISTINCT c.playlist_item_id FROM candidates c JOIN playlist_items p ON p.id=c.playlist_item_id
+               WHERE c.task_id=? ORDER BY p.rank_no""", (task_id,),
+        ).fetchall()]
+        rows = _latest_candidate_rows(conn, item_ids)
+        sites = rows_to_dicts(conn.execute("SELECT name,priority,icon_url FROM pt_sites").fetchall())
+    return [candidate for item_id in item_ids for candidate in present_candidates(rows.get(item_id, []), sites)]
 
 
 class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
@@ -32,6 +49,26 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
         initialize()
 
     async def asyncTearDown(self) -> None:
+        # 导入、识别等接口会启动后台任务；必须在删除临时数据目录前取消并等待，
+        # 否则任务会在目录删除后继续写库并输出 “unable to open database file”。
+        background = [
+            task
+            for registry in (
+                state.running_tasks, state.running_recognition_tasks,
+                state.running_library_tasks, state.running_automation_tasks,
+            )
+            for task in list(registry.values())
+            if task and not task.done()
+        ]
+        for task in background:
+            task.cancel()
+        if background:
+            await asyncio.gather(*background, return_exceptions=True)
+        for registry in (
+            state.running_tasks, state.running_recognition_tasks,
+            state.running_library_tasks, state.running_automation_tasks,
+        ):
+            registry.clear()
         main.raw_candidates.clear()
         # 进程级缓存与限流时间戳必须清理，避免跨测试假阳性（审计 2-24）。
         state.poster_cache.clear()
@@ -40,6 +77,8 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
         state._cookiecloud_get_times.clear()
         from app.services import search as search_module
         search_module._transmission_snapshot_cache.clear()
+        search_module._site_request_times.clear()
+        search_module._site_rate_locks.clear()
         from app.clients import close_search_clients
         await close_search_clients()
         import app.util as util_module

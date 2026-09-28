@@ -10,7 +10,6 @@ venv/
 .mypy_cache/
 __pycache__/
 *.py[cod]
-docs/
 tests/
 data/
 **/data/
@@ -37,3 +36,6 @@ README.md
 CHANGELOG.md
 AGENTS.md
 CONTEXT.md
+# 前端依赖与本地构建产物不进入构建上下文：镜像内由 frontend 阶段重新构建。
+**/node_modules/
+app/static/ui/

@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.25"
+APP_VERSION = "1.59"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -121,7 +121,9 @@ class Settings:
     emby_api_key: str = os.getenv("EMBY_API_KEY", "")
     tmdb_api_key: str = os.getenv("TMDB_API_KEY", "")
     tmdb_language: str = os.getenv("TMDB_LANGUAGE", "zh-CN")
+    fanart_api_key: str = os.getenv("FANART_API_KEY", "")
     mdblist_api_key: str = os.getenv("MDBLIST_API_KEY", "")
+    cookiecloud_url: str = os.getenv("COOKIECLOUD_URL", "").rstrip("/")
     cookiecloud_key: str = os.getenv("COOKIECLOUD_KEY", "")
     cookiecloud_password: str = os.getenv("COOKIECLOUD_PASSWORD", "")
     outbound_proxy_url: str = os.getenv("OUTBOUND_PROXY_URL", "")
@@ -139,12 +141,12 @@ class Settings:
     def apply(self, values: dict[str, Any]) -> None:
         for key in (
             "mp_base_url", "mp_api_key", "emby_base_url", "emby_api_key", "tmdb_api_key",
-            "tmdb_language", "mdblist_api_key", "cookiecloud_key", "cookiecloud_password", "outbound_proxy_url", "ai_base_url", "ai_api_key", "ai_model", "tr_base_url",
+            "tmdb_language", "fanart_api_key", "mdblist_api_key", "cookiecloud_url", "cookiecloud_key", "cookiecloud_password", "outbound_proxy_url", "ai_base_url", "ai_api_key", "ai_model", "tr_base_url",
             "tr_username", "tr_password",
         ):
             if key in values and values[key] is not None:
                 value = str(values[key]).strip()
-                setattr(self, key, value.rstrip("/") if key.endswith("base_url") else value)
+                setattr(self, key, value.rstrip("/") if (key.endswith("base_url") or key.endswith("_url")) else value)
         for key in ("tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters"):
             if key in values and values[key] is not None:
                 setattr(self, key, bool(values[key]))
@@ -167,8 +169,12 @@ class Settings:
             "tmdb_api_key": "",
             "tmdb_api_key_configured": bool(self.tmdb_api_key),
             "tmdb_language": self.tmdb_language,
+            "fanart_api_key": "",
+            "fanart_api_key_configured": bool(self.fanart_api_key),
             "mdblist_api_key": "",
             "mdblist_api_key_configured": bool(self.mdblist_api_key),
+            "cookiecloud_url": public_endpoint_url(self.cookiecloud_url) if self.cookiecloud_url else "",
+            "cookiecloud_url_configured": bool(self.cookiecloud_url),
             "cookiecloud_key": "",
             "cookiecloud_key_configured": bool(self.cookiecloud_key),
             "cookiecloud_password": REDACTED_SECRET,

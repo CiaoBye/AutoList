@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
+from tests.support import task_candidates
 from app.candidate_policy import DEFAULT_POLICY, merge_custom_rules, release_group_catalog
 from app.clients import NexusPHPClient
 from app.config import settings
@@ -58,8 +59,13 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         preview = await main.preview_playlist_import(payload)
         imported = await main.import_playlist(payload)
         self.assertEqual(preview["count"], imported["count"])
-        stored = await main.playlist_items(imported["id"])
+        with main.connect() as conn:
+            stored = [dict(row) for row in conn.execute(
+                "SELECT rank_no,tmdb_id,source_tmdb_id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (imported["id"],),
+            ).fetchall()]
         self.assertEqual([item["rank_no"] for item in stored], [1, 2, 3, 4])
+        # 来源自带的 TMDB 编号只记为来源身份，识别结果由识别任务写入。
+        self.assertEqual((stored[1]["tmdb_id"], stored[1]["source_tmdb_id"]), (None, 222))
 
     async def test_recognition_prefers_imdb_and_uses_ai_only_after_tmdb_miss(self) -> None:
         imdb_match = {"id": 101, "title": "Exact", "original_title": "Exact", "release_date": "2001-01-01"}
@@ -74,14 +80,15 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         tmdb = AsyncMock()
         tmdb.find_by_imdb.return_value = []
-        tmdb.search_movie.side_effect = [[], [{"id": 202, "title": "Corrected", "original_title": "Corrected", "release_date": "2002-02-02"}]]
+        # 本地化搜索 → 英文搜索都没有结果，才交给 AI 纠正片名后再搜一次。
+        tmdb.search_movie.side_effect = [[], [], [{"id": 202, "title": "Corrected", "original_title": "Corrected", "release_date": "2002-02-02"}]]
         ai = AsyncMock()
         ai.suggest.return_value = {"original_title": "Corrected", "year": 2002}
         with patch("app.services.recognition.TMDBClient", return_value=tmdb), patch("app.services.recognition.AIRecognitionClient", return_value=ai):
             result = await main.recognize_movie("Wrong", 2002, "tt0000002")
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], 202)
-        self.assertEqual(tmdb.search_movie.await_count, 2)
+        self.assertEqual(tmdb.search_movie.await_count, 3)
         ai.suggest.assert_awaited_once_with("Wrong", 2002)
 
     async def test_library_details_preserves_entity_strm_and_failure_states(self) -> None:
@@ -202,7 +209,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 "volume_factor": 0 if site["name"] == "Beta" else 1,
             }]
 
-        with patch("app.services.search.recognize_movie", AsyncMock(return_value=media)), \
+        with patch("app.services.search.recognize_item", AsyncMock(return_value=media)), \
              patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
              patch("app.services.search.NexusPHPClient.search", new=search):
             await main.run_search(task_id)
@@ -211,7 +218,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task["status"], "partial")
         self.assertEqual(task["completed"], 1)
         self.assertEqual(task["matched"], 1)
-        grouped = await main.candidates(task_id)
+        grouped = task_candidates(task_id)
         self.assertEqual(len(grouped), 1)
         self.assertEqual(grouped[0]["site_count"], 2)
         self.assertEqual(grouped[0]["site_name"], "Alpha")
@@ -309,7 +316,7 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
             return site, [], None, 1
 
         media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
-        with patch("app.services.search.recognize_movie", AsyncMock(return_value=media)), \
+        with patch("app.services.search.recognize_item", AsyncMock(return_value=media)), \
              patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
              patch("app.services.search.search_one_site", new=fake_search_site):
             await main.run_search(retry_id)
@@ -429,6 +436,8 @@ class FunctionalWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(main.resolve_site_adapter("https://indexer.test/api?t=caps"), "torznab")
         self.assertEqual(main.resolve_site_adapter("https://nexus.example"), "nexusphp")
         self.assertEqual(main.resolve_site_adapter("https://nexus.example", "https://nexus.example/rss?key=private"), "rss")
+        self.assertEqual(main.resolve_site_adapter("https://nexus.example", "https://nexus.example/rss?key=private", cookie="c_secure=1"), "nexusphp")
+        self.assertEqual(main.resolve_site_adapter("https://tracker-b.example", "https://tracker-b.example/rss", from_moviepilot=True), "nexusphp")
         self.assertEqual(main.volume_factor_value("FREE"), 0)
         self.assertEqual(main.volume_factor_value("50%"), 0.5)
         self.assertEqual(main.volume_factor_value("normal"), 1)
@@ -511,13 +520,17 @@ class BackgroundTaskTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.previous_data_dir = settings.data_dir
+        self.previous_tmdb_key = settings.tmdb_api_key
         settings.data_dir = self.temp.name
+        # 识别任务在未配置 TMDB 时会直接失败；这些用例模拟的是已配置 TMDB 的识别流程。
+        settings.tmdb_api_key = "test-tmdb-key"
         main.raw_candidates.clear()
         initialize()
 
     async def asyncTearDown(self) -> None:
         main.raw_candidates.clear()
         settings.data_dir = self.previous_data_dir
+        settings.tmdb_api_key = self.previous_tmdb_key
         self.temp.cleanup()
 
     def _playlist_and_items(self, count: int = 1) -> tuple[int, list[int]]:
@@ -545,7 +558,7 @@ class BackgroundTaskTests(unittest.IsolatedAsyncioTestCase):
                 (playlist_id, "queued", 2, main.utc_now(), main.utc_now()),
             ).lastrowid)
         media = {"id": 42, "title": "Movie 1", "original_title": "Movie 1", "imdb_id": "tt0000001", "release_date": "2021-05-01"}
-        with patch.object(automation, "recognize_movie", new=AsyncMock(return_value=media)) as recognize, \
+        with patch.object(automation, "recognize_item", new=AsyncMock(return_value=media)) as recognize, \
              patch.object(automation, "persist_tmdb_item", new=Mock()) as persist:
             await automation.run_recognition(task_id)
         self.assertEqual(recognize.await_count, 2)
@@ -570,7 +583,7 @@ class BackgroundTaskTests(unittest.IsolatedAsyncioTestCase):
                 (playlist_id, "queued", 2, main.utc_now(), main.utc_now()),
             ).lastrowid)
         media = {"id": 42, "title": "Movie 1", "original_title": "Movie 1", "imdb_id": "tt0000001", "release_date": "2021-05-01"}
-        with patch.object(automation, "recognize_movie", new=AsyncMock(side_effect=[media, RuntimeError("识别失败")])), \
+        with patch.object(automation, "recognize_item", new=AsyncMock(side_effect=[media, RuntimeError("识别失败")])), \
              patch.object(automation, "persist_tmdb_item", new=Mock()):
             await automation.run_recognition(task_id)
         with connect() as conn:
@@ -592,10 +605,10 @@ class BackgroundTaskTests(unittest.IsolatedAsyncioTestCase):
             ).lastrowid)
         gate = asyncio.Event()
 
-        async def blocked(_title, _year, _imdb):
+        async def blocked(_item):
             await gate.wait()
 
-        with patch.object(automation, "recognize_movie", new=blocked):
+        with patch.object(automation, "recognize_item", new=blocked):
             runner = asyncio.create_task(automation.run_recognition(task_id))
             await asyncio.sleep(0.05)
             runner.cancel()
@@ -685,13 +698,17 @@ class AutomationStateMachineTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.previous_data_dir = settings.data_dir
+        self.previous_tmdb_key = settings.tmdb_api_key
         settings.data_dir = self.temp.name
+        # 识别任务在未配置 TMDB 时会直接失败；这些用例模拟的是已配置 TMDB 的识别流程。
+        settings.tmdb_api_key = "test-tmdb-key"
         main.raw_candidates.clear()
         initialize()
 
     async def asyncTearDown(self) -> None:
         main.raw_candidates.clear()
         settings.data_dir = self.previous_data_dir
+        settings.tmdb_api_key = self.previous_tmdb_key
         self.temp.cleanup()
 
     def _playlist_and_items(self, count: int = 1) -> tuple[int, list[int]]:

@@ -15,12 +15,13 @@ from fastapi.responses import Response
 
 from ..clients import site_proxy
 from ..cookiecloud import cookie_groups
-from ..config import APP_VERSION
+from ..config import APP_VERSION, settings
 from ..database import connect
+from ..logs import event_logger
 from ..schemas import SitePayload
-from ..services.cookiecloud_store import stored_cookiecloud_payload
-from ..services.sites import apply_cookie_groups, resolve_site_adapter, test_site_config
-from ..security import signed_media_url
+from ..services.cookiecloud_store import fetch_remote_cookiecloud, stored_cookiecloud_payload
+from ..services.sites import apply_cookie_groups, resolve_site_adapter, sync_sites_from_moviepilot, test_site_config
+from ..security import safe_error, signed_media_url
 from ..state import remember_site_icon, site_icon_cache
 from ..util import raster_image_media_type, rows_to_dicts, safe_request, to_int, utc_now, validate_remote_icon_url
 from ..util import validated_base_url, validate_outbound_url
@@ -207,18 +208,20 @@ async def site_health_history(site_id: int, limit: int = 50) -> dict[str, Any]:
 async def add_site(payload: SitePayload) -> dict[str, Any]:
     base_url = validated_base_url(payload.base_url, "站点地址", True)
     rss_url = validated_rss_url(payload.rss_url)
-    adapter = resolve_site_adapter(base_url, rss_url)
+    adapter = resolve_site_adapter(base_url, rss_url, cookie=payload.cookie or "")
     try:
         with connect() as conn:
             site_id = conn.execute(
-                """INSERT INTO pt_sites(name,adapter,base_url,api_key,cookie,user_agent,priority,timeout_seconds,rss_url,icon_url,proxy,render,limit_interval,limit_count,enabled,search_enabled,created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO pt_sites(name,adapter,base_url,api_key,cookie,user_agent,priority,timeout_seconds,rss_url,icon_url,proxy,render,limit_interval,limit_count,enabled,search_enabled,created_at,cookie_updated_at,cookie_source)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (payload.name.strip(), adapter, base_url, payload.api_key or "", payload.cookie or "", payload.user_agent,
                  payload.priority, payload.timeout_seconds, rss_url, payload.icon_url, to_int(payload.proxy), to_int(payload.render),
-                 payload.limit_interval, payload.limit_count, to_int(payload.enabled), to_int(payload.search_enabled), utc_now()),
+                 payload.limit_interval, payload.limit_count, to_int(payload.enabled), to_int(payload.search_enabled), utc_now(),
+                 utc_now() if payload.cookie else None, "manual" if payload.cookie else None),
             ).lastrowid
     except sqlite3.IntegrityError as exc:
         raise HTTPException(409, "站点名称已存在") from exc
+    event_logger().info("site_added", extra={"site": payload.name.strip(), "detail": f"新增站点【{payload.name.strip()}】"})
     return {"id": site_id, "name": payload.name, "adapter": adapter, "enabled": payload.enabled, "search_enabled": payload.search_enabled}
 
 @router.put("/api/sites/{site_id}")
@@ -232,7 +235,9 @@ async def update_site(site_id: int, payload: SitePayload) -> dict[str, Any]:
             "" if payload.clear_rss_url else
             (validated_rss_url(payload.rss_url) if payload.rss_url.strip() else str(current["rss_url"] or ""))
         )
-        adapter = resolve_site_adapter(base_url, rss_url)
+        effective_cookie = "" if payload.clear_cookie else (payload.cookie or current["cookie"])
+        adapter = resolve_site_adapter(base_url, rss_url, cookie=effective_cookie)
+        cookie_changed = str(effective_cookie or "") != str(current["cookie"] or "")
         try:
             conn.execute(
                 """UPDATE pt_sites SET name=?,adapter=?,base_url=?,api_key=?,cookie=?,user_agent=?,priority=?,timeout_seconds=?,rss_url=?,icon_url=?,proxy=?,render=?,limit_interval=?,limit_count=?,enabled=?,search_enabled=?,migration_note=NULL WHERE id=?""",
@@ -244,7 +249,13 @@ async def update_site(site_id: int, payload: SitePayload) -> dict[str, Any]:
             )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(409, "站点名称已存在") from exc
+        if cookie_changed:
+            conn.execute(
+                "UPDATE pt_sites SET cookie_updated_at=?,cookie_source=? WHERE id=?",
+                (utc_now() if effective_cookie else None, "manual" if effective_cookie else None, site_id),
+            )
     site_icon_cache.pop(site_id, None)
+    event_logger().info("site_updated", extra={"site": payload.name.strip(), "detail": f"更新站点【{payload.name.strip()}】配置"})
     return {"id": site_id, "name": payload.name, "adapter": adapter, "enabled": payload.enabled, "search_enabled": payload.search_enabled}
 
 @router.delete("/api/sites/{site_id}")
@@ -255,6 +266,7 @@ async def delete_site(site_id: int) -> dict[str, Any]:
             raise HTTPException(404, "站点不存在")
         conn.execute("DELETE FROM pt_sites WHERE id=?", (site_id,))
     site_icon_cache.pop(site_id, None)
+    event_logger().info("site_deleted", extra={"site": str(site["name"]), "detail": f"删除站点【{site['name']}】"})
     return {"deleted": site_id}
 
 @router.post("/api/sites/{site_id}/test")
@@ -274,34 +286,97 @@ async def test_all_sites() -> dict[str, Any]:
         async with semaphore:
             return await test_site_config(site)
     results = await asyncio.gather(*(probe(site) for site in rows))
-    return {"total": len(results), "ok": sum(1 for result in results if result["ok"]), "results": results}
+    ok_count = sum(1 for result in results if result["ok"])
+    event_logger().info("sites_tested", extra={"detail": f"站点连通性测试完成：{ok_count}/{len(results)} 个可用", "total": len(results)})
+    return {"total": len(results), "ok": ok_count, "results": results}
+
+@router.post("/api/sites/sync-moviepilot")
+async def sync_sites_from_mp() -> dict[str, Any]:
+    """Sync and import PT sites configured in MoviePilot into AutoList."""
+    return await sync_sites_from_moviepilot()
+
+async def _load_cookiecloud_payload() -> tuple[dict[str, Any], str]:
+    """Prefer the configured CookieCloud server; otherwise use the blob pushed by the Chrome extension."""
+    if settings.cookiecloud_url:
+        payload = await fetch_remote_cookiecloud(
+            settings.cookiecloud_url,
+            settings.cookiecloud_key,
+            settings.cookiecloud_password,
+        )
+        return payload, "CookieCloud 服务器"
+    return stored_cookiecloud_payload(), "Chrome CookieCloud"
+
 
 @router.post("/api/sites/sync-cookiecloud")
 async def sync_sites_from_cookiecloud() -> dict[str, Any]:
-    groups = cookie_groups(stored_cookiecloud_payload())
+    with connect() as conn:
+        site_count = conn.execute("SELECT COUNT(*) FROM pt_sites").fetchone()[0]
+    import_note = ""
+    if site_count == 0 and settings.mp_base_url and settings.mp_api_key:
+        # 本地还没有任何站点时，先从 MoviePilot 导入站点，Cookie 才有可匹配的目标；结果写入提示。
+        try:
+            imported = await sync_sites_from_moviepilot()
+            import_note = f"本地尚无站点，已先从 MoviePilot 导入 {imported.get('total', 0)} 个站点。"
+        except Exception as exc:
+            import_note = f"本地尚无站点，从 MoviePilot 导入失败：{safe_error(exc)}。"
+
+    payload, source_name = await _load_cookiecloud_payload()
+    groups = cookie_groups(payload)
     applied = apply_cookie_groups(groups)
-    updated, missing = applied["updated"], applied["missing"]
+    updated, unchanged, missing = applied["updated"], applied["unchanged"], applied["missing"]
+    unchanged_note = f"，{len(unchanged)} 个已是最新" if unchanged else ""
+    message = f"{import_note}已从 {source_name} 更新 {len(updated)} 个站点 Cookie{unchanged_note}；UA 保留各站点现有配置"
+    event_logger().info(
+        "cookiecloud_sync",
+        extra={
+            "detail": message,
+            "total": len(updated),
+        },
+    )
     return {
-        "ok": bool(updated),
+        "ok": bool(updated or unchanged),
         "updated": len(updated),
+        "unchanged": len(unchanged),
         "sites": updated,
         "missing": missing,
-        "message": f"已从 Chrome CookieCloud 更新 {len(updated)} 个站点 Cookie；UA 保留各站点现有配置",
+        "message": message,
     }
 
 @router.post("/api/sites/{site_id}/refresh-cookie")
 async def refresh_site_cookie(site_id: int) -> dict[str, Any]:
-    """Refresh one local site's Cookie from AutoList's own CookieCloud store."""
+    """Refresh one local site's Cookie from the configured CookieCloud source."""
     with connect() as conn:
         row = conn.execute("SELECT id,name,base_url FROM pt_sites WHERE id=?", (site_id,)).fetchone()
     if not row:
         raise HTTPException(404, "站点不存在")
-    applied = apply_cookie_groups(cookie_groups(stored_cookiecloud_payload()), site_id)
+    payload, source_name = await _load_cookiecloud_payload()
+    applied = apply_cookie_groups(cookie_groups(payload), site_id)
+    if applied["unchanged"]:
+        event_logger().info(
+            "site_cookie_refreshed",
+            extra={
+                "site": str(row["name"]),
+                "detail": f"【{row['name']}】的 Cookie 与 {source_name} 一致，无需更新",
+            },
+        )
+        return {
+            "ok": True,
+            "id": to_int(row["id"]),
+            "name": str(row["name"]),
+            "message": f"{row['name']} 的 Cookie 与 {source_name} 一致，无需更新",
+        }
     if not applied["updated"]:
         raise HTTPException(404, f"CookieCloud 中没有匹配 {row['name']} 域名的 Cookie")
+    event_logger().info(
+        "site_cookie_refreshed",
+        extra={
+            "site": str(row["name"]),
+            "detail": f"已从 {source_name} 刷新【{row['name']}】的 Cookie",
+        },
+    )
     return {
         "ok": True,
         "id": to_int(row["id"]),
         "name": str(row["name"]),
-        "message": f"已从 AutoList CookieCloud 刷新 {row['name']} 的 Cookie；UA 保留现有配置",
+        "message": f"已从 {source_name} 刷新 {row['name']} 的 Cookie；UA 保留现有配置",
     }

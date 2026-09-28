@@ -1,0 +1,22 @@
+{
+  "name": "autolist-next",
+  "private": true,
+  "version": "1.59.0",
+  "description": "AutoList “电影藏馆”界面",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "8.3.1"
+  }
+}

@@ -35,7 +35,7 @@ class IdentityHistoryAuditTests(IsolatedAppTestCase):
                            "site_name": "Audit", "size": 1000000000, "seeders": 10}], None, 1
 
         media = {"id": 157336, "title": "星际穿越", "original_title": "Interstellar", "release_date": "2014-11-07"}
-        with patch("app.services.search.recognize_movie", new=AsyncMock(return_value=media)), \
+        with patch("app.services.search.recognize_item", new=AsyncMock(return_value=media)), \
              patch("app.services.search.library_details", new=AsyncMock(return_value=("not_found", None, None))), \
              patch("app.services.search.search_one_site", new=search_site):
             await run_search(task_id)

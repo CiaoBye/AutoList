@@ -6,14 +6,16 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+import re
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import state
 from .api import cart as cart_routes
+from .api import films as film_routes
 from .api import logs as log_routes
 from .api import playlists as playlist_routes
 from .api import search as search_routes
@@ -29,13 +31,14 @@ from .config import (
     load_runtime_settings,
 )
 from .database import cleanup_old_data, connect, initialize
-from .logs import configure_logging
-from .security import extract_access_token, is_signed_media_path, media_signature_matches, token_matches
+from .logs import configure_logging, event_logger
+from .security import extract_access_token, is_signed_media_path, media_signature_matches, sanitize_sensitive_text, token_matches
 from .schemas import MAX_IMPORT_JSON_BYTES
 from .state import AUTH_EXEMPT_PATHS
 from .services.automation import sync_scheduler
 from .clients import close_search_clients
 from .util import utc_now
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -83,7 +86,29 @@ app.include_router(site_routes.router)
 app.include_router(playlist_routes.router)
 app.include_router(search_routes.router)
 app.include_router(cart_routes.router)
+app.include_router(film_routes.router)
 app.include_router(log_routes.router)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    detail = exc.detail
+    if isinstance(detail, str):
+        detail = sanitize_sensitive_text(detail, 500)
+    return JSONResponse(
+        {"detail": detail},
+        status_code=exc.status_code,
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    event_logger().error(f"unhandled_server_error: {request.method} {request.url.path}", exc_info=exc)
+    return JSONResponse(
+        {"detail": "系统内部错误，请稍后重试"},
+        status_code=500,
+    )
 
 # 非 CookieCloud 普通端点请求体上限（CookieCloud 由 read_request_body_limited
 # 单独限 40MB）。片单导入的字段上限来自 ImportPayload：xlsx_base64 最多
@@ -104,32 +129,76 @@ MAX_IMPORT_HTTP_BODY_BYTES = max(
 IMPORT_ROUTE_PATHS = frozenset({"/api/playlists/import", "/api/playlists/import/preview"})
 TOKEN_FAILURE_WINDOW_SECONDS = 60
 TOKEN_FAILURE_LIMIT = 10
-_token_failure_times: list[float] = []
+_MAX_TRACKED_FAILURE_IPS = 1000
+_token_failure_by_ip: dict[str, list[float]] = {}
 
 
-def _token_failure_rate_limited() -> bool:
-    """进程内令牌失败限速：同一窗口内失败次数超限后拒绝，防弱令牌枚举（审计 3-13）。"""
+def _token_failure_rate_limited(client_ip: str = "unknown") -> bool:
+    """按客户端 IP 限制令牌失败尝试频率，防止单个攻击者枚举或造成全局 DoS。"""
     import time
 
     now = time.monotonic()
-    while _token_failure_times and now - _token_failure_times[0] > TOKEN_FAILURE_WINDOW_SECONDS:
-        _token_failure_times.pop(0)
-    if len(_token_failure_times) >= TOKEN_FAILURE_LIMIT:
+    if len(_token_failure_by_ip) > _MAX_TRACKED_FAILURE_IPS:
+        stale_ips = [
+            ip for ip, timestamps in _token_failure_by_ip.items()
+            if not timestamps or now - timestamps[-1] > TOKEN_FAILURE_WINDOW_SECONDS
+        ]
+        for ip in stale_ips:
+            _token_failure_by_ip.pop(ip, None)
+
+    failures = _token_failure_by_ip.setdefault(client_ip, [])
+    while failures and now - failures[0] > TOKEN_FAILURE_WINDOW_SECONDS:
+        failures.pop(0)
+    if len(failures) >= TOKEN_FAILURE_LIMIT:
         return True
-    _token_failure_times.append(now)
+    failures.append(now)
     return False
+
+
+def is_cookiecloud_request_path(raw_path: str) -> bool:
+    path = re.sub(r"/+", "/", raw_path).rstrip("/") or "/"
+    return (
+        path == "/cookiecloud"
+        or path.startswith("/cookiecloud/")
+        or path == "/update"
+        or path.startswith("/update/")
+        or path.startswith("/get/")
+        or path.startswith("/cookiecloud/get/")
+    )
+
+
+@app.middleware("http")
+async def cookiecloud_cors_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """支持 Chrome CookieCloud 扩展跨域同步与 Private Network Access (PNA)。"""
+    if is_cookiecloud_request_path(request.url.path):
+        if request.method == "OPTIONS":
+            return Response(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "*",
+                    "Access-Control-Allow-Private-Network": "true",
+                    "Access-Control-Max-Age": "86400",
+                },
+            )
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+    return await call_next(request)
 
 
 @app.middleware("http")
 async def request_size_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
     """拒绝声明过大的请求体，避免未认证请求耗尽内存（审计 3-14）。"""
-    if not request.url.path.startswith("/cookiecloud/"):
+    if not is_cookiecloud_request_path(request.url.path):
         body_limit = MAX_IMPORT_HTTP_BODY_BYTES if request.url.path in IMPORT_ROUTE_PATHS else MAX_REQUEST_BODY_BYTES
         content_length = request.headers.get("content-length")
         if content_length is None:
             # chunked/无长度请求绕过 Content-Length 检查（审计 POST-006）：
             # 非 GET/HEAD 且带 body 的请求必须声明长度，避免 Starlette 全量缓冲。
-            if request.method not in {"GET", "HEAD"}:
+            if request.method not in {"GET", "HEAD", "DELETE", "OPTIONS"}:
                 return JSONResponse({"detail": "请求必须声明 Content-Length"}, status_code=411)
         else:
             try:
@@ -150,7 +219,7 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
     path = request.url.path
     # 健康检查、静态入口和 CookieCloud 保持既有公开契约；所有受保护
     # 路径必须先通过强令牌检查，再考虑签名媒体豁免。
-    if path in AUTH_EXEMPT_PATHS or path.startswith("/assets/") or path.startswith("/cookiecloud/"):
+    if is_cookiecloud_request_path(path) or path in AUTH_EXEMPT_PATHS or path.startswith("/assets/"):
         return await call_next(request)
     if access_token_strength_enforced() and not access_token_is_strong():
         # 只返回统一提示，不泄露 configured/validation 等鉴权配置细节（审计 3-12）。
@@ -168,7 +237,8 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
         return await call_next(request)
     provided = extract_access_token(request.headers.get("authorization"), request.headers.get("x-autolist-token"))
     if not token_matches(provided, access_token()):
-        if _token_failure_rate_limited():
+        client_ip = request.client.host if request.client else "unknown"
+        if _token_failure_rate_limited(client_ip):
             return JSONResponse({"detail": "尝试过于频繁，请稍后再试"}, status_code=429)
         return JSONResponse({"detail": "需要有效的访问令牌"}, status_code=401)
     return await call_next(request)
@@ -180,6 +250,11 @@ async def security_headers_middleware(request: Request, call_next):  # type: ign
     style-src needs 'unsafe-inline', but scripts stay 'self'-only.
     """
     response = await call_next(request)
+    if request.url.path.startswith("/assets/"):
+        # app.js 以 ES 模块导入 ./js/core.js，模块地址不带版本号；没有显式缓存策略时
+        # 浏览器会按启发式规则继续使用旧模块，升级后新旧脚本混用甚至导入失败。
+        # no-cache 仍可缓存，只是每次用 ETag 确认，未变化时服务端返回 304。
+        response.headers.setdefault("Cache-Control", "no-cache")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")

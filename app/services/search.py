@@ -8,7 +8,7 @@ import re
 import sqlite3
 import time
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from typing import Any
 
 import httpx
@@ -35,12 +35,40 @@ from ..state import (
 )
 from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, secret_free, to_float, to_int, utc_now
 from .library import library_details
-from .recognition import analyze_candidate, persist_tmdb_item, recognize_movie
+from .recognition import analyze_candidate, persist_tmdb_item, recognize_item
 
 
 # Transmission 下载列表短 TTL 缓存（审计 3-25）：避免片单每次刷新重复 RPC。
 _transmission_snapshot_cache: dict[int, tuple[float, list[dict[str, Any]], str]] = {}
 TRANSMISSION_SNAPSHOT_TTL_SECONDS = 10
+# 站点访问频率（与 MoviePilot 站点字段语义一致）：limit_interval 秒内最多 limit_count 次请求；
+# 只配置 limit_interval 时视为两次请求之间的最小间隔。每个站点一把锁，保证并发任务也按序等待。
+_site_request_times: dict[int, deque[float]] = {}
+_site_rate_locks: dict[int, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
+
+
+async def wait_for_site_rate_limit(site: dict[str, Any]) -> None:
+    site_id = to_int(site.get("id") or 0)
+    interval = to_float(site.get("limit_interval")) if site.get("limit_interval") is not None else 0.0
+    if not site_id or interval <= 0:
+        return
+    count = max(1, to_int(site.get("limit_count") or 1))
+    loop = asyncio.get_running_loop()
+    entry = _site_rate_locks.get(site_id)
+    if entry is None or entry[0] is not loop:
+        entry = (loop, asyncio.Lock())
+        _site_rate_locks[site_id] = entry
+    async with entry[1]:
+        history = _site_request_times.setdefault(site_id, deque())
+        now = time.monotonic()
+        while history and now - history[0] >= interval:
+            history.popleft()
+        if len(history) >= count:
+            await asyncio.sleep(max(0.0, interval - (now - history[0])))
+            now = time.monotonic()
+            while history and now - history[0] >= interval:
+                history.popleft()
+        history.append(time.monotonic())
 
 
 async def _current_downloads_cached() -> tuple[list[dict[str, Any]], str]:
@@ -248,6 +276,7 @@ async def search_one_site(
             errors: list[Exception] = []
             site_queries = queries[:1] if str(site["adapter"]) == "rss" else queries
             for title, imdb_id, _label in site_queries:
+                await wait_for_site_rate_limit(site)
                 query_count += 1
                 try:
                     rows = await client.search(site, title, imdb_id)
@@ -368,7 +397,7 @@ async def run_search(task_id: int) -> None:
             label = f"#{item['rank_no']} {item['original_title']}"
             task_log(task_id, "info", "recognize", f"开始识别 {label}")
             try:
-                tmdb_media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
+                tmdb_media = await recognize_item(item)
                 if not tmdb_media:
                     raise RuntimeError("TMDB 未返回匹配结果")
                 tmdb_id = to_int(tmdb_media["id"])

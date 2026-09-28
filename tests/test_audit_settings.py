@@ -1,64 +1,32 @@
 """Settings API and the browser's actual save payload must share one contract."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
+from unittest.mock import patch
 
 import httpx
 
+from app.api.system import RUNTIME_SETTING_CLEAR_FIELDS
 from app.config import load_runtime_settings, settings
 from app.main import app
 from tests.support import IsolatedAppTestCase
 
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def run_payload_module(expression: str) -> object:
+    """用 Node 直接执行 frontend/src/settingsPayload.ts，返回表达式的 JSON 结果。"""
+    script = f"import * as m from './frontend/src/settingsPayload.ts'; console.log(JSON.stringify({expression}));"
+    output = subprocess.check_output(
+        ["node", "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script],
+        cwd=ROOT, text=True,
+    )
+    return json.loads(output)
+
 
 class SettingsSaveTests(IsolatedAppTestCase):
-    async def test_browser_save_preserves_blank_credentials_and_proxy(self) -> None:
-        settings.tr_username = "audit-user"
-        settings.tr_password = "audit-password"
-        settings.tmdb_api_key = "audit-tmdb-value"
-        settings.tmdb_proxy_enabled = True
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            public = (await client.get("/api/settings")).json()
-            # Execute the production payload builder against empty settings inputs.
-            script = r"""
-const fs = require('node:fs');
-const vm = require('node:vm');
-const source = fs.readFileSync('app/static/app.js', 'utf8');
-const runtime = JSON.parse(process.argv[1]);
-const context = {
-  $: selector => ({value: selector === '#settings-timeout' ? '30' : '',
-    checked: selector === '#settings-tmdb-proxy' && Boolean(runtime.tmdb_proxy_enabled)}),
-  document: {querySelector: () => ({checked: false})},
-  api: async (path, options) => process.stdout.write(options.body),
-  loadSettings: async () => {}, testSettings: async () => {}, loadConnection: async () => {},
-};
-for (const name of ['secretValue', 'clearSettingSelected', 'saveSettings']) {
-  const start = source.indexOf((name === 'saveSettings' ? 'async ' : '') + 'function ' + name + '(');
-  const end = source.indexOf('\n}', start) + 2;
-  vm.runInNewContext(source.slice(start, end), context);
-}
-context.saveSettings().catch(error => { console.error(error); process.exitCode = 1; });
-"""
-            payload = json.loads(subprocess.check_output(
-                ["node", "-e", script, json.dumps(public)],
-                cwd=Path(__file__).resolve().parent.parent, text=True,
-            ))
-            response = await client.put("/api/settings", json=payload)
-            self.assertEqual(response.status_code, 200, response.text)
-            self.assertTrue(response.json()["tmdb_proxy_enabled"])
-            self.assertEqual(response.json()["tr_username"], "")
-            self.assertEqual(response.json()["tr_password"], "")
-            self.assertEqual(response.json()["tmdb_api_key"], "")
-            self.assertTrue(response.json()["tr_username_configured"])
-        # Verify persisted settings, not just the response or in-memory state.
-        settings.tr_username = settings.tr_password = settings.tmdb_api_key = ""
-        settings.tmdb_proxy_enabled = False
-        load_runtime_settings()
-        self.assertEqual(settings.tr_username, "audit-user")
-        self.assertEqual(settings.tr_password, "audit-password")
-        self.assertEqual(settings.tmdb_api_key, "audit-tmdb-value")
-        self.assertTrue(settings.tmdb_proxy_enabled)
-
     async def test_first_save_without_transmission_and_explicit_username_clear(self) -> None:
         settings.tr_username = ""
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
@@ -81,28 +49,79 @@ context.saveSettings().catch(error => { console.error(error); process.exitCode =
                 public = (await client.get("/api/settings")).json()
                 self.assertIs(public.get("tmdb_proxy_enabled"), enabled)
 
-    def test_settings_html_and_js_integrated_clear_buttons(self) -> None:
-        """设置弹窗中的敏感字段使用输入框内嵌清除按钮，彻底消除换行 checkbox。"""
-        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
-        html = (static_dir / "index.html").read_text(encoding="utf-8")
-        app_js = (static_dir / "app.js").read_text(encoding="utf-8")
-        # index.html 中不应再有独立的换行 clear-setting 复选框与外层包装
-        self.assertNotIn('class="clear-setting"', html)
-        self.assertNotIn('class="field-with-clear"', html)
-        # 必须存在 9 处内嵌清除按钮的 secret-field-wrap
-        for marker in (
-            "clear_tmdb_api_key",
-            "clear_mdblist_api_key",
-            "clear_ai_api_key",
-            "clear_mp_api_key",
-            "clear_tr_password",
-            "clear_emby_api_key",
-            "clear_cookiecloud_key",
-            "clear_cookiecloud_password",
-            "clear_outbound_proxy_url",
-        ):
-            with self.subTest(marker=marker):
-                self.assertIn(f'data-clear-setting="{marker}"', html)
-        # app.js 中包含按钮清除状态与事件委托逻辑
-        self.assertIn('button[data-clear-setting]', app_js)
-        self.assertIn('.secret-field-wrap', app_js)
+    async def test_save_settings_allows_private_hosts_when_access_token_configured(self) -> None:
+        """开启访问令牌时，MoviePilot、Emby、Transmission、AI 与代理等受信任下游服务仍允许配置局域网私有地址。"""
+        strong_token = "audit-token-with-sufficient-entropy-32chars!!"
+        payload = {
+            "mp_base_url": "http://192.168.31.100:3000",
+            "emby_base_url": "http://192.168.31.100:8096",
+            "tr_base_url": "http://192.168.31.100:9191",
+            "ai_base_url": "http://192.168.31.100:11434",
+            "outbound_proxy_url": "http://192.168.31.100:7890",
+        }
+        with patch.dict(os.environ, {"AUTOLIST_ACCESS_TOKEN": strong_token, "AUTOLIST_REQUIRE_STRONG_TOKEN": "false"}):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.put(
+                    "/api/settings", json=payload, headers={"Authorization": f"Bearer {strong_token}"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["mp_base_url"], "http://192.168.31.100:3000")
+                self.assertEqual(response.json()["emby_base_url"], "http://192.168.31.100:8096")
+                self.assertEqual(response.json()["tr_base_url"], "http://192.168.31.100:9191")
+                self.assertEqual(response.json()["ai_base_url"], "http://192.168.31.100:11434")
+                self.assertEqual(response.json()["outbound_proxy_url"], "http://192.168.31.100:7890")
+
+    async def test_browser_save_preserves_blank_credentials_and_proxy(self) -> None:
+        """新界面的真实组装逻辑：密钥与用户名留空时保留已保存的值，开关状态照常保存。"""
+        settings.tr_username = "audit-user"
+        settings.tr_password = "audit-password"
+        settings.tmdb_api_key = "audit-tmdb-value"
+        settings.outbound_proxy_url = "http://proxy.example:7890"
+        settings.tmdb_proxy_enabled = True
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            public = (await client.get("/api/settings")).json()
+            form = {
+                "tr_base_url": public["tr_base_url"], "tr_username": "", "tr_password": "",
+                "tmdb_api_key": "", "tmdb_language": "", "tmdb_proxy_enabled": public["tmdb_proxy_enabled"],
+                "outbound_proxy_url": "",
+            }
+            fields = list(form)
+            payload = run_payload_module(f"m.buildSettingsPayload({json.dumps(form)}, {json.dumps(fields)}, [])")
+            self.assertIsNone(payload["tr_password"])
+            self.assertIsNone(payload["tr_username"])
+            self.assertNotIn("clear_tr_password", payload)
+            response = await client.put("/api/settings", json=payload)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["tmdb_proxy_enabled"])
+            self.assertEqual(response.json()["tr_password"], "")
+            self.assertEqual(response.json()["tmdb_api_key"], "")
+            self.assertTrue(response.json()["tr_username_configured"])
+        # 校验持久化后的配置，而不只是响应或内存状态。
+        settings.tr_username = settings.tr_password = settings.tmdb_api_key = settings.outbound_proxy_url = ""
+        settings.tmdb_proxy_enabled = False
+        load_runtime_settings()
+        self.assertEqual(settings.tr_username, "audit-user")
+        self.assertEqual(settings.tr_password, "audit-password")
+        self.assertEqual(settings.tmdb_api_key, "audit-tmdb-value")
+        self.assertEqual(settings.outbound_proxy_url, "http://proxy.example:7890")
+        self.assertTrue(settings.tmdb_proxy_enabled)
+
+    async def test_browser_clear_marks_only_blank_clearable_fields(self) -> None:
+        settings.tmdb_api_key = "audit-tmdb-value"
+        settings.tr_password = "audit-password"
+        form = {"tmdb_api_key": "", "tr_password": "typed-new-value"}
+        payload = run_payload_module(
+            f"m.buildSettingsPayload({json.dumps(form)}, {json.dumps(list(form))}, ['tmdb_api_key', 'tr_password'])"
+        )
+        self.assertEqual(payload, {"tmdb_api_key": None, "clear_tmdb_api_key": True, "tr_password": "typed-new-value"})
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.put("/api/settings", json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(settings.tmdb_api_key, "")
+        self.assertEqual(settings.tr_password, "typed-new-value")
+
+    def test_clearable_fields_are_known_to_server(self) -> None:
+        clearable = run_payload_module("m.CLEARABLE_FIELDS")
+        self.assertTrue(set(clearable) <= set(RUNTIME_SETTING_CLEAR_FIELDS), set(clearable) - set(RUNTIME_SETTING_CLEAR_FIELDS))
+        secrets = run_payload_module("m.SECRET_FIELDS")
+        self.assertTrue(set(secrets) <= set(clearable))

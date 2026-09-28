@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
+from tests.support import task_candidates
 from app.healthcheck import validate_scheduler_health
 from app.api import playlists as playlist_routes
 from app.api import search as search_routes
@@ -90,108 +91,34 @@ class SecurityTests(unittest.TestCase):
         self.assertIn("aria-label=\"&quot;&lt;\"", unsafe)
         self.assertNotIn('aria-label=""', unsafe)
 
-    def test_c_archive_ui_keeps_required_business_hooks_unique(self) -> None:
-        html = (Path(__file__).resolve().parents[1] / "app" / "static" / "index.html").read_text(encoding="utf-8")
-        for marker in ("screening-dashboard", "site-constellation-workspace", "site-live-map", "site-inspector-panel"):
-            with self.subTest(marker=marker):
-                self.assertIn(marker, html)
-        for element_id in (
-            "dashboard-new-count", "dashboard-pending", "metric-playlist", "dashboard-task-pill",
-            "dashboard-task-title", "dashboard-task-copy", "dashboard-task-bar", "metric-candidates",
-            "metric-search", "metric-search-state", "metric-items", "metric-items-progress",
-            "dashboard-recognized", "dashboard-in-library", "dashboard-in-library-progress",
-            "dashboard-history-count", "metric-cart", "metric-cart-size", "dashboard-library-bar",
-        ):
-            with self.subTest(element_id=element_id):
-                self.assertEqual(html.count(f'id="{element_id}"'), 1)
-        self.assertNotIn('class="screening-recent"', html)
-        self.assertNotIn('class="screening-activity"', html)
-        self.assertNotIn('id="settings-random-posters"', html)
+    def test_tmdb_cross_language_and_year_tolerance_match(self) -> None:
+        from app.services.recognition import select_tmdb_match
+        # 1. 跨语言匹配（英文译名匹配非英语原片）
+        seven_samurai_opts = [{
+            "id": 346, "title": "七武士", "original_title": "七人の侍",
+            "original_language": "ja", "release_date": "1954-04-26",
+        }]
+        match = select_tmdb_match(seven_samurai_opts, "Seven Samurai", 1954)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["id"], 346)
 
-    def test_theme_ui_keeps_three_presets_and_shared_scene_hooks(self) -> None:
-        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
-        html = (static_dir / "index.html").read_text(encoding="utf-8")
-        theme_init = (static_dir / "js" / "theme-init.js").read_text(encoding="utf-8")
-        theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
-        self.assertIn('<html lang="zh-CN" data-theme="archive"', html)
-        self.assertIn('src="/assets/js/theme-init.js?v=1.25.0"', html)
-        self.assertIn('href="/assets/theme.css?v=1.25.0"', html)
-        for theme in ("archive", "cinema", "ledger"):
-            with self.subTest(theme=theme):
-                self.assertIn(f'{theme}: Object.freeze', theme_init)
-                self.assertIn(f'data-theme-option="{theme}"', html)
-                self.assertIn(f'html[data-theme="{theme}"]', theme_css)
-        for page in ("dashboard", "playlists", "search", "cart", "rules", "sites", "history", "logs"):
-            with self.subTest(page=page):
-                self.assertIn(f'data-page="{page}"', html)
-                self.assertIn(f'body[data-page="{page}"]', theme_css)
-        self.assertIn('id="settings-scene-mode"', html)
-        self.assertIn('id="settings-reduced-motion"', html)
-        self.assertNotIn("theme-copy", html)
-        for palette_copy in ("浅色 · 纸白、青绿与琥珀", "深色 · 深青、冰蓝与琥珀", "纸张 · 米白、铁锈与深青"):
-            with self.subTest(palette_copy=palette_copy):
-                self.assertIn(palette_copy, html)
-        for stale_copy in ("待放映资源", "放映日志", "场次与放映队列", "数据与编号优先"):
-            with self.subTest(stale_copy=stale_copy):
-                self.assertNotIn(stale_copy, html)
-        self.assertIn("来源档案室", (static_dir / "app.js").read_text(encoding="utf-8"))
-        for label in ("电影藏馆", "馆藏片单", "来源检索", "待入馆", "入馆标准", "入馆动态", "来源网络", "操作日志"):
-            with self.subTest(label=label):
-                self.assertIn(label, html)
-        self.assertIn("滚轮或双指缩放", html)
-        site_map_js = (static_dir / "js" / "site-map.js").read_text(encoding="utf-8")
-        app_js = (static_dir / "app.js").read_text(encoding="utf-8")
-        # 3-10 拆分后：地图计算层在 js/site-map.js，app.js 通过 ES 模块导入。
-        self.assertIn('data-site-map-zoom="in"', app_js)
-        self.assertIn("siteMapViewportStorageKey", site_map_js)
-        self.assertIn("site-map-canvas", app_js)
-        self.assertIn('id="reset-site-layout"', html)
-        self.assertIn('id="toggle-site-orientation"', html)
-        self.assertIn("siteMapOrientationStorageKey", site_map_js)
-        self.assertIn('class="nav-item-label"', html)
-        self.assertIn("siteNodePositionStorageKey", site_map_js)
-        self.assertNotIn('document.documentElement.dataset.theme = "light"', (static_dir / "app.js").read_text(encoding="utf-8"))
-        self.assertIn('canvas.style.transform = `translate3d(', site_map_js)
-        self.assertIn('export function siteMapCopy()', site_map_js)
-        self.assertIn('label.textContent = "界面主题"', app_js)
-        self.assertNotIn("theme-copy", theme_css)
+        # 2. 跨年份公映首映容差（Casablanca 1942 vs 1943）
+        casablanca_opts = [{
+            "id": 289, "title": "卡萨布兰卡", "original_title": "Casablanca",
+            "original_language": "en", "release_date": "1943-01-15",
+        }]
+        match = select_tmdb_match(casablanca_opts, "Casablanca", 1942)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["id"], 289)
 
-    def test_theme_variants_share_layout_and_keep_palette_contracts(self) -> None:
-        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
-        theme_css = (static_dir / "theme.css").read_text(encoding="utf-8")
-        app_js = (static_dir / "app.js").read_text(encoding="utf-8")
-        for marker in (
-            "--cinema-primary-bg",
-            'html[data-theme="cinema"] .filter-chip.active',
-            "1.18 theme contract",
-            'html[data-theme] body[data-page="dashboard"] .screening-mission-grid',
-            'html[data-theme] body[data-page="search"] .search-console',
-            'html[data-theme] body[data-page="sites"] .site-live-map',
-            'html[data-theme] .site-star-node.selected .site-node-core',
-            '@media (max-width: 680px)',
-            "@media (min-width: 901px)",
-        ):
-            with self.subTest(marker=marker):
-                self.assertIn(marker, theme_css)
-        for legacy_layout in (
-            'html[data-theme="ledger"] body[data-page="sites"] .site-linear-list-items { grid-template-columns: 1fr;',
-            'html[data-theme="cinema"] body[data-page="search"] .search-console { display: grid;',
-            'html[data-theme="ledger"] .screening-hero { min-height:',
-            'html[data-theme="ledger"] body[data-page="dashboard"] .screening-feature { min-height:',
-        ):
-            with self.subTest(legacy_layout=legacy_layout):
-                self.assertNotIn(legacy_layout, theme_css)
-        self.assertIn('class="candidate-index"', app_js)
-
-    def test_inline_svg_icons_have_explicit_size_and_safe_paint_contract(self) -> None:
-        static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
-        style_css = (static_dir / "style.css").read_text(encoding="utf-8")
-        html = (static_dir / "index.html").read_text(encoding="utf-8")
-        self.assertIn(".inline-icon", style_css)
-        self.assertIn(".rule-summary > i > svg", style_css)
-        self.assertIn(".history-status .inline-icon", style_css)
-        self.assertIn('<div class="rule-summary"', html)
-        self.assertNotIn('<svg class="theme-copy', html)
+        # 3. 超长片名与短片名包含测试 (M -> M就是凶手)
+        m_opts = [{
+            "id": 832, "title": "M就是凶手", "original_title": "M - Eine Stadt sucht einen Mörder",
+            "original_language": "de", "release_date": "1931-05-11",
+        }]
+        match = select_tmdb_match(m_opts, "M", 1931)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["id"], 832)
 
     def test_playlist_source_url_rejects_embedded_secrets(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能包含"):
@@ -490,7 +417,9 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             system_routes, "connection", new=AsyncMock(return_value={"providers": {"fresh": True}})
         ) as connection_mock:
             result = await system_routes.test_runtime_settings()
-        self.assertEqual(result, {"fresh": True})
+        # “检测全部”在核心服务之外附带 Fanart（未配置时如实返回未配置）。
+        self.assertEqual(result["fresh"], True)
+        self.assertEqual(result["fanart"]["configured"], bool(system_routes.settings.fanart_api_key))
         connection_mock.assert_awaited_once_with(force_refresh=True)
 
     async def test_runtime_settings_concurrent_partial_saves_are_atomic(self) -> None:
@@ -754,38 +683,6 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(raised.exception.status_code, 422)
 
-    async def test_overview_exposes_only_local_emby_poster_urls(self) -> None:
-        with connect() as conn:
-            conn.execute("UPDATE playlist_items SET library_state='unknown',emby_item_id=NULL,emby_image_tag=NULL")
-            item_id = conn.execute(
-                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1", (self.playlist_id,),
-            ).fetchone()[0]
-            conn.execute(
-                "UPDATE playlist_items SET library_state='in_library',emby_item_id='abc123',emby_image_tag='tag1' WHERE id=?",
-                (item_id,),
-            )
-        result = await main.overview()
-        self.assertEqual(result["recent_items"][0]["poster_url"], f"/api/playlist-items/{item_id}/poster?tag=tag1")
-        self.assertNotIn("api_key", result["recent_items"][0]["poster_url"])
-
-    async def test_overview_labels_latest_task_playlist_and_not_in_library_count(self) -> None:
-        now = main.utc_now()
-        with connect() as conn:
-            second_playlist_id = to_int(conn.execute(
-                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
-                ("第二片单", 2, now),
-            ).lastrowid)
-            conn.execute(
-                "INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
-                (second_playlist_id, 1, 1, "completed", 1, now, now),
-            )
-        result = await main.overview()
-        self.assertEqual(result["playlist_name"], "测试片单")
-        self.assertEqual(result["not_in_library_count"], 125)
-        self.assertEqual(result["pending_count"], result["not_in_library_count"])
-        self.assertEqual(result["latest_task"]["playlist_id"], second_playlist_id)
-        self.assertEqual(result["latest_task"]["playlist_name"], "第二片单")
-
     async def test_history_projects_source_backed_lifecycle_states(self) -> None:
         with connect() as conn:
             items = {
@@ -832,26 +729,6 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_title["Movie 5"]["lifecycle_status"], "pending_library")
         self.assertEqual(by_title["Movie 5"]["status_label"], "待入库")
 
-    async def test_overview_random_posters_are_stable_and_not_rank_ordered(self) -> None:
-        ordered = await main.overview()
-        self.assertEqual([item["rank_no"] for item in ordered["recent_items"]], [1, 2, 3, 4, 5, 6])
-        settings.dashboard_random_posters = True
-        first = await main.overview()
-        second = await main.overview()
-        first_ranks = [item["rank_no"] for item in first["recent_items"]]
-        self.assertEqual(first_ranks, [item["rank_no"] for item in second["recent_items"]])
-        self.assertEqual(len(first_ranks), 6)
-        # 随机海报必须来自已入库影片集合，不依赖 fixture 的 rank 奇偶约定。
-        with connect() as conn:
-            in_library_ranks = {
-                to_int(row["rank_no"]) for row in conn.execute(
-                    "SELECT rank_no FROM playlist_items WHERE playlist_id=? AND library_state='in_library'",
-                    (self.playlist_id,),
-                )
-            }
-        self.assertTrue(set(first_ranks).issubset(in_library_ranks))
-        self.assertNotEqual(first_ranks, [1, 2, 3, 4, 5, 6])
-
     async def test_emby_poster_is_proxied_and_validated(self) -> None:
         with connect() as conn:
             item_id = conn.execute(
@@ -872,18 +749,6 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
             main.EmbyClient.poster = original
         self.assertEqual(response.media_type, "image/png")
         self.assertEqual(response.body, b"\x89PNG\r\n\x1a\nposter")
-
-    async def test_playlist_items_are_server_paginated_and_filtered(self) -> None:
-        result = await main.playlist_items(self.playlist_id, page=2, page_size=100)
-        self.assertEqual(result["total"], 250)
-        self.assertEqual(result["page"], 2)
-        self.assertEqual(len(result["items"]), 100)
-        self.assertEqual(result["items"][0]["rank_no"], 101)
-        filtered = await main.playlist_items(self.playlist_id, page=1, page_size=200, query="Movie 25")
-        self.assertGreater(filtered["total"], 0)
-        self.assertTrue(all("Movie 25" in item["original_title"] for item in filtered["items"]))
-        capped = await main.playlist_items(self.playlist_id, page=1, page_size=10_000)
-        self.assertEqual(capped["page_size"], 200)
 
     async def test_expired_cart_context_is_visible_and_recorded_safely(self) -> None:
         with connect() as conn:
@@ -1136,7 +1001,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                    VALUES(?,?,?,?,?,?,?,?,?)""",
                 ("damaged", task_id, item_id, 0, "Example 1080p", 9, 1, "not-json", main.utc_now()),
             )
-        result = await main.candidates(to_int(task_id))
+        result = task_candidates(to_int(task_id))
         self.assertEqual(result[0]["metadata"], {})
 
     async def test_site_icon_blocks_cross_host_private_networks(self) -> None:
@@ -1551,7 +1416,7 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
                      "1080p", "x265", "FRDS", 1, 90, "[]", index, "preferred", "", "movie20241080px265frds:0",
                      "unknown", 0, "eligible", None, "primary_x265", "{}", main.utc_now()),
                 )
-        result = await main.candidates(to_int(task_id))
+        result = task_candidates(to_int(task_id))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["site_name"], "聚合测试站B")
         self.assertEqual(result[0]["seeders"], 80)
@@ -1657,29 +1522,6 @@ class DatabaseAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client._parse_publish_time(["", "昨天"]), (_dt.date.today() - _dt.timedelta(days=1)).isoformat())
         self.assertEqual(client._parse_publish_time(["", "3 小时前"]), _dt.date.today().isoformat())
 
-
-
-class FrontendContractTests(unittest.TestCase):
-    """2-25：前端契约从字符串计数升级为引用一致性——app.js 的 ES 模块导入必须可解析。"""
-
-    def test_frontend_module_contract_js_imports_resolve(self) -> None:
-        from pathlib import Path
-        import re
-
-        app_js = Path("app/static/app.js").read_text(encoding="utf-8")
-        import_line = next(line for line in app_js.splitlines() if line.startswith("import {"))
-        imported = [name.strip() for name in import_line.split("{", 1)[1].split("}", 1)[0].split(",")]
-        core_js = Path("app/static/js/core.js").read_text(encoding="utf-8")
-        missing = [name for name in imported if f"export const {name}" not in core_js and f"export function {name}" not in core_js]
-        self.assertEqual(missing, [])
-
-        module_imports = re.findall(r'^import\s*\{(.*?)\}\s*from\s*"([^"]+)";', app_js, re.M | re.S)
-        site_body = next((body for body, path in module_imports if path == "./js/site-map.js"), None)
-        self.assertIsNotNone(site_body)
-        site_imported = [name.strip() for name in site_body.split(",") if name.strip()]
-        site_map_js = Path("app/static/js/site-map.js").read_text(encoding="utf-8")
-        site_exports = set(re.findall(r"export (?:const|let|function) ([A-Za-z_$][\w$]*)", site_map_js))
-        self.assertEqual([name for name in site_imported if name not in site_exports], [])
 
 
 if __name__ == "__main__":

@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import re
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
 
 from ..clients import EmbyClient
+from ..config import settings
 from ..database import cleanup_old_data, connect, json_value
 from ..domain.titles import canonical_item_title, canonical_item_year, item_identity_keys
 from .. import state
@@ -19,21 +21,55 @@ from ..list_sources import PlaylistSourceFetcher
 from ..security import safe_error, sanitize_sensitive_text
 from ..state import (
     MAX_RUNNING_AUTOMATION_TASKS,
+    MAX_RUNNING_LIBRARY_TASKS,
     enforce_background_task_capacity,
     running_automation_tasks,
+    running_library_tasks,
     running_recognition_tasks,
     running_tasks,
 )
-from ..util import utc_now
-from .library import library_details
-from .recognition import persist_tmdb_item, recognize_movie
+from ..util import to_int, utc_now
+from .films import reidentify_item
+from .library import library_details, run_library_scan
+from .recognition import persist_tmdb_item, recognize_item
 from .imports import normalize_import_items
 from .search import begin_search_task_slot, run_search, searchable_playlist_items
 from .sites import refresh_stale_site_account_stats
 
 
+def _trigger_post_recognition_library_scan(playlist_id: int) -> None:
+    """识别完成后自动刷新 Emby 状态；未配置 Emby 时不写入无法确认的入库状态。"""
+    if not settings.emby_base_url or not settings.emby_api_key:
+        return
+    if enforce_background_task_capacity(running_library_tasks, MAX_RUNNING_LIBRARY_TASKS, "Emby 状态刷新") is not None:
+        return
+    try:
+        lib_task_id: int | None = None
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            active = conn.execute(
+                "SELECT id FROM library_scan_tasks WHERE playlist_id=? AND status IN ('queued','running')",
+                (playlist_id,),
+            ).fetchone()
+            if active:
+                return
+            total = conn.execute("SELECT COUNT(*) FROM playlist_items WHERE playlist_id=?", (playlist_id,)).fetchone()[0]
+            if not total:
+                return
+            cursor = conn.execute(
+                "INSERT INTO library_scan_tasks(playlist_id,status,total,created_at,updated_at) VALUES(?,?,?,?,?)",
+                (playlist_id, "queued", total, utc_now(), utc_now()),
+            )
+            lib_task_id = cursor.lastrowid
+        if lib_task_id is not None:
+            running_library_tasks[lib_task_id] = asyncio.create_task(run_library_scan(lib_task_id))
+    except Exception as exc:
+        # 自动扫描只是识别后的附加步骤，失败不能改写已经完成的识别任务状态。
+        event_logger().warning("library_scan_auto_trigger_failed", extra={"error": safe_error(exc)})
+
+
 def update_recognition_task(task_id: int, **values: Any) -> None:
-    if not set(values).issubset({"status", "completed", "matched", "error_message"}):
+    if not set(values).issubset({"status", "completed", "matched", "corrected", "error_message"}):
         raise ValueError("无效的识别任务字段")
     values["updated_at"] = utc_now()
     assignments = ", ".join(f"{key}=?" for key in values)
@@ -43,33 +79,68 @@ def update_recognition_task(task_id: int, **values: Any) -> None:
 
 
 async def run_recognition(task_id: int) -> None:
+    playlist_id: int | None = None
     try:
         with connect() as conn:
             task = conn.execute("SELECT * FROM recognition_tasks WHERE id=?", (task_id,)).fetchone()
             if not task:
                 return
+            playlist_id = int(task["playlist_id"])
+            verify = task["mode"] == "verify"
+            # 校准处理整份片单；普通识别只处理还没识别的影片。
             items = conn.execute(
                 """SELECT * FROM playlist_items
-                   WHERE playlist_id=? AND (tmdb_id IS NULL OR tmdb_title IS NULL OR tmdb_original_title IS NULL)
-                   ORDER BY rank_no""", (task["playlist_id"],),
+                   WHERE playlist_id=? AND (? OR tmdb_id IS NULL OR tmdb_title IS NULL OR tmdb_original_title IS NULL)
+                   ORDER BY rank_no""", (task["playlist_id"], int(verify)),
             ).fetchall()
+        if items and not settings.tmdb_api_key:
+            # 未配置 TMDB 时每部影片都会得到同一个错误，直接失败并给出配置提示。
+            update_recognition_task(task_id, status="failed", error_message="请先在设置中填写 TMDB API Key")
+            return
         update_recognition_task(task_id, status="running")
-        matched, errors = 0, []
+        matched, corrected, errors = 0, 0, []
         for completed, item in enumerate(items, start=1):
             try:
-                media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
-                if media:
+                media = await recognize_item(item)
+                current = item["tmdb_id"]
+                if media and current and to_int(media["id"]) != to_int(current):
+                    # 已识别的影片只在按编号（IMDb / 来源 TMDB）得到不同结果时改正；片名搜索不推翻已有结果。
+                    if media.get("matched_by") in {"imdb", "tmdb"}:
+                        reidentify_item(int(item["id"]), media, item["imdb_id"])
+                        corrected += 1
+                        event_logger().info(
+                            "recognition_corrected",
+                            extra={"detail": f"#{item['rank_no']} TMDB {current} → {media['id']}（按 {media['matched_by']} 编号）"},
+                        )
+                    matched += 1
+                elif media:
                     persist_tmdb_item(int(item["id"]), media, item["imdb_id"])
                     matched += 1
                 else:
                     errors.append(f"#{item['rank_no']} 未识别")
             except Exception as exc:
                 errors.append(f"#{item['rank_no']} {safe_error(exc)}")
-            update_recognition_task(task_id, completed=completed, matched=matched)
+            update_recognition_task(task_id, completed=completed, matched=matched, corrected=corrected)
+        status = "partial" if errors else "completed"
         update_recognition_task(
-            task_id, status="partial" if errors else "completed", completed=len(items), matched=matched,
+            task_id, status=status, completed=len(items), matched=matched,
             error_message="；".join(errors[:8])[:500] if errors else None,
         )
+        event_logger().info(
+            "recognition_finished",
+            extra={
+                "task_id": task_id,
+                "status": status,
+                "total": len(items),
+                "matched": matched,
+                "detail": (
+                    f"按 IMDb 校准结束：{len(items)} 部中改正 {corrected} 部" if verify
+                    else f"TMDB 识别结束：{matched}/{len(items)} 部已识别"
+                ),
+            },
+        )
+        if playlist_id is not None:
+            _trigger_post_recognition_library_scan(playlist_id)
     except asyncio.CancelledError as _cancel:
         update_recognition_task(task_id, status="cancelled")
         raise
@@ -118,7 +189,7 @@ async def run_playlist_automation(run_id: int) -> None:
         for completed, item in enumerate(items, start=1):
             tmdb_id = item["tmdb_id"]
             if not tmdb_id or not item["tmdb_title"] or not item["tmdb_original_title"]:
-                media = await recognize_movie(item["original_title"], item["year"], item["imdb_id"])
+                media = await recognize_item(item)
                 if media:
                     tmdb_id = int(media["id"])
                     recognized += 1
@@ -273,25 +344,34 @@ async def _sync_playlist_incremental(playlist_id: int, trigger: str = "manual") 
         incoming = normalize_import_items(source.get("items", []))
         with connect() as conn:
             existing = conn.execute(
-                "SELECT imdb_id,tmdb_id,original_title,year FROM playlist_items WHERE playlist_id=?", (playlist_id,),
+                """SELECT id,imdb_id,tmdb_id,source_tmdb_id,source_ref,original_title,year
+                   FROM playlist_items WHERE playlist_id=?""", (playlist_id,),
             ).fetchall()
             keys = {
                 key
                 for row in existing
                 for key in item_identity_keys(dict(row))
             }
+            by_key = {key: row for row in existing for key in item_identity_keys(dict(row))}
             max_rank = int(conn.execute("SELECT COALESCE(MAX(rank_no),0) FROM playlist_items WHERE playlist_id=?", (playlist_id,)).fetchone()[0])
             additions = []
             for item in incoming:
                 if any(key in keys for key in item_identity_keys(item)):
+                    # 增量同步不改动已有影片，只补上早期导入时没有保存的来源身份。
+                    old = next(by_key[key] for key in item_identity_keys(item) if key in by_key)
+                    conn.execute(
+                        """UPDATE playlist_items SET source_tmdb_id=COALESCE(source_tmdb_id,?),source_ref=COALESCE(source_ref,?)
+                           WHERE id=?""",
+                        (item.get("tmdb_id"), item.get("source_ref"), old["id"]),
+                    )
                     continue
                 keys.update(item_identity_keys(item))
                 max_rank += 1
                 additions.append({**item, "playlist_id": playlist_id, "rank_no": max_rank})
             if additions:
                 conn.executemany(
-                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,tmdb_id)
-                       VALUES(:playlist_id,:rank_no,:imdb_id,:original_title,:year,:chinese_title,:tmdb_id)""", additions,
+                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,source_tmdb_id,source_ref)
+                       VALUES(:playlist_id,:rank_no,:imdb_id,:original_title,:year,:chinese_title,:tmdb_id,:source_ref)""", additions,
                 )
             next_sync = (datetime.now(timezone.utc) + timedelta(hours=int(playlist["sync_interval_hours"] or 24))).isoformat()
             message = f"增量同步完成，新增 {len(additions)} 部，保留现有 {len(existing)} 部"
@@ -300,6 +380,14 @@ async def _sync_playlist_incremental(playlist_id: int, trigger: str = "manual") 
                    WHERE id=?""", (source.get("source_name"), utc_now(), next_sync, message, playlist_id),
             )
         add_notification("片单来源已同步", f"{playlist['name']}：{message}", "success")
+        event_logger().info(
+            "playlist_synced",
+            extra={
+                "detail": f"片单【{playlist['name']}】{message}",
+                "trigger": trigger,
+                "total": len(additions),
+            },
+        )
         if additions and playlist["automation_enabled"]:
             await start_playlist_automation(playlist_id, "sync")
         return {"id": playlist_id, "added": len(additions), "message": message, "trigger": trigger}
@@ -313,6 +401,14 @@ async def _sync_playlist_incremental(playlist_id: int, trigger: str = "manual") 
                 (reason, (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), playlist_id),
             )
         add_notification("片单同步失败", f"{playlist['name']}：{reason}", "error")
+        event_logger().error(
+            "playlist_sync_failed",
+            extra={
+                "detail": f"片单【{playlist['name']}】同步失败：{reason}",
+                "trigger": trigger,
+                "error": reason,
+            },
+        )
         raise
 
 
@@ -436,7 +532,11 @@ async def _scheduler_heartbeat_loop() -> None:
         await asyncio.sleep(SCHEDULER_HEARTBEAT_INTERVAL_SECONDS)
 
 
+_last_remote_cookiecloud_sync_time: float = 0.0
+
+
 async def sync_scheduler() -> None:
+    global _last_remote_cookiecloud_sync_time
     state.mark_scheduler_started(utc_now())
     heartbeat_task = asyncio.create_task(_scheduler_heartbeat_loop())
     try:
@@ -448,6 +548,32 @@ async def sync_scheduler() -> None:
                 # starve the independent heartbeat during a slow SQLite pass.
                 await asyncio.to_thread(cleanup_old_data)
                 await refresh_stale_site_account_stats()
+                # 若配置了远程 CookieCloud 服务地址，每小时定期拉取并刷新站点 Cookie
+                if (
+                    settings.cookiecloud_url
+                    and settings.cookiecloud_key
+                    and settings.cookiecloud_password
+                    and (time.monotonic() - _last_remote_cookiecloud_sync_time > 3600 or _last_remote_cookiecloud_sync_time == 0.0)
+                ):
+                    try:
+                        from .cookiecloud_store import fetch_remote_cookiecloud
+                        from .sites import apply_cookie_groups
+                        from ..cookiecloud import cookie_groups
+                        cc_payload = await fetch_remote_cookiecloud(settings.cookiecloud_url, settings.cookiecloud_key, settings.cookiecloud_password)
+                        applied = apply_cookie_groups(cookie_groups(cc_payload), origin="pull")
+                        _last_remote_cookiecloud_sync_time = time.monotonic()
+                        if applied["updated"]:
+                            event_logger().info(
+                                "scheduler_cookiecloud_synced",
+                                extra={
+                                    "detail": f"定时自动同步 Cookie 成功，已更新 {len(applied['updated'])} 个站点",
+                                    "total": len(applied["updated"]),
+                                },
+                            )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        event_logger().warning("scheduler_cookiecloud_sync_failed", extra={"error": safe_error(exc)})
                 await consume_queued_automation_runs()
                 now = utc_now()
                 with connect() as conn:

@@ -56,6 +56,9 @@ def parse_csv_items(content: str) -> tuple[str | None, list[dict[str, Any]]]:
     return None, items
 
 
+LETTERBOXD_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+LETTERBOXD_FILM_LINK = re.compile(r"letterboxd\.com/(?:[^/]+/)?film/([a-z0-9]+(?:-[a-z0-9]+)*)/")
+
 class PlaylistSourceFetcher:
     def __init__(self) -> None:
         self.headers = {
@@ -205,8 +208,12 @@ class PlaylistSourceFetcher:
                         title_text = (entry.findtext("title") or "").strip()
                         year_match = re.search(r",\s*(\d{4})$", title_text)
                         title = re.sub(r",\s*\d{4}$", "", title_text).strip()
+                        slug_match = LETTERBOXD_FILM_LINK.search(entry.findtext("link") or "")
+                        tmdb_text = next((child.text for child in entry if child.tag.endswith("}movieId") and child.text), None)
                         if title:
-                            all_items.append({"rank_no": len(all_items) + 1, "imdb_id": None, "tmdb_id": None,
+                            all_items.append({"rank_no": len(all_items) + 1, "imdb_id": None,
+                                              "tmdb_id": int(tmdb_text) if str(tmdb_text or "").strip().isdigit() else None,
+                                              "source_ref": f"letterboxd:{slug_match.group(1)}" if slug_match else None,
                                               "original_title": title, "year": int(year_match.group(1)) if year_match else None, "chinese_title": None})
                             if len(all_items) >= limit:
                                 break
@@ -246,6 +253,7 @@ class PlaylistSourceFetcher:
                     year_match = re.search(r"\((\d{4})\)\s*$", label)
                     title = re.sub(r"^Poster for\s+", "", re.sub(r"\s*\(\d{4}\)\s*$", "", label), flags=re.I).strip()
                     all_items.append({"rank_no": len(all_items) + 1, "imdb_id": None, "tmdb_id": None,
+                                      "source_ref": f"letterboxd:{slug}" if LETTERBOXD_SLUG.fullmatch(slug) else None,
                                       "original_title": title, "year": int(year_match.group(1)) if year_match else None, "chinese_title": None})
                     added += 1
                     if len(all_items) >= limit:
@@ -254,6 +262,27 @@ class PlaylistSourceFetcher:
                     break
                 page += 1
         return {"source_type": "letterboxd", "source_name": name, "source_url": url, "items": all_items}
+
+    async def letterboxd_film_ids(self, slug: str) -> tuple[int | None, str | None]:
+        """Letterboxd 影片页记录的 TMDB 与 IMDb 编号（Letterboxd 的影片资料来自 TMDB）。
+
+        letterboxd.com 有 Cloudflare 校验，官方嵌入域名 embed.letterboxd.com 的影片页可以直接读取。
+        """
+        if not LETTERBOXD_SLUG.fullmatch(slug):
+            raise ValueError("Letterboxd 影片标识无效")
+        proxy = self._proxy()
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False, proxy=proxy) as client:
+            response = await safe_request(
+                client, "GET", f"https://embed.letterboxd.com/film/{slug}/", headers=self.headers,
+                label="Letterboxd 影片地址", proxy_mode=bool(proxy),
+            )
+            response.raise_for_status()
+        html = response.text
+        tmdb_type = re.search(r'data-tmdb-type="([a-z]+)"', html)
+        tmdb_id = re.search(r'data-tmdb-id="(\d+)"', html)
+        imdb_id = re.search(r"imdb\.com/title/(tt\d{5,10})", html)
+        is_movie = not tmdb_type or tmdb_type.group(1) == "movie"
+        return (int(tmdb_id.group(1)) if tmdb_id and is_movie else None), (imdb_id.group(1) if imdb_id else None)
 
     async def _imdb(self, url: str, limit: int) -> dict[str, Any]:
         path = urlparse(url).path.rstrip("/")

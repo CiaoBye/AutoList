@@ -11,6 +11,8 @@ MAX_SEARCH_ITEMS = 2000
 MAX_SEARCH_RANGE_END = 200_000
 MAX_IMPORT_JSON_BYTES = 10 * 1024 * 1024
 MAX_IMPORT_ROWS = 200_000
+# CookieCloud 用户 KEY 的唯一格式定义：设置保存、扩展上传、读取与本地存储共用。
+COOKIECLOUD_KEY_PATTERN = r"[A-Za-z0-9_-]{5,128}"
 
 
 class ImportPayload(BaseModel):
@@ -71,8 +73,10 @@ class RuntimeSettingsPayload(BaseModel):
     emby_api_key: str | None = Field(default=None, max_length=512)
     tmdb_api_key: str | None = Field(default=None, max_length=512)
     tmdb_language: str = Field(default="zh-CN", max_length=32)
+    fanart_api_key: str | None = Field(default=None, max_length=512)
     mdblist_api_key: str | None = Field(default=None, max_length=512)
-    cookiecloud_key: str | None = Field(default=None, max_length=128, pattern=r"^(?:[A-Za-z0-9_-]{12,128})?$")
+    cookiecloud_url: str | None = Field(default=None, max_length=2048)
+    cookiecloud_key: str | None = Field(default=None, max_length=128, pattern=rf"^(?:{COOKIECLOUD_KEY_PATTERN})?$")
     cookiecloud_password: str | None = Field(default=None, max_length=2048)
     outbound_proxy_url: str | None = Field(default=None, max_length=2048)
     tmdb_proxy_enabled: bool = False
@@ -108,7 +112,7 @@ class SitePayload(BaseModel):
 
 
 class CookieCloudUploadPayload(BaseModel):
-    uuid: str = Field(min_length=12, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    uuid: str = Field(max_length=128, pattern=rf"^{COOKIECLOUD_KEY_PATTERN}$")
     encrypted: str = Field(min_length=16, max_length=32_000_000)
     crypto_type: str = Field(default="legacy", pattern=r"^(legacy|aes-128-cbc-fixed)$")
 
@@ -130,3 +134,9 @@ class PlaylistAutomationPayload(BaseModel):
 class PlaylistSyncPayload(BaseModel):
     enabled: bool = False
     interval_hours: int = Field(default=24, ge=1, le=720)
+
+
+class FilmTmdbPayload(BaseModel):
+    """Manually pin a film to a TMDB movie id when automatic recognition picked the wrong one."""
+
+    tmdb_id: int = Field(ge=1, le=100_000_000)

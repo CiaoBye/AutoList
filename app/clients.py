@@ -63,7 +63,9 @@ class MoviePilotClient:
         if not self.base_url or not settings.mp_api_key:
             return {"ok": False, "configured": False, "message": "未配置 MoviePilot"}
         async with self._client() as client:
-            response = await safe_request(client, "GET", "/api/v1/download/clients", headers=self.headers, label="MoviePilot 地址")
+            response = await safe_request(
+                client, "GET", "/api/v1/download/clients", headers=self.headers, label="MoviePilot 地址", allow_private=True,
+            )
             response.raise_for_status()
             return {"ok": True, "configured": True, "downloaders": response.json()}
 
@@ -80,9 +82,13 @@ class MoviePilotClient:
             response = await safe_request(
                 client, "POST", "/api/v1/download/", headers=self.headers,
                 json={"media_in": media_in, "torrent_in": torrent_payload, "downloader": downloader},
+                label="MoviePilot 地址", allow_private=True,
             )
             response.raise_for_status()
             return response.json()
+
+TMDB_POSTER_MAX_BYTES = 4 * 1024 * 1024
+
 
 class TMDBClient:
     base_url = "https://api.themoviedb.org/3"
@@ -135,11 +141,11 @@ class TMDBClient:
         await self._get("/configuration", params)
         return {"ok": True, "configured": True}
 
-    async def search_movie(self, title: str, year: int | None = None) -> list[dict[str, Any]]:
+    async def search_movie(self, title: str, year: int | None = None, language: str | None = None) -> list[dict[str, Any]]:
         if not settings.tmdb_api_key:
             raise RuntimeError("请先在设置中填写 TMDB API Key")
         _, auth_params = self._auth()
-        params: dict[str, Any] = {"query": title, "language": settings.tmdb_language, **auth_params}
+        params: dict[str, Any] = {"query": title, "language": language or settings.tmdb_language, **auth_params}
         if year:
             params["year"] = year
         response = await self._get("/search/movie", params)
@@ -156,6 +162,127 @@ class TMDBClient:
     async def movie_external_ids(self, tmdb_id: int) -> dict[str, Any]:
         _, params = self._auth()
         return (await self._get(f"/movie/{tmdb_id}/external_ids", params)).json()
+
+    async def movie_details(self, tmdb_id: int) -> dict[str, Any]:
+        if not settings.tmdb_api_key:
+            raise RuntimeError("请先在设置中填写 TMDB API Key")
+        _, params = self._auth()
+        return (await self._get(f"/movie/{int(tmdb_id)}", {"language": settings.tmdb_language, **params})).json()
+
+    async def poster_image(self, poster_path: str, size: str = "w342") -> tuple[bytes, str]:
+        """Download one TMDB poster; the caller validates ``poster_path`` against TMDB's path shape."""
+        proxy = settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None
+        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False, proxy=proxy) as client:
+            response = await safe_request(
+                client, "GET", f"https://image.tmdb.org/t/p/{size}{poster_path}", label="TMDB 海报",
+                proxy_mode=bool(proxy), max_response_bytes=TMDB_POSTER_MAX_BYTES,
+            )
+            response.raise_for_status()
+        return response.content, response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+
+
+FANART_POSTER_MAX_BYTES = 8 * 1024 * 1024
+# 只接受 fanart.tv 自己的图片资源地址，防止把任意 URL 写进数据库后由服务端代为请求。
+# 当前接口返回 /fanart/<名称>.jpg，早期为 /fanart/movies/<编号>/movieposter/<名称>.jpg，两种都接受。
+FANART_POSTER_URL = re.compile(
+    r"https://assets\.fanart\.tv/fanart/(?:movies/\d+/(?:movieposter|moviebackground)/)?[A-Za-z0-9._-]+\.(?:jpg|jpeg|png)"
+)
+
+
+def fanart_poster_rank(poster: dict[str, Any], original_language: str | None) -> tuple[int, int]:
+    """影片原语言的海报优先（英语片要英文版、日语片要日文版），其次无字版、英文版；同语言取点赞最多。"""
+    lang = str(poster.get("lang") or "").lower()
+    order = {"00": 1, "": 1, "en": 2}
+    if original_language:
+        order[original_language.lower()] = 0
+    return order.get(lang, 3), -to_int(poster.get("likes"))
+
+
+class FanartClient:
+    base_url = "https://webservice.fanart.tv/v3"
+
+    def _proxy(self) -> str | None:
+        # fanart.tv 与 TMDB 同属影片元数据源，共用“TMDB 走代理”开关。
+        return settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None
+
+    async def _movie(self, movie_id: int | str) -> httpx.Response:
+        proxy = self._proxy()
+        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False, proxy=proxy) as client:
+            return await safe_request(
+                client, "GET", f"{self.base_url}/movies/{movie_id}",
+                headers={"api-key": settings.fanart_api_key.strip()}, label="Fanart 地址", proxy_mode=bool(proxy),
+            )
+
+    async def check(self) -> dict[str, Any]:
+        if not settings.fanart_api_key:
+            return {"ok": False, "configured": False, "message": "未配置 Fanart API Key"}
+        response = await self._movie(550)
+        if response.status_code in {401, 403}:
+            return {"ok": False, "configured": True, "message": "Fanart API Key 无效"}
+        response.raise_for_status()
+        return {"ok": True, "configured": True}
+
+    async def movie_poster_url(self, tmdb_id: int, original_language: str | None = None) -> str:
+        """Return the best poster URL for a TMDB movie, or ``""`` when fanart.tv has none."""
+        if not settings.fanart_api_key:
+            raise RuntimeError("请先在设置中填写 Fanart API Key")
+        response = await self._movie(int(tmdb_id))
+        if response.status_code == 404:
+            return ""
+        response.raise_for_status()
+        posters = []
+        for poster in response.json().get("movieposter") or []:
+            if not isinstance(poster, dict):
+                continue
+            url = re.sub(r"^http://", "https://", str(poster.get("url") or "").strip())
+            if FANART_POSTER_URL.fullmatch(url):
+                posters.append({**poster, "url": url})
+        if not posters:
+            return ""
+        return str(min(posters, key=lambda poster: fanart_poster_rank(poster, original_language))["url"])
+
+    async def movie_background_url(self, tmdb_id: int) -> str:
+        """横幅剧照：无字版优先，其次点赞最多；fanart.tv 没有时返回 ``""``。"""
+        if not settings.fanart_api_key:
+            raise RuntimeError("请先在设置中填写 Fanart API Key")
+        response = await self._movie(int(tmdb_id))
+        if response.status_code == 404:
+            return ""
+        response.raise_for_status()
+        backgrounds = []
+        for item in response.json().get("moviebackground") or []:
+            url = re.sub(r"^http://", "https://", str(item.get("url") or "").strip()) if isinstance(item, dict) else ""
+            if FANART_POSTER_URL.fullmatch(url):
+                backgrounds.append({**item, "url": url})
+        if not backgrounds:
+            return ""
+        textless = lambda item: str(item.get("lang") or "").lower() in {"", "00"}
+        return str(min(backgrounds, key=lambda item: (not textless(item), -to_int(item.get("likes"))))["url"])
+
+    async def background_image(self, url: str) -> tuple[bytes, str]:
+        """剧照原图（1920 宽），抽屉横幅在高分屏上需要足够的分辨率。"""
+        proxy = self._proxy()
+        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False, proxy=proxy) as client:
+            response = await safe_request(
+                client, "GET", url, label="Fanart 剧照", proxy_mode=bool(proxy), max_response_bytes=FANART_POSTER_MAX_BYTES,
+            )
+            response.raise_for_status()
+        return response.content, response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+
+    async def poster_image(self, poster_url: str) -> tuple[bytes, str]:
+        """Download a poster, preferring fanart.tv's 400px preview and falling back to the original."""
+        proxy = self._proxy()
+        async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False, proxy=proxy) as client:
+            response = None
+            for url in (poster_url.replace("/fanart/", "/bigpreview/", 1), poster_url):
+                response = await safe_request(
+                    client, "GET", url, label="Fanart 海报", proxy_mode=bool(proxy), max_response_bytes=FANART_POSTER_MAX_BYTES,
+                )
+                if response.status_code != 404:
+                    break
+            assert response is not None
+            response.raise_for_status()
+        return response.content, response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
 
 
 class AIRecognitionClient:
@@ -175,7 +302,9 @@ class AIRecognitionClient:
             "messages": [{"role": "user", "content": prompt}],
         }
         async with httpx.AsyncClient(base_url=settings.ai_base_url, headers=headers, timeout=settings.mp_timeout_seconds) as client:
-            response = await safe_request(client, "POST", "chat/completions", headers=headers, json=payload, label="AI 地址")
+            response = await safe_request(
+                client, "POST", "chat/completions", headers=headers, json=payload, label="AI 地址", allow_private=True,
+            )
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
         match = re.search(r"\{.*\}", content, re.S)
@@ -190,7 +319,9 @@ class EmbyClient:
         if not settings.emby_base_url or not settings.emby_api_key:
             return {"ok": False, "configured": False, "message": "未配置 Emby"}
         async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
-            response = await safe_request(client, "GET", "/emby/System/Info", params=self._params(), label="Emby 地址")
+            response = await safe_request(
+                client, "GET", "/emby/System/Info", params=self._params(), label="Emby 地址", allow_private=True,
+            )
             response.raise_for_status()
             data = response.json()
         return {"ok": True, "configured": True, "server_name": data.get("ServerName"), "version": data.get("Version")}
@@ -211,7 +342,7 @@ class EmbyClient:
                     continue
                 response = await safe_request(
                     client, "GET", "/emby/Items", params={**base_params, "AnyProviderIdEquals": f"{provider}.{provider_id}"},
-                    label="Emby 地址",
+                    label="Emby 地址", allow_private=True,
                 )
                 response.raise_for_status()
                 exact_matches.extend(response.json().get("Items", []))
@@ -223,7 +354,10 @@ class EmbyClient:
                     (item for item in exact_matches if item.get("Path") and not str(item["Path"]).lower().endswith(".strm")),
                     exact_matches[0],
                 )
-            response = await safe_request(client, "GET", "/emby/Items", params={**base_params, "SearchTerm": title}, label="Emby 地址")
+            response = await safe_request(
+                client, "GET", "/emby/Items", params={**base_params, "SearchTerm": title},
+                label="Emby 地址", allow_private=True,
+            )
             response.raise_for_status()
             items = response.json().get("Items", [])
         normalized_title = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", title.lower())
@@ -255,10 +389,13 @@ class EmbyClient:
         async with httpx.AsyncClient(base_url=settings.emby_base_url, timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
             response = await safe_request(
                 client, "GET", f"/emby/Items/{item_id}/Images/Primary",
-                params={**self._params(), "maxHeight": 720, "quality": 90}, label="Emby 地址",
+                params={**self._params(), "maxHeight": 720, "quality": 90}, label="Emby 地址", allow_private=True,
             )
             response.raise_for_status()
         return response.content, response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+
+
+_global_transmission_session_id: str = ""
 
 
 class TransmissionClient:
@@ -271,22 +408,26 @@ class TransmissionClient:
             if settings.tr_username or settings.tr_password
             else None
         )
-        self.session_id = ""
+        self.session_id = _global_transmission_session_id
 
     async def _rpc(self, method: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+        global _global_transmission_session_id
         if not self.base_url:
             raise RuntimeError("未配置 Transmission 地址")
-        headers = {"X-Transmission-Session-Id": self.session_id} if self.session_id else {}
+        session_id = _global_transmission_session_id or self.session_id
+        headers = {"X-Transmission-Session-Id": session_id} if session_id else {}
         async with httpx.AsyncClient(timeout=settings.mp_timeout_seconds, follow_redirects=False) as client:
             response = await safe_request(
                 client, "POST", self.base_url, headers=headers, json={"method": method, "arguments": arguments or {}},
-                auth=self.auth, label="Transmission 地址",
+                auth=self.auth, label="Transmission 地址", allow_private=True,
             )
             if response.status_code == 409:
-                self.session_id = response.headers.get("X-Transmission-Session-Id", "")
+                _global_transmission_session_id = response.headers.get("X-Transmission-Session-Id", "")
+                self.session_id = _global_transmission_session_id
                 response = await safe_request(
-                    client, "POST", self.base_url, headers={"X-Transmission-Session-Id": self.session_id},
+                    client, "POST", self.base_url, headers={"X-Transmission-Session-Id": _global_transmission_session_id},
                     json={"method": method, "arguments": arguments or {}}, auth=self.auth, label="Transmission 地址",
+                    allow_private=True,
                 )
             response.raise_for_status()
             data = response.json()
@@ -439,24 +580,34 @@ class MTeamClient:
             raise RuntimeError(message or f"M-Team {action}失败")
 
     @staticmethod
-    def _discount_factor(discount: str) -> float:
-        """Map M-Team promotion discounts to a volume factor (0=free, 1=full price)."""
-        if str(discount).strip().upper() == "FREE":
-            return 0.0
-        match = re.fullmatch(r"PERCENT_(\d+)", str(discount or "").strip().upper())
+    def _discount_parts(discount: str) -> tuple[float, bool]:
+        """Split an M-Team discount such as ``_2X_FREE`` into (download factor, double upload)."""
+        value = str(discount or "").strip().upper()
+        double_upload = value.startswith("_2X")
+        value = value.removeprefix("_2X").lstrip("_")
+        if value == "FREE":
+            return 0.0, double_upload
+        match = re.fullmatch(r"PERCENT_(\d+)", value)
         if match:
-            return min(0.95, max(0.05, to_int(match.group(1)) / 100))
-        return 1.0
+            return min(0.95, max(0.05, to_int(match.group(1)) / 100)), double_upload
+        return 1.0, double_upload
+
+    @classmethod
+    def _discount_factor(cls, discount: str) -> float:
+        """Map M-Team promotion discounts to a volume factor (0=free, 1=full price)."""
+        return cls._discount_parts(discount)[0]
 
     def _parse_row(self, row: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
         status = row.get("status") or {}
         discount = (status.get("promotionRule") or {}).get("discount") or ("FREE" if status.get("mallSingleFree") else status.get("discount")) or "NORMAL"
-        factor = self._discount_factor(discount)
+        factor, double_upload = self._discount_parts(discount)
         labels = list(row.get("labelsNew") or [])
         if factor == 0:
             labels.insert(0, "FREE")
         elif factor < 1:
             labels.insert(0, f"{to_int(factor * 100)}%")
+        if double_upload:
+            labels.insert(0, "2X")
         request_options = {
             "method": "post", "cookie": False, "params": {"id": str(row.get("id"))},
             "header": {**self.headers(site), "Content-Type": "multipart/form-data"}, "result": "data",
@@ -549,6 +700,22 @@ class MTeamClient:
 NEXUSPHP_SEARCH_PATHS: dict[str, str] = {
     "totheglory.im": "browse.php",
 }
+# 与标准 NexusPHP 不同的搜索参数：听听歌的搜索框是 search_field，且不支持按 IMDb 编号搜索。
+NEXUSPHP_QUERY_PARAMS: dict[str, str] = {
+    "totheglory.im": "search_field",
+}
+NEXUSPHP_NO_IMDB_SEARCH = {"totheglory.im"}
+# 种子详情与下载链接：标准 NexusPHP 为 details.php / download.php；听听歌为 /t/<id>/ 与 /dl/<id>/。
+# 前面不能紧跟字母，避免把 userdetails.php?id= 当成种子详情。
+TORRENT_DETAIL_LINK = re.compile(r"(?:(?<![a-z])details\.php\?[^#]*\bid=\d+|(?:^|/)t/\d+/?$)", re.I)
+TORRENT_DOWNLOAD_LINK = re.compile(r"(?:(?<![a-z])download\.php\?|(?:^|/)dl/\d+/)", re.I)
+# 搜索被重定向到这些页面时，Cookie 虽然有效，但站点要求额外操作，不能当作“没有结果”。
+SITE_INTERRUPT_PAGES = (
+    (re.compile(r"2fa|twofactor|two_factor", re.I), "站点要求二次验证（2FA），请在浏览器完成验证后重新同步 Cookie"),
+    (re.compile(r"claim|maintain|maintenance|upgrade", re.I), "站点跳转到维护或公告页面，暂时无法搜索"),
+)
+# 连接检测用一部各站普遍收录的电影做真实搜索，确认能解析出结果，而不只是 Cookie 能登录。
+SITE_PROBE_QUERY = ("The Godfather", "tt0068646")
 
 
 class NexusPHPClient:
@@ -617,7 +784,10 @@ class NexusPHPClient:
             if domain in host:
                 search_page = path
                 break
-        params = {"search": imdb_id or title, "search_area": 0}
+        query_param = next((param for domain, param in NEXUSPHP_QUERY_PARAMS.items() if domain in host), "search")
+        use_imdb = bool(imdb_id) and not any(domain in host for domain in NEXUSPHP_NO_IMDB_SEARCH)
+        # NexusPHP 的 search_area：0 = 标题，4 = IMDb 链接。按 IMDb 编号搜索必须用 4，否则几乎搜不到。
+        params = {query_param: imdb_id if use_imdb else title, "search_area": 4 if use_imdb else 0}
         headers = {"Cookie": str(site.get("cookie") or ""), "User-Agent": str(site.get("user_agent") or f"AutoList/{APP_VERSION}")}
         proxy = site_proxy(site)
         client = _search_client(timeout=to_int(site.get("timeout_seconds") or 30), proxy=proxy)
@@ -628,22 +798,32 @@ class NexusPHPClient:
         response.raise_for_status()
         if self._looks_like_login_page(response):
             raise RuntimeError("Cookie 已失效，站点返回登录页面")
+        final_path = (response.url.path or "").lower()
+        if not final_path.endswith(search_page.split("?", 1)[0].lower()):
+            reason = next((message for pattern, message in SITE_INTERRUPT_PAGES if pattern.search(final_path)), None)
+            if reason:
+                raise RuntimeError(reason)
         results: list[dict[str, Any]] = []
         parser = NexusTableParser()
         parser.feed(response.text)
         for row in parser.rows:
-            detail = next((link for link in row["links"] if re.search(r"details\.php\?[^#]*\bid=\d+", link["href"], re.I)), None)
+            detail = next((link for link in row["links"] if TORRENT_DETAIL_LINK.search(link["href"])), None)
             if not detail:
                 continue
-            download = next((link for link in row["links"] if re.search(r"download\.php\?", link["href"], re.I)), None)
+            download = next((link for link in row["links"] if TORRENT_DOWNLOAD_LINK.search(link["href"])), None)
             if not download:
                 continue
             title_text = self._text(detail["title"] or " ".join(detail["text"]))
             cells = [self._text(" ".join(cell)) for cell in row["cells"]]
             numeric = [to_int(value.replace(",", "")) for value in cells[-5:] if re.fullmatch(r"[\d,]+", value)]
+            seeders = numeric[-3] if len(numeric) >= 3 else 0
+            if len(numeric) < 3:
+                # 听听歌等站点把做种 / 下载合在一格：“306 / 6”。
+                paired = next((re.fullmatch(r"([\d,]+)\s*/\s*[\d,]+", value) for value in cells[-5:] if re.fullmatch(r"[\d,]+\s*/\s*[\d,]+", value)), None)
+                seeders = to_int(paired.group(1).replace(",", "")) if paired else 0
             results.append({
                 "title": title_text, "site_name": site["name"], "size": self._size(cells),
-                "seeders": numeric[-3] if len(numeric) >= 3 else 0,
+                "seeders": seeders,
                 "enclosure": urljoin(base, download["href"]), "labels": ["FREE"] if row["free"] else [],
                 "volume_factor": 0 if row["free"] else 1, "site_cookie": site.get("cookie") or "", "site_ua": headers["User-Agent"],
                 "publish_time": self._parse_publish_time(cells), "detail_url": urljoin(base, detail["href"]),
@@ -657,8 +837,17 @@ class NexusPHPClient:
         return list(unique.values())
 
     async def check(self, site: dict[str, Any]) -> dict[str, Any]:
-        results = await self.search(site, "AutoListConnectionProbe")
-        return {"ok": True, "message": f"Cookie 可用，解析到 {len(results)} 条探测结果"}
+        title, imdb_id = SITE_PROBE_QUERY
+        results = await self.search(site, title, imdb_id)
+        if not results:
+            # 部分站点不支持按 IMDb 搜索（如学校），寻片时也会再按片名搜，检测同样回退到片名。
+            results = await self.search(site, f"{title} 1972")
+        if not results:
+            return {
+                "ok": True, "empty": True,
+                "message": f"登录正常，但搜索《{title}》没有解析到结果：站点可能不收录电影，或页面结构暂不兼容",
+            }
+        return {"ok": True, "message": f"可以搜索：《{title}》解析到 {len(results)} 条结果"}
 
     @staticmethod
     def _banner_stats(text: str) -> dict[str, Any] | None:

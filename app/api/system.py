@@ -3,33 +3,33 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import re
 import secrets
-import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import parse_qsl, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..candidate_policy import normalized_policy, release_group_catalog
-from ..clients import EmbyClient, MoviePilotClient, TMDBClient, TransmissionClient
+from ..clients import EmbyClient, FanartClient, MoviePilotClient, TMDBClient, TransmissionClient
 from ..config import (
     APP_VERSION,
     access_token_required,
     access_token_strength,
     access_token_strength_enforced,
+    public_endpoint_url,
     save_runtime_settings,
     settings,
 )
 from ..cookiecloud import cookie_groups, decrypt_cookiecloud
 from ..database import config_values, json_value, save_config
+from ..logs import event_logger
 from ..schemas import (
+    COOKIECLOUD_KEY_PATTERN,
     ConfigPayload,
     CookieCloudUploadPayload,
     RuntimeSettingsPayload,
@@ -39,6 +39,7 @@ from ..security import safe_error
 from ..services.cookiecloud_store import cookiecloud_file
 from ..services.recognition import analyze_candidate
 from ..services.sites import apply_cookie_groups
+from .. import state
 from ..state import (
     enforce_cookiecloud_anonymous_rate_limit,
     enforce_cookiecloud_get_rate_limit,
@@ -46,7 +47,7 @@ from ..state import (
     require_configured_cookiecloud_uuid,
     scheduler_health,
 )
-from ..util import decode_cookiecloud_body, read_request_body_limited, secret_free, validated_base_url
+from ..util import decode_cookiecloud_body, read_request_body_limited, validated_base_url
 
 router = APIRouter()
 
@@ -66,10 +67,16 @@ async def health() -> dict[str, Any]:
 
 @router.get("/cookiecloud")
 @router.get("/cookiecloud/")
+@router.get("/cookiecloud//")
 async def cookiecloud_root() -> Response:
     return Response("AutoList CookieCloud API · /cookiecloud", media_type="text/plain")
 
 @router.post("/cookiecloud/update")
+@router.post("/cookiecloud/update/")
+@router.post("/cookiecloud//update")
+@router.post("/update")
+@router.post("/update/")
+@router.post("//update")
 async def cookiecloud_update(request: Request) -> dict[str, Any]:
     anonymous_rejection = enforce_cookiecloud_anonymous_rate_limit()
     if anonymous_rejection is not None:
@@ -110,7 +117,14 @@ async def cookiecloud_update(request: Request) -> dict[str, Any]:
     finally:
         temporary.unlink(missing_ok=True)
     path.chmod(0o600)
-    applied = apply_cookie_groups(groups)
+    applied = apply_cookie_groups(groups, origin="push")
+    event_logger().info(
+        "cookiecloud_uploaded",
+        extra={
+            "detail": f"收到 Chrome 扩展推送，已自动更新 {len(applied['updated'])} 个站点 Cookie",
+            "total": len(applied["updated"]),
+        },
+    )
     return {
         "action": "done",
         "updated_sites": len(applied["updated"]),
@@ -118,6 +132,11 @@ async def cookiecloud_update(request: Request) -> dict[str, Any]:
     }
 
 @router.get("/cookiecloud/get/{uuid_value}")
+@router.get("/cookiecloud/get/{uuid_value}/")
+@router.get("/cookiecloud//get/{uuid_value}")
+@router.get("/get/{uuid_value}")
+@router.get("/get/{uuid_value}/")
+@router.get("//get/{uuid_value}")
 async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
     read_rejection = enforce_cookiecloud_get_rate_limit()
     if read_rejection is not None:
@@ -137,7 +156,7 @@ async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
 @router.get("/api/cookiecloud/status")
 async def cookiecloud_status() -> dict[str, Any]:
     key = (settings.cookiecloud_key or "").strip()
-    key_valid = bool(re.fullmatch(r"[A-Za-z0-9_-]{12,128}", key)) if key else False
+    key_valid = bool(re.fullmatch(COOKIECLOUD_KEY_PATTERN, key)) if key else False
     configured = bool(key_valid and settings.cookiecloud_password)
     try:
         path = cookiecloud_file(key) if key_valid else None
@@ -146,9 +165,13 @@ async def cookiecloud_status() -> dict[str, Any]:
     return {
         "configured": configured,
         "key_valid": key_valid,
+        "url_configured": bool(settings.cookiecloud_url),
+        "url": public_endpoint_url(settings.cookiecloud_url),
         "received": bool(path and path.exists()),
         "updated_at": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat() if path and path.exists() else None,
         "endpoint": "/cookiecloud",
+        # 最近一次整体同步：origin 为 pull（定时拉取）/ push（插件推送）/ manual（手动同步）。
+        "last_sync": dict(state.last_cookie_sync) or None,
     }
 
 _connection_cache: tuple[float, dict[str, Any]] | None = None
@@ -160,7 +183,9 @@ RUNTIME_SETTING_CLEAR_FIELDS = {
     "emby_base_url": "clear_emby_base_url",
     "emby_api_key": "clear_emby_api_key",
     "tmdb_api_key": "clear_tmdb_api_key",
+    "fanart_api_key": "clear_fanart_api_key",
     "mdblist_api_key": "clear_mdblist_api_key",
+    "cookiecloud_url": "clear_cookiecloud_url",
     "cookiecloud_key": "clear_cookiecloud_key",
     "cookiecloud_password": "clear_cookiecloud_password",
     "outbound_proxy_url": "clear_outbound_proxy_url",
@@ -227,16 +252,10 @@ async def connection(force_refresh: bool = False) -> dict[str, Any]:
     results = dict(checked)
     # AutoList submits through MoviePilot; direct Transmission credentials are diagnostic only.
     required = (results["tmdb"], results["moviepilot"])
-    payload = {"ok": all(item.get("ok") for item in required), "providers": results, "message": "核心服务正常" if all(item.get("ok") for item in required) else "核心服务需要配置"}
+    payload = {"ok": all(item.get("ok") for item in required), "providers": results, "message": "核心服务正常" if all(item.get("ok") for item in required) else "核心服务需要配置", "version": APP_VERSION}
     _connection_cache = (time.monotonic(), payload)
     return payload
 
-@router.get("/api/downloads")
-async def downloads() -> list[dict[str, Any]]:
-    try:
-        return secret_free(await TransmissionClient().current_downloads())
-    except Exception as exc:
-        raise HTTPException(502, f"读取 Transmission 下载任务失败：{safe_error(exc)}") from exc
 
 @router.get("/api/config")
 async def get_config() -> dict[str, str]:
@@ -261,34 +280,61 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request
         ("emby_base_url", "Emby 地址"),
         ("ai_base_url", "AI 地址"),
         ("tr_base_url", "Transmission 地址"),
+        ("cookiecloud_url", "CookieCloud 服务器地址"),
     ):
-        if key in values:
-            values[key] = validated_base_url(values[key], label, False)
+        # null 表示“保留原值”（可选地址字段），不能在校验时被转换成空串而误清除。
+        if key in values and values[key] is not None:
+            values[key] = validated_base_url(values[key], label, False, allow_private=True)
     if values.get("outbound_proxy_url"):
-        values["outbound_proxy_url"] = validated_base_url(str(values["outbound_proxy_url"]), "代理地址", True)
-    for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_username", "tr_password"):
+        values["outbound_proxy_url"] = validated_base_url(str(values["outbound_proxy_url"]), "代理地址", True, allow_private=True)
+    for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "fanart_api_key", "mdblist_api_key", "cookiecloud_url", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_username", "tr_password"):
         if values.get(key) is None:
             values.pop(key, None)
         # API 客户端显式发送空字符串时清除；设置页留空字段则发送 null 并保留原值。
         elif str(values[key]).strip() == "":
             values[key] = ""
     save_runtime_settings(values)
+    event_logger().info("settings_saved", extra={"detail": "系统配置已保存"})
     global _connection_cache
     _connection_cache = None
     return settings.public_values()
 
 @router.post("/api/settings/test")
-async def test_runtime_settings(provider: Literal["tmdb", "emby", "transmission", "moviepilot"] | None = None) -> dict[str, Any]:
-    if provider is not None:
-        client = {"tmdb": TMDBClient, "emby": EmbyClient, "transmission": TransmissionClient, "moviepilot": MoviePilotClient}[provider]()
+async def test_runtime_settings(provider: Literal["tmdb", "fanart", "emby", "transmission", "moviepilot", "cookiecloud"] | None = None) -> dict[str, Any]:
+    if provider == "cookiecloud":
+        if not settings.cookiecloud_key or not settings.cookiecloud_password:
+            return {"cookiecloud": {"ok": False, "configured": False, "message": "未配置 CookieCloud 用户 KEY 或端对端密码"}}
+        if settings.cookiecloud_url:
+            from ..services.cookiecloud_store import fetch_remote_cookiecloud
+            try:
+                await asyncio.wait_for(
+                    fetch_remote_cookiecloud(settings.cookiecloud_url, settings.cookiecloud_key, settings.cookiecloud_password),
+                    timeout=10,
+                )
+                return {"cookiecloud": {"ok": True, "configured": True, "message": "CookieCloud 连接并解密成功"}}
+            except Exception as exc:
+                return {"cookiecloud": {"ok": False, "configured": True, "message": safe_error(exc)}}
+        path = cookiecloud_file(settings.cookiecloud_key)
+        if path.exists():
+            return {"cookiecloud": {"ok": True, "configured": True, "message": "已收到推送数据"}}
+        return {"cookiecloud": {"ok": False, "configured": False, "message": "未配置服务器地址或未收到推送"}}
+    async def check(client: Any) -> dict[str, Any]:
         try:
-            result = await asyncio.wait_for(client.check(), timeout=6)
+            return await asyncio.wait_for(client.check(), timeout=6)
         except TimeoutError:
-            result = {"ok": False, "configured": True, "message": "连接检测超时"}
+            return {"ok": False, "configured": True, "message": "连接检测超时"}
         except Exception as exc:
-            result = {"ok": False, "configured": True, "message": safe_error(exc)}
-        return {provider: result}
-    return (await connection(force_refresh=True))["providers"]
+            return {"ok": False, "configured": True, "message": safe_error(exc)}
+    if provider is not None:
+        client = {
+            "tmdb": TMDBClient, "fanart": FanartClient, "emby": EmbyClient,
+            "transmission": TransmissionClient, "moviepilot": MoviePilotClient,
+        }[provider]()
+        return {provider: await check(client)}
+    # Fanart 只提供海报，不计入顶栏“服务正常”统计，但“检测全部”仍一并检测。
+    providers = dict((await connection(force_refresh=True))["providers"])
+    providers["fanart"] = await check(FanartClient())
+    return providers
 
 @router.put("/api/config")
 async def put_config(payload: ConfigPayload) -> dict[str, str]:
@@ -325,12 +371,19 @@ async def release_groups() -> dict[str, Any]:
         policy = normalized_policy({})
     return release_group_catalog(policy)
 
+UI_INDEX = Path(__file__).resolve().parent.parent / "static" / "ui" / "index.html"
+
+
 @router.get("/")
-async def index() -> FileResponse:
-    return FileResponse(
-        Path(__file__).resolve().parent.parent / "static" / "index.html",
-        headers={"Cache-Control": "no-cache, must-revalidate"},
-    )
+async def index() -> Response:
+    """电影藏馆界面入口；前端由 frontend/ 构建到 app/static/ui。"""
+    if not UI_INDEX.is_file():
+        return Response(
+            "界面尚未构建：请在 frontend/ 目录执行 npm ci && npm run build，或使用包含前端构建阶段的镜像。",
+            status_code=503, media_type="text/plain; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
+    return FileResponse(UI_INDEX, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @router.get("/favicon.ico", include_in_schema=False)

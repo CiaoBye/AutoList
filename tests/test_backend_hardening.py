@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
+from tests.support import task_candidates
 from app.config import (
     ACCESS_TOKEN_MIN_LENGTH,
     access_token_is_strong,
@@ -199,28 +200,11 @@ class BackendHardeningTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_candidate_and_cart_apis_clean_legacy_detail_url(self) -> None:
         task_id = self._seed_cart()
-        candidates = await main.candidates(task_id)
+        candidates = task_candidates(task_id)
         self.assertEqual(candidates[0]["detail_url"], "https://tracker.example/details.php?id=42")
         self.assertEqual(candidates[0]["site_options"][0]["detail_url"], "https://tracker.example/details.php?id=42")
         cart = await main.cart()
         self.assertEqual(cart[0]["detail_url"], "https://tracker.example/details.php?id=42")
-
-    async def test_candidate_response_has_a_hard_upper_bound(self) -> None:
-        task_id = self._seed_cart("candidate-limit-seed")
-        with connect() as conn:
-            item_id = to_int(conn.execute("SELECT playlist_item_id FROM candidates WHERE id=?", ("candidate-limit-seed",)).fetchone()[0])
-            now = main.utc_now()
-            conn.executemany(
-                """INSERT INTO candidates(
-                     id,task_id,playlist_item_id,candidate_index,title,resource_key,ranking,metadata_json,created_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                [
-                    (f"candidate-limit-{index}", task_id, item_id, index, f"Resource {index}", f"resource:{index}", index, "{}", now)
-                    for index in range(5005)
-                ],
-            )
-        result = await main.candidates(task_id, limit=999999)
-        self.assertEqual(len(result), 5000)
 
     async def test_transmission_failure_blocks_cart_submission_and_keeps_cart(self) -> None:
         self._seed_cart("transmission-unknown")

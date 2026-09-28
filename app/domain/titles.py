@@ -30,8 +30,9 @@ def item_identity_keys(value: dict[str, Any]) -> list[tuple[str, str]]:
     keys: list[tuple[str, str]] = []
     if value.get("imdb_id"):
         keys.append(("imdb", str(value["imdb_id"]).casefold()))
-    if value.get("tmdb_id"):
-        keys.append(("tmdb", str(value["tmdb_id"])))
+    for field in ("tmdb_id", "source_tmdb_id"):
+        if value.get(field):
+            keys.append(("tmdb", str(value[field])))
     normalized_title = normalized_title_key(value.get("original_title"))
     if normalized_title:
         keys.append(("title", f"{normalized_title}:{value.get('year') or ''}"))

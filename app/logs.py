@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import settings
+from .security import sanitize_sensitive_text
 
 _configured = False
 
@@ -21,7 +22,7 @@ _configured = False
 _EVENT_FIELDS = (
     "task_id", "rank", "movie", "site", "candidate_id", "status",
     "total", "completed", "matched", "results", "kept", "excluded",
-    "reason", "error", "duration_ms", "hash", "submitted", "skipped",
+    "reason", "detail", "count", "error", "duration_ms", "hash", "submitted", "skipped",
     "stage", "trigger",
 )
 
@@ -31,14 +32,17 @@ class JsonLineFormatter(logging.Formatter):
         payload: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
-            "event": record.getMessage(),
+            "event": sanitize_sensitive_text(record.getMessage(), 1000),
         }
         for key in _EVENT_FIELDS:
             value = getattr(record, key, None)
             if value is not None:
-                payload[key] = value
+                if isinstance(value, str):
+                    payload[key] = sanitize_sensitive_text(value, 1000)
+                else:
+                    payload[key] = value
         if record.exc_info:
-            payload["error"] = self.formatException(record.exc_info)
+            payload["error"] = sanitize_sensitive_text(self.formatException(record.exc_info), 2000)
         return json.dumps(payload, ensure_ascii=False)
 
 

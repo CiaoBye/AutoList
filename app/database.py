@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS playlist_items (
   tmdb_year INTEGER,
   tmdb_imdb_id TEXT,
   tmdb_checked_at TEXT,
+  tmdb_poster_path TEXT,
+  fanart_poster_url TEXT,
+  tmdb_original_language TEXT,
+  source_tmdb_id INTEGER,
+  source_ref TEXT,
+  fanart_backdrop_url TEXT,
+  tmdb_backdrop_path TEXT,
   emby_item_id TEXT,
   emby_image_tag TEXT,
   library_state TEXT NOT NULL DEFAULT 'unknown',
@@ -105,7 +112,9 @@ CREATE TABLE IF NOT EXISTS recognition_tasks (
   matched INTEGER NOT NULL DEFAULT 0,
   error_message TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'missing',
+  corrected INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS candidates (
   id TEXT PRIMARY KEY,
@@ -214,7 +223,7 @@ CREATE TABLE IF NOT EXISTS pt_sites (
 """
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 11
 
 
 def initialize() -> None:
@@ -333,6 +342,19 @@ def initialize() -> None:
             "tmdb_year": "INTEGER",
             "tmdb_imdb_id": "TEXT",
             "tmdb_checked_at": "TEXT",
+            # v5：TMDB 海报路径（如 /abc.jpg）。NULL = 未取过，'' = TMDB 没有海报。
+            "tmdb_poster_path": "TEXT",
+            # 1.48：fanart.tv 海报地址。NULL = 未查过，'' = fanart.tv 没有海报。
+            "fanart_poster_url": "TEXT",
+            # 1.50：TMDB 原语言（ISO 639-1），fanart 海报按原语言挑选。NULL = 尚未取得。
+            "tmdb_original_language": "TEXT",
+            # 1.52：来源提供的身份。source_tmdb_id 为来源自带的 TMDB 编号（与识别结果 tmdb_id 分开保存），
+            # source_ref 为来源内的影片标识（如 letterboxd:cure），识别时据此向来源补取编号。
+            "source_tmdb_id": "INTEGER",
+            "source_ref": "TEXT",
+            # 1.56：影片详情横幅剧照。NULL = 未查过，'' = 没有。
+            "fanart_backdrop_url": "TEXT",
+            "tmdb_backdrop_path": "TEXT",
         }.items():
             if column not in playlist_item_columns:
                 conn.execute(f"ALTER TABLE playlist_items ADD COLUMN {column} {definition}")
@@ -348,6 +370,8 @@ def initialize() -> None:
             "account_uploaded": "INTEGER", "account_downloaded": "INTEGER",
             "account_ratio": "REAL", "account_bonus": "REAL", "account_seeding": "INTEGER",
             "account_stats_checked_at": "TEXT", "account_stats_error": "TEXT",
+            # 1.59：Cookie 最近一次变化的时间与来源（cookiecloud / manual / moviepilot）。
+            "cookie_updated_at": "TEXT", "cookie_source": "TEXT",
         }.items():
             if column not in site_columns:
                 conn.execute(f"ALTER TABLE pt_sites ADD COLUMN {column} {definition}")
@@ -372,6 +396,38 @@ def initialize() -> None:
                 conn.execute(f"ALTER TABLE download_history ADD COLUMN {column} {definition}")
         if "last_duration_ms" not in site_columns:
             conn.execute("ALTER TABLE pt_sites ADD COLUMN last_duration_ms INTEGER")
+        recognition_columns = {row["name"] for row in conn.execute("PRAGMA table_info(recognition_tasks)")}
+        for column, definition in {
+            # 1.57：missing = 只识别未识别的影片；verify = 按 IMDb / 来源编号校准整份片单。
+            "mode": "TEXT NOT NULL DEFAULT 'missing'",
+            "corrected": "INTEGER NOT NULL DEFAULT 0",
+        }.items():
+            if column not in recognition_columns:
+                conn.execute(f"ALTER TABLE recognition_tasks ADD COLUMN {column} {definition}")
+        if previous_version < 7:
+            # 迁移 →7（一次性）：海报改为按原语言挑选，已选的 fanart 海报全部重新挑选；
+            # 同时清掉 1.48 因地址校验漏掉新格式而误记的“没有海报”。
+            conn.execute("UPDATE playlist_items SET fanart_poster_url=NULL")
+        if previous_version < 4:
+            # 迁移 3→4（一次性）：按 resolve_site_adapter 的规则重算 RSS/NexusPHP 适配器。
+            # 有 Cookie 的站点走 NexusPHP；只有 RSS 地址、没有 Cookie 的站点保持 RSS。
+            # 同时修复曾在每次启动时把纯 RSS 站点误改为 nexusphp 的旧迁移结果。
+            conn.execute(
+                """UPDATE pt_sites
+                   SET adapter = CASE
+                       WHEN lower(base_url) LIKE '%m-team%' OR lower(base_url) LIKE '%mteam%' THEN 'mteam'
+                       WHEN lower(base_url) LIKE '%torznab%' OR lower(base_url) LIKE '%api?t=%'
+                            OR lower(base_url) LIKE '%t=caps%' THEN 'torznab'
+                       WHEN trim(COALESCE(cookie, '')) = '' AND trim(COALESCE(rss_url, '')) != '' THEN 'rss'
+                       ELSE 'nexusphp'
+                   END
+                   WHERE adapter IN ('rss', 'nexusphp')""",
+            )
+            # 旧版本直接保存了 httpx 原始英文错误；清空后由调度器按新的中文诊断重新读取。
+            conn.execute(
+                "UPDATE pt_sites SET account_stats_error=NULL, account_stats_checked_at=NULL "
+                "WHERE account_stats_error IS NOT NULL"
+            )
         conn.execute(
             """UPDATE download_history
                SET playlist_item_id=(SELECT playlist_item_id FROM candidates WHERE candidates.id=download_history.candidate_id)

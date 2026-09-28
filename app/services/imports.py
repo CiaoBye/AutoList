@@ -125,8 +125,9 @@ def normalize_import_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
+        source_ref = str(item.get("source_ref") or "").strip() or None
         result.append({"rank_no": len(result) + 1, "imdb_id": imdb_id, "original_title": title, "year": year,
-                       "chinese_title": item.get("chinese_title"), "tmdb_id": tmdb_id})
+                       "chinese_title": item.get("chinese_title"), "tmdb_id": tmdb_id, "source_ref": source_ref})
     return result
 
 

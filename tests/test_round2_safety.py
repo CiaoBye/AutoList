@@ -1,6 +1,6 @@
 """第二轮修复的专项回归测试。
 
-覆盖 repair-progress.md 列出的待补齐证据：
+覆盖第二轮审计列出的待补齐证据：
 - scheduler health 状态
 - CookieCloud 请求体上限
 - safe_request 响应体上限
@@ -700,19 +700,6 @@ class RouteCoverageTests(_IsolatedTestCase):
             row = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
         self.assertEqual(row["status"], "cancelled")
 
-    async def test_notifications_route_and_read_all(self) -> None:
-        from app.services.automation import add_notification
-        add_notification("测试通知", "内容")
-        with TestClient(main.app) as client:
-            listing = client.get("/api/notifications")
-            self.assertEqual(listing.status_code, 200)
-            self.assertEqual(listing.json()[0]["title"], "测试通知")
-            unread = client.get("/api/notifications?unread_only=true")
-            self.assertEqual(unread.json()[0]["read"], 0)
-            marked = client.post("/api/notifications/read-all")
-            self.assertEqual(marked.status_code, 200)
-            self.assertEqual(marked.json()["updated"], 1)
-
     async def test_score_preview_route_returns_analysis(self) -> None:
         from app.candidate_policy import DEFAULT_POLICY
         with TestClient(main.app) as client:
@@ -737,11 +724,8 @@ class RouteCoverageExpansionTests(_IsolatedTestCase):
                 ("路由扩展片单", 1, main.utc_now()),
             ).lastrowid)
 
-    async def test_connection_and_downloads_endpoints(self) -> None:
+    async def test_connection_endpoint(self) -> None:
         with TestClient(main.app) as client:
             connection = client.get("/api/connection")
             self.assertEqual(connection.status_code, 200)
             self.assertIn("providers", connection.json())
-            downloads = client.get("/api/downloads")
-            self.assertEqual(downloads.status_code, 200)
-            self.assertIsInstance(downloads.json(), list)

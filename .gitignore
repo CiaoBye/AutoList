@@ -6,6 +6,10 @@ playlist-autodown.db
 playlist-autodown.db-shm
 playlist-autodown.db-wal
 
+# Frontend（界面构建产物由 frontend/ 生成，不入库）
+node_modules/
+app/static/ui/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -1,0 +1,132 @@
+/*
+ * 设计令牌：主题只是这组变量的取值。
+ * 组件样式只能引用变量，禁止按主题写组件选择器，避免主题之间互相覆盖。
+ */
+:root,
+[data-theme="archive"] {
+  color-scheme: light;
+  --paper: #f4f1ea;
+  --surface: #fffdf8;
+  --ink: #1b1a17;
+  --ink-2: #3d3a34;
+  --muted: #5e5a52;
+  --line: #e2dccf;
+  --line-strong: #d9d2c3;
+  --wash: #ece7dc;
+  --accent: #9a3412;
+  --accent-ink: #ffffff;
+  --accent-hover: #7c2d12;
+  --focus: #1d4e89;
+  --overlay: rgba(27, 26, 23, 0.36);
+  --shadow: 0 1px 2px rgba(27, 26, 23, 0.06), 0 8px 24px rgba(27, 26, 23, 0.06);
+
+  --st-unrecognized-fg: #9b2c2c;
+  --st-unrecognized-bg: #f6e0de;
+  --st-unchecked-fg: #5e5a52;
+  --st-unchecked-bg: #f4f1ea;
+  --st-missing-fg: #5e5a52;
+  --st-missing-bg: #ece7dc;
+  --st-searching-fg: #1d4e89;
+  --st-searching-bg: #e1eaf6;
+  --st-candidates-fg: #8a5a00;
+  --st-candidates-bg: #f7ecd2;
+  --st-selected-fg: #8a5a00;
+  --st-selected-bg: #fbf3df;
+  --st-downloading-fg: #1d4e89;
+  --st-downloading-bg: #eaf0f9;
+  --st-in_library-fg: #2f6b4f;
+  --st-in_library-bg: #e3efe7;
+  --issue-fg: #9b2c2c;
+  --issue-bg: #f6e0de;
+  --bar-missing: #b9b1a2;
+
+  --poster-1: #3f2a2a;
+  --poster-2: #2e3b36;
+  --poster-3: #2b3444;
+  --poster-4: #4a3b2a;
+  --poster-5: #33303b;
+  --poster-6: #3b3a2a;
+  --poster-ink: #f4f1ea;
+
+  /* 顶栏：深色放映厅色带，给页面顶部足够的分量。 */
+  --nav-bg: #1f1c18;
+  --nav-ink: #f4efe4;
+  --nav-muted: #b8ae9d;
+  --nav-line: rgba(244, 239, 228, 0.16);
+  --nav-hover: rgba(244, 239, 228, 0.08);
+  --nav-accent: #e0763a;
+  --nav-ok: #7cc49c;
+  --nav-busy: #8fb8ea;
+  --nav-bad: #f0a39e;
+}
+
+[data-theme="cinema"] {
+  color-scheme: dark;
+  --paper: #0f1618;
+  --surface: #172124;
+  --ink: #eef3f0;
+  --ink-2: #c9d3cf;
+  --muted: #9daaa6;
+  --line: #26343a;
+  --line-strong: #33444b;
+  --wash: #1e2a2e;
+  --accent: #e08a5b;
+  --accent-ink: #1b1a17;
+  --accent-hover: #eba27a;
+  --focus: #8fb8ea;
+  --overlay: rgba(0, 0, 0, 0.55);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+
+  --st-unrecognized-fg: #f0a39e;
+  --st-unrecognized-bg: #3a2322;
+  --st-unchecked-fg: #b7c1bd;
+  --st-unchecked-bg: #172124;
+  --st-missing-fg: #b7c1bd;
+  --st-missing-bg: #243034;
+  --st-searching-fg: #8fb8ea;
+  --st-searching-bg: #1c2b40;
+  --st-candidates-fg: #e7c274;
+  --st-candidates-bg: #3a2f17;
+  --st-selected-fg: #e7c274;
+  --st-selected-bg: #2b2413;
+  --st-downloading-fg: #8fb8ea;
+  --st-downloading-bg: #18243a;
+  --st-in_library-fg: #7fc4a1;
+  --st-in_library-bg: #1d3129;
+  --issue-fg: #f0a39e;
+  --issue-bg: #3a2322;
+  --bar-missing: #4a5a5f;
+
+  --poster-1: #3a2626;
+  --poster-2: #243631;
+  --poster-3: #232d3d;
+  --poster-4: #3f3223;
+  --poster-5: #2b2833;
+  --poster-6: #333222;
+  --poster-ink: #eef3f0;
+
+  --nav-bg: #0a1113;
+  --nav-ink: #eef3f0;
+  --nav-muted: #93a19c;
+  --nav-line: rgba(238, 243, 240, 0.12);
+  --nav-hover: rgba(238, 243, 240, 0.07);
+  --nav-accent: #e08a5b;
+  --nav-ok: #7fc4a1;
+  --nav-busy: #8fb8ea;
+  --nav-bad: #f0a39e;
+}
+
+:root {
+  --font-serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", "Noto Serif CJK SC", serif;
+  --font-sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  --nav-height: 64px;
+  --tab-height: 64px;
+  --page-gutter: clamp(16px, 4vw, 64px);
+  /* 海报墙、首页等浏览型页面用宽版；时间线、设置等阅读型页面限制行宽。 */
+  --content-max: 1920px;
+  --reading-max: 1200px;
+}

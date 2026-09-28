@@ -30,7 +30,7 @@ MAX_RUNNING_LIBRARY_TASKS = 2
 MAX_RUNNING_AUTOMATION_TASKS = 2
 MAX_SITE_ICONS = 128
 MAX_SITE_ICON_BYTES = 8 * 1024 * 1024
-MAX_POSTER_ITEMS = 64
+MAX_POSTER_ITEMS = 300
 MAX_POSTER_BYTES = 32 * 1024 * 1024
 RAW_CANDIDATE_TTL_SECONDS = 2 * 60 * 60
 MAX_RAW_CANDIDATES = 5000
@@ -231,3 +231,7 @@ def enforce_search_task_capacity(active_count: int | None = None) -> str | None:
     if active >= MAX_RUNNING_SEARCH_TASKS:
         return f"已有 {active} 个搜索任务在运行，请等待完成后再试"
     return None
+
+
+# 最近一次 CookieCloud 同步的结果（进程内保存；定时拉取每小时一次，重启后很快会重新产生）。
+last_cookie_sync: dict[str, Any] = {}

@@ -33,6 +33,9 @@ class NexusTableParser(HTMLParser):
                 link = {"href": html.unescape(attributes.get("href", "")), "title": attributes.get("title", ""), "text": []}
                 row["links"].append(link)
                 row["anchors"].append(link)
+            elif tag.lower() == "form" and attributes.get("action"):
+                # 部分站点（如站点K）的下载按钮是表单，下载地址在 action 里。
+                row["links"].append({"href": html.unescape(attributes["action"]), "title": "", "text": []})
             marker = " ".join((attributes.get("class", ""), attributes.get("src", "")))
             if re.search(r"(?:^|[\s_/.-])(pro_free|free2up|freeleech|free|2up)(?:[\s_/.-]|$)", marker, re.I):
                 row["free"] = True

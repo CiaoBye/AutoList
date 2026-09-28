@@ -26,17 +26,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install Python dependencies
         run: pip install -r requirements.txt
       - name: Compile Python
         run: python -m compileall -q app
-      - name: Check JavaScript syntax
+      - name: Build interface
+        working-directory: frontend
         run: |
-          node --check app/static/app.js
-          node --check app/static/js/core.js
-          node --check app/static/js/theme-init.js
-          node --check docs/prototypes/autolist-directions.js
+          npm ci --no-audit --no-fund
+          npm run build
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
       - name: Validate Compose and Dockerfile
@@ -53,11 +52,11 @@ jobs:
           assert "appuser" in dockerfile
 
           dockerignore = Path(".dockerignore").read_text(encoding="utf-8")
-          for pattern in (".venv/", ".scratch/", "docs/", "tests/", "*.log", "*.db"):
+          for pattern in (".venv/", ".scratch/", "tests/", "*.log", "*.db"):
               assert pattern in dockerignore, pattern
           PY
       - name: Build Docker image smoke test
-        run: docker build --tag autolist:ci --build-arg PIP_INDEX_URL=https://pypi.org/simple .
+        run: docker build --tag autolist:ci --build-arg PIP_INDEX_URL=https://pypi.org/simple --build-arg NPM_REGISTRY=https://registry.npmjs.org .
       - name: Run Docker health smoke test
         run: |
           set -euo pipefail
@@ -91,11 +90,13 @@ jobs:
 
           payload = json.loads(Path("/tmp/autolist-settings.json").read_text(encoding="utf-8"))
           secret_fields = (
-              "mp_api_key", "emby_api_key", "tmdb_api_key", "mdblist_api_key",
+              "mp_api_key", "emby_api_key", "tmdb_api_key", "fanart_api_key", "mdblist_api_key",
               "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_password",
           )
           assert all(payload.get(field) == "" for field in secret_fields), payload
           PY
+          curl --fail --silent --show-error http://127.0.0.1:18085/ -o /tmp/autolist-index.html
+          grep -q '/assets/ui/assets/' /tmp/autolist-index.html
           curl --fail --silent --show-error http://127.0.0.1:18085/assets/autolist-icon.png -o /tmp/autolist-icon.png
           python -c 'import sys; data=open("/tmp/autolist-icon.png","rb").read(); assert data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) > 1000'
           docker exec autolist-ci python -c 'import sqlite3; db=sqlite3.connect("/data/playlist-autodown.db"); result=db.execute("PRAGMA integrity_check").fetchall(); assert result == [("ok",)], result; assert not db.execute("PRAGMA foreign_key_check").fetchall()'
@@ -144,6 +145,7 @@ jobs:
           VERSION="$(python -c 'import re; from pathlib import Path; print(re.search(r"APP_VERSION = \"([0-9]+\.[0-9]+)\"", Path("app/config.py").read_text()).group(1))')"
           docker build --platform linux/amd64 \
             --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+            --build-arg NPM_REGISTRY=https://registry.npmjs.org \
             --label "org.opencontainers.image.source=https://github.com/CiaoBye/AutoList" \
             --label "org.opencontainers.image.revision=$COMMIT_SHA" \
             --tag "ayuanaa/autolist:$VERSION" \

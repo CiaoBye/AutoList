@@ -17,14 +17,12 @@ from .api.playlists import (  # noqa: F401
     configure_playlist_automation,
     configure_playlist_sync,
     import_playlist,
-    overview,
     playlist_item_poster,
-    playlist_items,
     preview_playlist_import,
     refresh_playlist_source,
     reorder_playlists,
 )
-from .api.search import candidates, create_task, task_attempts, task_logs, task_status  # noqa: F401
+from .api.search import create_task, task_attempts, task_logs, task_status  # noqa: F401
 from .api.system import put_config, validated_base_url  # noqa: F401
 from .clients import (  # noqa: F401
     AIRecognitionClient,
@@ -98,13 +96,10 @@ main = types.SimpleNamespace(
     configure_playlist_automation=configure_playlist_automation,
     configure_playlist_sync=configure_playlist_sync,
     import_playlist=import_playlist,
-    overview=overview,
     playlist_item_poster=playlist_item_poster,
-    playlist_items=playlist_items,
     preview_playlist_import=preview_playlist_import,
     refresh_playlist_source=refresh_playlist_source,
     reorder_playlists=reorder_playlists,
-    candidates=candidates,
     create_task=create_task,
     task_attempts=task_attempts,
     task_logs=task_logs,

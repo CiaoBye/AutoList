@@ -88,29 +88,38 @@ def _active_history_matches(
     ambiguous: set[int] = set()
     eligible = [row for row in histories if bool(row.get("success"))]
     active_torrents = [torrent for torrent in torrents if is_transmission_downloading(torrent)]
+    if not eligible or not active_torrents:
+        return matched, ambiguous
+
+    by_hash: dict[str, list[dict[str, Any]]] = {}
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for row in eligible:
+        h = str(row.get("submission_hash") or "").strip().casefold()
+        if h:
+            by_hash.setdefault(h, []).append(row)
+        n = normalized_download_name(row.get("torrent_name"))
+        if n:
+            by_name.setdefault(n, []).append(row)
+
     for torrent in active_torrents:
         torrent_hash = str(torrent.get("hashString") or "").strip().casefold()
-        hash_matches = [
-            row for row in eligible
-            if torrent_hash and str(row.get("submission_hash") or "").strip().casefold() == torrent_hash
-        ]
-        if len(hash_matches) == 1:
-            matched.add(int(hash_matches[0]["id"]))
-            continue
-        if len(hash_matches) > 1:
-            ambiguous.update(int(row["id"]) for row in hash_matches)
-            continue
+        if torrent_hash and torrent_hash in by_hash:
+            hash_matches = by_hash[torrent_hash]
+            if len(hash_matches) == 1:
+                matched.add(int(hash_matches[0]["id"]))
+                continue
+            if len(hash_matches) > 1:
+                ambiguous.update(int(row["id"]) for row in hash_matches)
+                continue
         name = normalized_download_name(first_value(torrent, ("name", "torrent_name"), ""))
-        name_matches = [
-            row for row in eligible
-            if name and normalized_download_name(row.get("torrent_name")) == name
-        ]
-        if len(name_matches) == 1:
-            matched.add(int(name_matches[0]["id"]))
-            continue
-        if len(name_matches) > 1:
-            ambiguous.update(int(row["id"]) for row in name_matches)
-            continue
+        if name and name in by_name:
+            name_matches = by_name[name]
+            if len(name_matches) == 1:
+                matched.add(int(name_matches[0]["id"]))
+                continue
+            if len(name_matches) > 1:
+                ambiguous.update(int(row["id"]) for row in name_matches)
+                continue
         identity_matches = [row for row in eligible if _history_torrent_matches(row, torrent)]
         if len(identity_matches) == 1:
             matched.add(int(identity_matches[0]["id"]))

@@ -9,8 +9,8 @@ const RECOMMENDATION_LABELS: Record<string, string> = {
 
 /** 一条候选资源：同种发布跨站点折叠为一行，已选定时取消的是清单中那个站点的条目。 */
 export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candidate; onToggle: (id: string) => void; busy: boolean }) {
-  const selected = Boolean(candidate.in_cart);
-  const toggleId = selected ? candidate.site_options.find((option) => option.in_cart)?.id ?? candidate.id : candidate.id;
+  const selected = Boolean(candidate.in_selection);
+  const toggleId = selected ? candidate.site_options.find((option) => option.in_selection)?.id ?? candidate.id : candidate.id;
   const label = RECOMMENDATION_LABELS[candidate.recommendation] || "候选";
   return (
     <div class="candidate">

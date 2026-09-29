@@ -112,12 +112,27 @@ def torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str)
     return False
 
 
-def candidate_identity(item: sqlite3.Row | dict[str, Any], media: dict[str, Any], torrent_title: str) -> tuple[bool, str | None]:
+def candidate_identity(
+    item: sqlite3.Row | dict[str, Any], media: dict[str, Any], torrent_title: str, torrent_imdb: str | None = None,
+) -> tuple[bool, str | None]:
+    """资源是否就是目标影片。站点行带 IMDb 编号时以编号为准：不一致直接排除，一致则不再比对年份与片名。"""
+    keys = item.keys() if hasattr(item, "keys") else ()
+    target_imdb = str(
+        media.get("imdb_id") or (item["tmdb_imdb_id"] if "tmdb_imdb_id" in keys else None)
+        or (item["imdb_id"] if "imdb_id" in keys else None) or ""
+    ).strip().lower()
+    torrent_imdb = str(torrent_imdb or "").strip().lower()
+    is_collection = bool(re.search(r"(?i)(?:trilogy|collection|box[ ._-]*set|complete|pack|合集|系列|全集)", torrent_title))
+    if target_imdb and torrent_imdb:
+        if torrent_imdb != target_imdb:
+            return False, f"IMDb 编号不匹配：目标 {target_imdb}，资源为 {torrent_imdb}"
+        # 合集常带第一部的 IMDb 编号（如“教父 I-III 合集”），编号一致也要排除。
+        return (False, "疑似合集或系列资源") if is_collection else (True, None)
     target_year = str(media.get("year") or canonical_item_year(item) or "").strip()
     years = set(re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", torrent_title))
     if target_year and years and target_year not in years:
         return False, f"年份不匹配：目标 {target_year}，资源包含 {', '.join(sorted(years))}"
-    if re.search(r"(?i)(?:trilogy|collection|box[ ._-]*set|complete|pack|合集|系列|全集)", torrent_title):
+    if is_collection:
         return False, "疑似合集或系列资源"
     # 续集/分卷拦截：仅当目标片名本身不含序号词时生效，
     # 避免“The Godfather Part II”这类正式片名被自己的种子标题拦截。

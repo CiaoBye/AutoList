@@ -4,7 +4,7 @@
 
 AutoList 是独立运行的片单识别、PT 寻片与下载决策服务。片单、站点、规则、候选与下载历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责确认实体入馆，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`1.59`。
+当前版本：`1.67`。
 
 ## 工作方式
 
@@ -12,7 +12,7 @@ AutoList 是独立运行的片单识别、PT 寻片与下载决策服务。片�
 - **入馆判断**：只有 Emby 中的真实媒体文件算“已入馆”，`.strm` 归入未完成；Emby 无法确认时显示“待核对”，不会当成缺片。
 - **寻片**：只处理未入馆且不在 Transmission 下载中的缺片。首页按片单顺序每批 50 部，片单页可按序号范围寻片，影片详情可单片寻片。站点检索组合 IMDb、TMDB 原名、TMDB 中文名与导入原名，并在候选入库前校验片名、年份及合集标记。
 - **入馆标准**：硬门槛策略，只接受 `x265 + ADE / FRDS / HDS / CHD`，没有首选时提供 `x264 + CMCT` 作为人工保底；DIY、REMUX、WEB 与完整原盘资源明确排除。规则可在设置中编辑并试算标题。
-- **挑选与提交**：候选按电影分组，选定后进入待入馆清单；提交前再次确认 Emby 与 Transmission，跳过已提交、下载中或已入馆的相同发布。候选的下载上下文只保存在内存中，服务重启或超过 2 小时后需重新寻片。
+- **挑选与提交**：候选按电影分组，选定后进入待入馆清单；提交前再次确认 Emby 与 Transmission，跳过已提交、下载中或已入馆的相同发布；NexusPHP 站点还会回详情页确认种子仍在，已被站点删除的移出清单并排除，Cookie 失效或站点无法访问时暂缓提交。候选的下载上下文加密存入数据库，服务重启后仍可提交，7 天后过期需重新寻片；站点 Cookie 不随候选保存，提交时使用站点当前的 Cookie。
 - **下载**：只经 MoviePilot 提交到 Transmission，由 MoviePilot 负责下载目录、媒体分类、`MOVIEPILOT` 与站点标签以及后续整理。AutoList 不直连 Transmission 添加任务。
 - **导入片单**：先在导入弹窗预览再写入。支持 TMDB（官方 API）、Letterboxd 公开片单（官方嵌入页面）、IMDb 公开 List（GraphQL 列表接口）、MDBList 公开片单（JSON 接口），以及 XLSX / CSV / JSON 文件与粘贴内容。私有片单请使用站点导出文件，AutoList 不绕过验证码或登录限制。
 - **海报**：配置 Fanart API Key 后按 fanart.tv → Emby → TMDB 的顺序取海报。fanart.tv 优先挑影片原语言的海报（英语片取英文版、日语片取日文版），其次无字版、英文版，同语言取点赞最多的一张，下载 400px 预览图；fanart.tv 没有的影片自动回退。
@@ -28,7 +28,7 @@ AutoList 是独立运行的片单识别、PT 寻片与下载决策服务。片�
 - **设置**（`#/settings/:section`）：
   - 服务连接：MoviePilot、TMDB、Fanart.tv、Emby、Transmission（可逐项检测），以及可选的 MDBList 与 AI 辅助识别；
   - 代理：出站代理及 TMDB / Fanart、PT 站点分流；
-  - 站点：顶部为 Cookie 来源（CookieCloud 的同步方式、最近一次同步结果、不在 CookieCloud 中的站点，以及连接设置）；站点协议按地址自动识别，支持搜索开关、代理、优先级、连接检测（用《The Godfather》做真实搜索，IMDb 搜不到时回退片名，区分“正常 / 缓慢 / 搜不到 / 失败”）、Cookie 刷新（显示 Cookie 来源与更新时间）、账户统计与从 MoviePilot 同步；Cookie 有变化的站点会自动重新检测；
+  - 站点：顶部为 Cookie 来源（CookieCloud 的同步方式、最近一次同步结果、不在 CookieCloud 中的站点，以及连接设置）；站点协议与解析方式按地址自动识别（站点D填 API Key 后改走官方接口，不受网页二次验证影响），支持搜索开关、代理、优先级、连接检测（用《The Godfather》做真实搜索，IMDb 搜不到时回退片名，区分“正常 / 缓慢 / 搜不到 / 失败”）、Cookie 刷新（显示 Cookie 来源与更新时间）、账户统计与从 MoviePilot 同步；Cookie 有变化的站点会自动重新检测；
   - 入馆标准：按“硬性排除 → 允许组合 → 站点 → 分辨率 → 做种与优惠”决策，可编辑自定义制作组并实时试算标题；
   - 片单管理：改名、排序、来源同步、新片自动补全、识别、按 IMDb 校准（补齐编号并核对已有识别，不一致的改正后重新核对 Emby）、刷新 Emby 与删除；
   - 外观与访问：主题、首页海报随机展示与本机访问令牌；
@@ -75,21 +75,22 @@ bash scripts/deploy-fnos.sh
 
 ### Chrome CookieCloud
 
-1. 在“设置 → 站点 → Cookie 来源 → 连接设置”填写 CookieCloud 用户 KEY（5–128 位字母、数字、`_` 或 `-`）与端对端加密密码。
-2. 任选一种同步方式：
-   - **拉取**：填写与 Chrome 插件相同的 CookieCloud 服务器地址，AutoList 每小时自动拉取并解密；
-   - **推送**：服务器地址留空，Chrome CookieCloud 扩展的服务器地址填写 `http://<Docker 主机>:8585/cookiecloud`（设置页可一键复制），KEY 和密码保持一致，并执行一次上传同步。
-3. 站点详情中的“刷新 Cookie”会按同一来源重新读取 CookieCloud 数据。
+AutoList 与 MoviePilot 共用同一个 CookieCloud 服务：Chrome 插件把 Cookie 推送到 MoviePilot 自带的 CookieCloud（`COOKIECLOUD_ENABLE_LOCAL=True`，地址 `http://<MoviePilot 主机>:3000/cookiecloud`），AutoList 从那里拉取。AutoList 自身不接收插件推送。
+
+1. 在“设置 → 站点 → Cookie 来源 → 连接设置”填写与插件相同的服务器地址、用户 KEY（5–128 位字母、数字、`_` 或 `-`）与端对端加密密码。
+2. AutoList 每 10 分钟拉取并解密一次，只更新 Cookie 有变化的站点，并在后台重新检测这些站点；保存 CookieCloud 设置后下一轮定时任务立即拉取。
+3. 寻片、站点检测或提交前确认种子时，站点返回登录页（Cookie 已失效）会立即重新拉取一次；拿到新 Cookie 就用它重试这次请求。2 分钟内最多补拉一次，浏览器里的登录也已过期时不会反复拉取。
+4. 站点详情中的“刷新 Cookie”与 Cookie 来源面板的“立即同步”会马上拉取一次。
 
 ### 备份与恢复
 
 数据库 `playlist-autodown.db` 使用 SQLite WAL，容器运行时不要直接复制数据库文件或删除 `-wal` / `-shm`。升级前用 SQLite 备份接口在线备份：
 
 ```bash
-docker exec Autolist python -c "import sqlite3; s=sqlite3.connect('/data/playlist-autodown.db'); d=sqlite3.connect('/data/playlist-autodown.db.bak-1.59-20260928'); s.backup(d); d.close()"
+docker exec Autolist python -c "import sqlite3; s=sqlite3.connect('/data/playlist-autodown.db'); d=sqlite3.connect('/data/playlist-autodown.db.bak-1.67-20260929'); s.backup(d); d.close()"
 ```
 
-恢复时先停止容器，把当前数据库改名保留，删除它的 `-wal` / `-shm`，再把备份复制为 `playlist-autodown.db` 并启动容器。数据库只会向前迁移：程序发现数据库版本高于自身支持的版本时会拒绝启动。运行设置 `runtime-settings.json` 与 `cookiecloud/` 同在数据目录，需要完整备份时停止容器后打包整个目录。备份含密钥，只放在管理员可读的位置。
+恢复时先停止容器，把当前数据库改名保留，删除它的 `-wal` / `-shm`，再把备份复制为 `playlist-autodown.db` 并启动容器。数据库只会向前迁移：程序发现数据库版本高于自身支持的版本时会拒绝启动。运行设置 `runtime-settings.json` 与候选上下文密钥 `candidate-context.key` 同在数据目录，需要完整备份时停止容器后打包整个目录。备份含密钥，只放在管理员可读的位置。
 
 ### 健康检查
 
@@ -108,28 +109,36 @@ cd frontend && npm ci && npm run build
 
 - 本地运行：`DATA_DIR=<数据目录> .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8599`；`frontend` 下 `npm run dev` 会把 `/api` 代理到该端口。未构建前端时访问 `/` 返回 503 并提示构建命令。
 - 验证：`.venv/bin/python -m unittest discover -s tests`、`python3 -m compileall -q app`、`frontend` 下 `npm run build`。
+- 接口类型：后端在 `app/responses.py` 声明返回格式，`.venv/bin/python scripts/export_openapi.py` 导出到 `frontend/openapi.json`（入库）；`npm run dev` / `npm run build` 先用 `openapi-typescript` 生成 `src/api-schema.d.ts`（不入库）再做类型检查。`tests/test_contract.py` 在快照过期或返回值不符合声明时失败。
 - 镜像构建在独立的 Node 阶段完成前端构建，运行时镜像不包含 Node。可用 build arg 覆盖：`NODE_IMAGE`、`NPM_REGISTRY`（默认 npmmirror）、`PYTHON_IMAGE`（默认 `python:3.12-slim`）、`PIP_INDEX_URL`（默认清华源）。构建上下文不包含 `.venv`、`.scratch`、`tests`、日志、数据库、备份或 `.env`。
 - 功能更新或问题修复必须递增版本并记录到 `CHANGELOG.md`，协作与验收规则见 `AGENTS.md`，领域词汇见 `CONTEXT.md`。
 
 ### 代码结构
 
 - `app/main.py`：FastAPI 入口、鉴权中间件与路由注册。
-- `app/api/`：按域划分的 HTTP 路由（system / sites / playlists / search / cart / films / logs）。
+- `app/responses.py`：接口返回格式（前端类型由它生成）。
+- `app/api/`：按域划分的 HTTP 路由（system / sites / playlists / search / selection / history / films / home / picks / timeline / images / logs）。
 - `app/services/`、`app/domain/`：业务编排与纯领域逻辑；`app/services/films.py` 负责影片状态计算。
-- `app/clients.py`：MoviePilot、TMDB、Fanart.tv、Emby、Transmission 等外部服务客户端。
-- `frontend/`：“电影藏馆”界面源码。
+- `app/queries/`：按领域划分的数据库读写（影片、片单、待入馆清单、寻片任务、站点、动态），路由不直接写 SQL。
+- `app/migrations.py`：数据库迁移。按编号排列的步骤，每步只在数据库版本低于其编号时执行一次；旧表缺少的列在 `ADDED_COLUMNS` 声明，启动时补齐。
+- `app/tasks.py`：后台任务框架。寻片、识别、Emby 状态刷新与新片处理共用运行登记、容量限制、取消、重启后标记中断和首页“进行中”列表。
+- `app/outbound.py`：出站请求安全（目标地址校验、DNS 固定、逐跳检查重定向、跨域剥离凭据、响应大小上限），所有外部请求都经过 `safe_request`。
+- `app/sites/`：PT 站点接入。按站点档案（`profiles.py`：搜索路径、参数、IMDb 搜索方式、列表与链接规则）由通用 NexusPHP 解析器搜索（`nexusphp.py`，按表头识别列、读取折扣与 IMDb 编号、识别登录 / 二次验证 / 维护 / Cloudflare 页面）；站点D填了 API Key 时走官方接口（`official_api_site.py`）。`tests/fixtures/sites/` 是各站去除账号信息后的真实搜索页，用于回归。
+- `app/clients.py`：MoviePilot、TMDB、Fanart.tv、Emby、Transmission、M-Team、RSS / Torznab 等外部服务客户端，以及站点账户统计。
+- `frontend/`：“电影藏馆”界面源码；样式在 `frontend/src/styles/`（外壳、通用组件与各页面各一个文件），由 `app.css` 按顺序引入。
+- `tests/`：按领域划分的测试（`test_<领域>.py`），共享的隔离基类在 `tests/support.py`。
 - `app/static/`：Logo、favicon 与服务图标。
 
 ## 安全边界
 
-- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源、`/api/health` 与 `/cookiecloud/*` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不写入运行设置；默认强制至少 32 个字符且具备足够字符多样性，可信内网迁移旧令牌时才设置 `AUTOLIST_REQUIRE_STRONG_TOKEN=false`。启用令牌后，站点、RSS、图标等出站地址拒绝内网 IP 与仅解析到内网的域名（可用 `AUTOLIST_ALLOW_PRIVATE_HOSTS` 按域名后缀放行）。海报等图片使用短时签名地址，不在地址中携带令牌。
+- **默认无认证**，信任边界是网络隔离。设置环境变量 `AUTOLIST_ACCESS_TOKEN` 后，除 `/`、静态资源与 `/api/health` 外，全部 `/api/*` 需 `Authorization: Bearer <token>` 或 `X-AutoList-Token`。令牌只读环境变量，不写入运行设置；默认强制至少 32 个字符且具备足够字符多样性，可信内网迁移旧令牌时才设置 `AUTOLIST_REQUIRE_STRONG_TOKEN=false`。启用令牌后，站点、RSS、图标等出站地址拒绝内网 IP 与仅解析到内网的域名（可用 `AUTOLIST_ALLOW_PRIVATE_HOSTS` 按域名后缀放行）。海报等图片使用短时签名地址，不在地址中携带令牌。
 - 设置页可管理**本机浏览器**的访问令牌（`localStorage`），不会改写服务端的 `AUTOLIST_ACCESS_TOKEN`。
 - Swagger / OpenAPI 文档默认关闭（`AUTOLIST_ENABLE_DOCS=true` 开启）；所有响应附带 CSP、X-Frame-Options、nosniff 与 Referrer-Policy 安全头。
 - API Key、密码、Cookie 与 Token 只在前端显示“已配置”，既有值不会返回浏览器；输入框留空表示保留，清除需显式操作。
 - 页面保存的运行设置写入 `/data/runtime-settings.json`（权限 `0600`），优先于 `.env`；`.env` 只作为首次启动和未保存字段的默认值。修改 `.env` 后如需生效，请在设置页重新保存对应字段或删除 `runtime-settings.json`。
-- 站点下载地址和授权字段只保留在当前进程的短暂下载上下文中，不写入数据库或日志。
+- 站点下载地址和授权字段只保存在加密的候选下载上下文中（AES-GCM，密钥为数据目录下的 `candidate-context.key`，权限 600），数据库与备份中没有明文，也不写入日志；删除密钥文件会让现有候选全部过期。
 - 提交下载时站点 Cookie 与含 passkey 的下载地址会随请求交给 MoviePilot，请确保 `MP_BASE_URL` 使用 HTTPS 或仅暴露于受控内网。
 - 代理：“TMDB / Fanart 走代理”控制 TMDB、fanart.tv 与片单来源（TMDB / MDBList / Letterboxd / IMDb）的请求，“PT 站点允许走代理”配合站点里的代理开关控制站点请求；代理认证信息不得写入地址。大陆网络访问 TMDB 请使用代理，Compose 不写入 `extra_hosts`。
-- AutoList 内置兼容 CookieCloud 的加密数据接收端，密文保存在 `/data/cookiecloud`（权限 `0600`）。上传与读取的 UUID 必须与设置中的 CookieCloud 用户 KEY 一致；未配置 KEY 时拒绝写入，同 KEY 上传有每分钟次数上限。AutoList 不读取 Chrome 配置目录、密码库或浏览器存储。
+- CookieCloud 只从设置里的服务器地址拉取，解密后直接更新站点 Cookie，不在数据目录保存密文。AutoList 不读取 Chrome 配置目录、密码库或浏览器存储。
 - 并发寻片任务上限 3 个，避免打满下游站点。
 - 日志与错误消息按键名启发式脱敏（Cookie、Token、API Key、Authorization 及含 `key` / `token` / `passkey` / `secret` 的查询参数）；自定义响应头名携带的值与非常规写法可能残留，属纵深防御而非完整保证。

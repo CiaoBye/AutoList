@@ -1,0 +1,6845 @@
+{
+  "components": {
+    "schemas": {
+      "ActiveTask": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "search",
+              "recognition",
+              "library",
+              "automation"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "integer"
+          },
+          "playlist_name": {
+            "title": "Playlist Name",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "status",
+          "total",
+          "completed",
+          "playlist_id",
+          "playlist_name"
+        ],
+        "title": "ActiveTask",
+        "type": "object"
+      },
+      "AttemptSummary": {
+        "properties": {
+          "failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          },
+          "succeeded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Succeeded"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "title": "AttemptSummary",
+        "type": "object"
+      },
+      "AutomationStarted": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "message"
+        ],
+        "title": "AutomationStarted",
+        "type": "object"
+      },
+      "Candidate": {
+        "properties": {
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "context_available": {
+            "title": "Context Available",
+            "type": "boolean"
+          },
+          "eligibility": {
+            "title": "Eligibility",
+            "type": "string"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "in_selection": {
+            "title": "In Selection",
+            "type": "integer"
+          },
+          "is_free": {
+            "title": "Is Free",
+            "type": "boolean"
+          },
+          "recommendation": {
+            "title": "Recommendation",
+            "type": "string"
+          },
+          "recommendation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation Reason"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "seeders": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seeders"
+          },
+          "site_count": {
+            "title": "Site Count",
+            "type": "integer"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "site_options": {
+            "items": {
+              "$ref": "#/components/schemas/SiteOption"
+            },
+            "title": "Site Options",
+            "type": "array"
+          },
+          "site_selection_reason": {
+            "title": "Site Selection Reason",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "volume_factor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Volume Factor"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "site_name",
+          "size",
+          "seeders",
+          "resolution",
+          "codec",
+          "group_name",
+          "recommendation",
+          "recommendation_reason",
+          "eligibility",
+          "in_selection",
+          "context_available",
+          "is_free",
+          "volume_factor",
+          "site_count",
+          "site_options",
+          "site_selection_reason"
+        ],
+        "title": "Candidate",
+        "type": "object"
+      },
+      "CandidateAnalysis": {
+        "properties": {
+          "breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreLine"
+            },
+            "title": "Breakdown",
+            "type": "array"
+          },
+          "codec": {
+            "title": "Codec",
+            "type": "string"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "manual": {
+            "title": "Manual",
+            "type": "boolean"
+          },
+          "manual_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Manual Reasons",
+            "type": "array"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "profile_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Label"
+          },
+          "ranking": {
+            "title": "Ranking",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "recommendation": {
+            "title": "Recommendation",
+            "type": "string"
+          },
+          "resolution": {
+            "title": "Resolution",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ranking",
+          "score",
+          "breakdown",
+          "tier",
+          "group",
+          "resolution",
+          "codec",
+          "source",
+          "recommendation",
+          "reason",
+          "manual",
+          "manual_reasons",
+          "eligible",
+          "exclusion_reason",
+          "profile_id",
+          "profile_label"
+        ],
+        "title": "CandidateAnalysis",
+        "type": "object"
+      },
+      "ConfigPayload": {
+        "properties": {
+          "candidate_limit": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Limit"
+          },
+          "candidate_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Policy"
+          }
+        },
+        "title": "ConfigPayload",
+        "type": "object"
+      },
+      "ConnectionStatus": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "providers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ProviderCheck"
+            },
+            "title": "Providers",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "message",
+          "version",
+          "providers"
+        ],
+        "title": "ConnectionStatus",
+        "type": "object"
+      },
+      "CookieCloudStatus": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "key_valid": {
+            "title": "Key Valid",
+            "type": "boolean"
+          },
+          "last_sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CookieSync"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pull_interval_minutes": {
+            "title": "Pull Interval Minutes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "url_configured": {
+            "title": "Url Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "key_valid",
+          "url_configured",
+          "url",
+          "pull_interval_minutes",
+          "last_sync"
+        ],
+        "title": "CookieCloudStatus",
+        "type": "object"
+      },
+      "CookieCloudSynced": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "sites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sites",
+            "type": "array"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "updated",
+          "unchanged",
+          "sites",
+          "missing",
+          "message"
+        ],
+        "title": "CookieCloudSynced",
+        "type": "object"
+      },
+      "CookieSync": {
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Updated",
+            "type": "array"
+          }
+        },
+        "required": [
+          "at",
+          "origin",
+          "updated",
+          "unchanged",
+          "missing"
+        ],
+        "title": "CookieSync",
+        "type": "object"
+      },
+      "ExcludedReason": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "title": "ExcludedReason",
+        "type": "object"
+      },
+      "ExpiredItem": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "title"
+        ],
+        "title": "ExpiredItem",
+        "type": "object"
+      },
+      "Film": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "imdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imdb Id"
+          },
+          "issue_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issue Labels",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "enum": [
+                "no_eligible",
+                "submit_failed",
+                "context_expired"
+              ],
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "library_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library State"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "integer"
+          },
+          "poster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poster Url"
+          },
+          "rank_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank No"
+          },
+          "status": {
+            "enum": [
+              "unrecognized",
+              "unchecked",
+              "missing",
+              "searching",
+              "candidates",
+              "selected",
+              "downloading",
+              "in_library"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Id"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "waiting_library",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transfer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "playlist_id",
+          "rank_no",
+          "title",
+          "original_title",
+          "year",
+          "tmdb_id",
+          "imdb_id",
+          "library_state",
+          "status",
+          "status_label",
+          "issues",
+          "issue_labels",
+          "transfer",
+          "poster_url"
+        ],
+        "title": "Film",
+        "type": "object"
+      },
+      "FilmDetail": {
+        "properties": {
+          "backdrop_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backdrop Url"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "excluded_count": {
+            "title": "Excluded Count",
+            "type": "integer"
+          },
+          "excluded_summary": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedReason"
+            },
+            "title": "Excluded Summary",
+            "type": "array"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/FilmHistoryRecord"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "imdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imdb Id"
+          },
+          "issue_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issue Labels",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "enum": [
+                "no_eligible",
+                "submit_failed",
+                "context_expired"
+              ],
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "library_checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Checked At"
+          },
+          "library_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library State"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "integer"
+          },
+          "playlist_name": {
+            "title": "Playlist Name",
+            "type": "string"
+          },
+          "poster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poster Url"
+          },
+          "rank_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank No"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilmSearchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "search_site_count": {
+            "title": "Search Site Count",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "unrecognized",
+              "unchecked",
+              "missing",
+              "searching",
+              "candidates",
+              "selected",
+              "downloading",
+              "in_library"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Id"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "waiting_library",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transfer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "playlist_id",
+          "rank_no",
+          "title",
+          "original_title",
+          "year",
+          "tmdb_id",
+          "imdb_id",
+          "library_state",
+          "status",
+          "status_label",
+          "issues",
+          "issue_labels",
+          "transfer",
+          "poster_url",
+          "backdrop_url",
+          "playlist_name",
+          "library_checked_at",
+          "candidates",
+          "excluded_summary",
+          "excluded_count",
+          "history",
+          "search",
+          "search_site_count"
+        ],
+        "title": "FilmDetail",
+        "type": "object"
+      },
+      "FilmHistoryRecord": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "success": {
+            "title": "Success",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "torrent_name": {
+            "title": "Torrent Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "torrent_name",
+          "site_name",
+          "success",
+          "message",
+          "created_at"
+        ],
+        "title": "FilmHistoryRecord",
+        "type": "object"
+      },
+      "FilmPage": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Film"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "pages": {
+            "title": "Pages",
+            "type": "integer"
+          },
+          "playlists": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistSummary"
+            },
+            "title": "Playlists",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages",
+          "counts",
+          "playlists"
+        ],
+        "title": "FilmPage",
+        "type": "object"
+      },
+      "FilmSearchStarted": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "total"
+        ],
+        "title": "FilmSearchStarted",
+        "type": "object"
+      },
+      "FilmSearchSummary": {
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "results": {
+            "title": "Results",
+            "type": "integer"
+          },
+          "sites": {
+            "title": "Sites",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_id",
+          "sites",
+          "succeeded",
+          "failed",
+          "results",
+          "finished_at"
+        ],
+        "title": "FilmSearchSummary",
+        "type": "object"
+      },
+      "FilmTmdbPayload": {
+        "description": "Manually pin a film to a TMDB movie id when automatic recognition picked the wrong one.",
+        "properties": {
+          "tmdb_id": {
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Tmdb Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tmdb_id"
+        ],
+        "title": "FilmTmdbPayload",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryCleared": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted",
+          "status"
+        ],
+        "title": "HistoryCleared",
+        "type": "object"
+      },
+      "HistoryRecord": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "lifecycle_status": {
+            "title": "Lifecycle Status",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "next_action": {
+            "title": "Next Action",
+            "type": "string"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "status_reason": {
+            "title": "Status Reason",
+            "type": "string"
+          },
+          "status_source": {
+            "title": "Status Source",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "torrent_name": {
+            "title": "Torrent Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "torrent_name",
+          "site_name",
+          "success",
+          "message",
+          "created_at",
+          "lifecycle_status",
+          "status_label",
+          "status_source",
+          "status_reason",
+          "next_action"
+        ],
+        "title": "HistoryRecord",
+        "type": "object"
+      },
+      "HomeData": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "playlist_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playlist Id"
+          },
+          "playlists": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistSummary"
+            },
+            "title": "Playlists",
+            "type": "array"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/Film"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "todos": {
+            "items": {
+              "$ref": "#/components/schemas/Todo"
+            },
+            "title": "Todos",
+            "type": "array"
+          },
+          "up_next": {
+            "items": {
+              "$ref": "#/components/schemas/Film"
+            },
+            "title": "Up Next",
+            "type": "array"
+          }
+        },
+        "required": [
+          "playlists",
+          "playlist_id",
+          "counts",
+          "todos",
+          "tasks",
+          "recent",
+          "up_next"
+        ],
+        "title": "HomeData",
+        "type": "object"
+      },
+      "ImportPayload": {
+        "properties": {
+          "csv_text": {
+            "anyOf": [
+              {
+                "maxLength": 20000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Csv Text"
+          },
+          "json_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Json Data"
+          },
+          "limit": {
+            "default": 5000,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "xlsx_base64": {
+            "anyOf": [
+              {
+                "maxLength": 50000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xlsx Base64"
+          }
+        },
+        "title": "ImportPayload",
+        "type": "object"
+      },
+      "ImportPreview": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sample": {
+            "items": {
+              "$ref": "#/components/schemas/ImportSample"
+            },
+            "title": "Sample",
+            "type": "array"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          }
+        },
+        "required": [
+          "name",
+          "count",
+          "source_type",
+          "sample"
+        ],
+        "title": "ImportPreview",
+        "type": "object"
+      },
+      "ImportSample": {
+        "properties": {
+          "chinese_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chinese Title"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "rank_no": {
+            "title": "Rank No",
+            "type": "integer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "rank_no",
+          "original_title"
+        ],
+        "title": "ImportSample",
+        "type": "object"
+      },
+      "LogEvent": {
+        "additionalProperties": true,
+        "properties": {
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "level",
+          "event"
+        ],
+        "title": "LogEvent",
+        "type": "object"
+      },
+      "MoviePilotSitesSynced": {
+        "properties": {
+          "cookiecloud_updated": {
+            "title": "Cookiecloud Updated",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "sites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sites",
+            "type": "array"
+          },
+          "skipped": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "total",
+          "sites",
+          "cookiecloud_updated",
+          "message"
+        ],
+        "title": "MoviePilotSitesSynced",
+        "type": "object"
+      },
+      "PickItem": {
+        "properties": {
+          "bucket": {
+            "enum": [
+              "candidates",
+              "selected",
+              "no_eligible"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "excluded_count": {
+            "title": "Excluded Count",
+            "type": "integer"
+          },
+          "excluded_summary": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedReason"
+            },
+            "title": "Excluded Summary",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "imdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imdb Id"
+          },
+          "issue_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issue Labels",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "enum": [
+                "no_eligible",
+                "submit_failed",
+                "context_expired"
+              ],
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "library_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library State"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "integer"
+          },
+          "poster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poster Url"
+          },
+          "rank_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank No"
+          },
+          "status": {
+            "enum": [
+              "unrecognized",
+              "unchecked",
+              "missing",
+              "searching",
+              "candidates",
+              "selected",
+              "downloading",
+              "in_library"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Id"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "waiting_library",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transfer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "playlist_id",
+          "rank_no",
+          "title",
+          "original_title",
+          "year",
+          "tmdb_id",
+          "imdb_id",
+          "library_state",
+          "status",
+          "status_label",
+          "issues",
+          "issue_labels",
+          "transfer",
+          "poster_url",
+          "bucket",
+          "candidates",
+          "excluded_summary",
+          "excluded_count"
+        ],
+        "title": "PickItem",
+        "type": "object"
+      },
+      "PickPage": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PickItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "playlists": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistSummary"
+            },
+            "title": "Playlists",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "counts",
+          "playlists"
+        ],
+        "title": "PickPage",
+        "type": "object"
+      },
+      "PlaylistAutomationPayload": {
+        "properties": {
+          "auto_select": {
+            "default": false,
+            "title": "Auto Select",
+            "type": "boolean"
+          },
+          "batch_size": {
+            "default": 50,
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Batch Size",
+            "type": "integer"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "PlaylistAutomationPayload",
+        "type": "object"
+      },
+      "PlaylistImported": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recognition_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recognition Note"
+          },
+          "recognition_task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recognition Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "count",
+          "recognition_task_id",
+          "recognition_note"
+        ],
+        "title": "PlaylistImported",
+        "type": "object"
+      },
+      "PlaylistOrderPayload": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "PlaylistOrderPayload",
+        "type": "object"
+      },
+      "PlaylistRow": {
+        "properties": {
+          "automation_batch_size": {
+            "title": "Automation Batch Size",
+            "type": "integer"
+          },
+          "automation_enabled": {
+            "title": "Automation Enabled",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "last_sync_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Message"
+          },
+          "last_sync_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Status"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_sync_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Sync At"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "recognized_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recognized Count"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "sync_enabled": {
+            "title": "Sync Enabled",
+            "type": "integer"
+          },
+          "sync_interval_hours": {
+            "title": "Sync Interval Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "position",
+          "source_type",
+          "source_url",
+          "source_name",
+          "last_synced_at",
+          "created_at",
+          "item_count",
+          "recognized_count",
+          "sync_enabled",
+          "sync_interval_hours",
+          "next_sync_at",
+          "last_sync_status",
+          "last_sync_message",
+          "automation_enabled",
+          "automation_batch_size"
+        ],
+        "title": "PlaylistRow",
+        "type": "object"
+      },
+      "PlaylistSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source_type",
+          "item_count"
+        ],
+        "title": "PlaylistSummary",
+        "type": "object"
+      },
+      "PlaylistSyncPayload": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "interval_hours": {
+            "default": 24,
+            "maximum": 720.0,
+            "minimum": 1.0,
+            "title": "Interval Hours",
+            "type": "integer"
+          }
+        },
+        "title": "PlaylistSyncPayload",
+        "type": "object"
+      },
+      "PlaylistSynced": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "added",
+          "message",
+          "trigger"
+        ],
+        "title": "PlaylistSynced",
+        "type": "object"
+      },
+      "PlaylistUpdatePayload": {
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PlaylistUpdatePayload",
+        "type": "object"
+      },
+      "ProviderCheck": {
+        "additionalProperties": true,
+        "properties": {
+          "configured": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configured"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok"
+          }
+        },
+        "title": "ProviderCheck",
+        "type": "object"
+      },
+      "PublicSettings": {
+        "description": "运行设置：密钥只返回是否已配置（字段本身为空或掩码）。",
+        "properties": {
+          "access_token_required": {
+            "title": "Access Token Required",
+            "type": "boolean"
+          },
+          "access_token_strength": {
+            "enum": [
+              "missing",
+              "weak",
+              "strong"
+            ],
+            "title": "Access Token Strength",
+            "type": "string"
+          },
+          "access_token_strength_enforced": {
+            "title": "Access Token Strength Enforced",
+            "type": "boolean"
+          },
+          "ai_api_key": {
+            "title": "Ai Api Key",
+            "type": "string"
+          },
+          "ai_api_key_configured": {
+            "title": "Ai Api Key Configured",
+            "type": "boolean"
+          },
+          "ai_base_url": {
+            "title": "Ai Base Url",
+            "type": "string"
+          },
+          "ai_model": {
+            "title": "Ai Model",
+            "type": "string"
+          },
+          "cookiecloud_key": {
+            "title": "Cookiecloud Key",
+            "type": "string"
+          },
+          "cookiecloud_key_configured": {
+            "title": "Cookiecloud Key Configured",
+            "type": "boolean"
+          },
+          "cookiecloud_password": {
+            "title": "Cookiecloud Password",
+            "type": "string"
+          },
+          "cookiecloud_password_configured": {
+            "title": "Cookiecloud Password Configured",
+            "type": "boolean"
+          },
+          "cookiecloud_url": {
+            "title": "Cookiecloud Url",
+            "type": "string"
+          },
+          "cookiecloud_url_configured": {
+            "title": "Cookiecloud Url Configured",
+            "type": "boolean"
+          },
+          "dashboard_random_posters": {
+            "title": "Dashboard Random Posters",
+            "type": "boolean"
+          },
+          "emby_api_key": {
+            "title": "Emby Api Key",
+            "type": "string"
+          },
+          "emby_api_key_configured": {
+            "title": "Emby Api Key Configured",
+            "type": "boolean"
+          },
+          "emby_base_url": {
+            "title": "Emby Base Url",
+            "type": "string"
+          },
+          "fanart_api_key": {
+            "title": "Fanart Api Key",
+            "type": "string"
+          },
+          "fanart_api_key_configured": {
+            "title": "Fanart Api Key Configured",
+            "type": "boolean"
+          },
+          "mdblist_api_key": {
+            "title": "Mdblist Api Key",
+            "type": "string"
+          },
+          "mdblist_api_key_configured": {
+            "title": "Mdblist Api Key Configured",
+            "type": "boolean"
+          },
+          "mp_api_key": {
+            "title": "Mp Api Key",
+            "type": "string"
+          },
+          "mp_api_key_configured": {
+            "title": "Mp Api Key Configured",
+            "type": "boolean"
+          },
+          "mp_base_url": {
+            "title": "Mp Base Url",
+            "type": "string"
+          },
+          "mp_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Mp Timeout Seconds"
+          },
+          "outbound_proxy_configured": {
+            "title": "Outbound Proxy Configured",
+            "type": "boolean"
+          },
+          "outbound_proxy_url": {
+            "title": "Outbound Proxy Url",
+            "type": "string"
+          },
+          "outbound_proxy_url_configured": {
+            "title": "Outbound Proxy Url Configured",
+            "type": "boolean"
+          },
+          "pt_proxy_enabled": {
+            "title": "Pt Proxy Enabled",
+            "type": "boolean"
+          },
+          "tmdb_api_key": {
+            "title": "Tmdb Api Key",
+            "type": "string"
+          },
+          "tmdb_api_key_configured": {
+            "title": "Tmdb Api Key Configured",
+            "type": "boolean"
+          },
+          "tmdb_language": {
+            "title": "Tmdb Language",
+            "type": "string"
+          },
+          "tmdb_proxy_enabled": {
+            "title": "Tmdb Proxy Enabled",
+            "type": "boolean"
+          },
+          "tr_base_url": {
+            "title": "Tr Base Url",
+            "type": "string"
+          },
+          "tr_password": {
+            "title": "Tr Password",
+            "type": "string"
+          },
+          "tr_password_configured": {
+            "title": "Tr Password Configured",
+            "type": "boolean"
+          },
+          "tr_username": {
+            "title": "Tr Username",
+            "type": "string"
+          },
+          "tr_username_configured": {
+            "title": "Tr Username Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mp_base_url",
+          "mp_api_key",
+          "mp_api_key_configured",
+          "mp_timeout_seconds",
+          "emby_base_url",
+          "emby_api_key",
+          "emby_api_key_configured",
+          "tmdb_api_key",
+          "tmdb_api_key_configured",
+          "tmdb_language",
+          "fanart_api_key",
+          "fanart_api_key_configured",
+          "mdblist_api_key",
+          "mdblist_api_key_configured",
+          "cookiecloud_url",
+          "cookiecloud_url_configured",
+          "cookiecloud_key",
+          "cookiecloud_key_configured",
+          "cookiecloud_password",
+          "cookiecloud_password_configured",
+          "outbound_proxy_configured",
+          "outbound_proxy_url_configured",
+          "outbound_proxy_url",
+          "pt_proxy_enabled",
+          "tmdb_proxy_enabled",
+          "ai_base_url",
+          "ai_api_key",
+          "ai_api_key_configured",
+          "ai_model",
+          "tr_base_url",
+          "tr_username",
+          "tr_username_configured",
+          "tr_password",
+          "tr_password_configured",
+          "dashboard_random_posters",
+          "access_token_required",
+          "access_token_strength",
+          "access_token_strength_enforced"
+        ],
+        "title": "PublicSettings",
+        "type": "object"
+      },
+      "ReleaseGroupCatalog": {
+        "properties": {
+          "builtin_count": {
+            "title": "Builtin Count",
+            "type": "integer"
+          },
+          "builtin_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Builtin Names",
+            "type": "array"
+          },
+          "custom_count": {
+            "title": "Custom Count",
+            "type": "integer"
+          },
+          "custom_rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Custom Rules",
+            "type": "array"
+          },
+          "merged_count": {
+            "title": "Merged Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "builtin_count",
+          "custom_count",
+          "merged_count",
+          "builtin_names",
+          "custom_rules"
+        ],
+        "title": "ReleaseGroupCatalog",
+        "type": "object"
+      },
+      "RuntimeSettingsPayload": {
+        "properties": {
+          "ai_api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Api Key"
+          },
+          "ai_base_url": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Ai Base Url",
+            "type": "string"
+          },
+          "ai_model": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Ai Model",
+            "type": "string"
+          },
+          "cookiecloud_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "pattern": "^(?:[A-Za-z0-9_-]{5,128})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookiecloud Key"
+          },
+          "cookiecloud_password": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookiecloud Password"
+          },
+          "cookiecloud_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookiecloud Url"
+          },
+          "dashboard_random_posters": {
+            "default": false,
+            "title": "Dashboard Random Posters",
+            "type": "boolean"
+          },
+          "emby_api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emby Api Key"
+          },
+          "emby_base_url": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Emby Base Url",
+            "type": "string"
+          },
+          "fanart_api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fanart Api Key"
+          },
+          "mdblist_api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mdblist Api Key"
+          },
+          "mp_api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mp Api Key"
+          },
+          "mp_base_url": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Mp Base Url",
+            "type": "string"
+          },
+          "mp_timeout_seconds": {
+            "default": 30,
+            "maximum": 300.0,
+            "minimum": 3.0,
+            "title": "Mp Timeout Seconds",
+            "type": "number"
+          },
+          "outbound_proxy_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbound Proxy Url"
+          },
+          "pt_proxy_enabled": {
+            "default": false,
+            "title": "Pt Proxy Enabled",
+            "type": "boolean"
+          },
+          "tmdb_api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Api Key"
+          },
+          "tmdb_language": {
+            "default": "zh-CN",
+            "maxLength": 32,
+            "title": "Tmdb Language",
+            "type": "string"
+          },
+          "tmdb_proxy_enabled": {
+            "default": false,
+            "title": "Tmdb Proxy Enabled",
+            "type": "boolean"
+          },
+          "tr_base_url": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Tr Base Url",
+            "type": "string"
+          },
+          "tr_password": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tr Password"
+          },
+          "tr_username": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tr Username"
+          }
+        },
+        "title": "RuntimeSettingsPayload",
+        "type": "object"
+      },
+      "ScoreLine": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "score"
+        ],
+        "title": "ScoreLine",
+        "type": "object"
+      },
+      "ScorePreviewPayload": {
+        "properties": {
+          "candidate_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Policy"
+          },
+          "seeders": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Seeders",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "volume_factor": {
+            "default": 1,
+            "minimum": 0.0,
+            "title": "Volume Factor",
+            "type": "number"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "ScorePreviewPayload",
+        "type": "object"
+      },
+      "SearchAttempt": {
+        "properties": {
+          "attempt_no": {
+            "title": "Attempt No",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "finished_at": {
+            "title": "Finished At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "playlist_item_id": {
+            "title": "Playlist Item Id",
+            "type": "integer"
+          },
+          "rank_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank No"
+          },
+          "result_count": {
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "site_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Id"
+          },
+          "site_name": {
+            "title": "Site Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "playlist_item_id",
+          "rank_no",
+          "original_title",
+          "site_id",
+          "site_name",
+          "attempt_no",
+          "status",
+          "result_count",
+          "duration_ms",
+          "error_code",
+          "error_message",
+          "finished_at"
+        ],
+        "title": "SearchAttempt",
+        "type": "object"
+      },
+      "SearchAttempts": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchAttempt"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "sites": {
+            "items": {
+              "$ref": "#/components/schemas/SiteAttemptSummary"
+            },
+            "title": "Sites",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "sites"
+        ],
+        "title": "SearchAttempts",
+        "type": "object"
+      },
+      "SearchTask": {
+        "properties": {
+          "attempt_summary": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Task Id"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "integer"
+          },
+          "range_end": {
+            "title": "Range End",
+            "type": "integer"
+          },
+          "range_start": {
+            "title": "Range Start",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "playlist_id",
+          "range_start",
+          "range_end",
+          "status",
+          "total",
+          "completed",
+          "matched",
+          "trigger",
+          "parent_task_id",
+          "error_message",
+          "created_at",
+          "updated_at",
+          "attempt_summary"
+        ],
+        "title": "SearchTask",
+        "type": "object"
+      },
+      "SearchTaskCancelled": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "SearchTaskCancelled",
+        "type": "object"
+      },
+      "SearchTaskLog": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "level",
+          "stage",
+          "message",
+          "created_at"
+        ],
+        "title": "SearchTaskLog",
+        "type": "object"
+      },
+      "SearchTaskStarted": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Task Id"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "total"
+        ],
+        "title": "SearchTaskStarted",
+        "type": "object"
+      },
+      "SelectionItem": {
+        "properties": {
+          "chinese_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chinese Title"
+          },
+          "context_available": {
+            "title": "Context Available",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "rank_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank No"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Title"
+          },
+          "tmdb_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Year"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "site_name",
+          "size",
+          "resolution",
+          "rank_no",
+          "original_title",
+          "chinese_title",
+          "tmdb_title",
+          "tmdb_year",
+          "year",
+          "context_available"
+        ],
+        "title": "SelectionItem",
+        "type": "object"
+      },
+      "SelectionToggled": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "in_selection": {
+            "title": "In Selection",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "in_selection"
+        ],
+        "title": "SelectionToggled",
+        "type": "object"
+      },
+      "Site": {
+        "properties": {
+          "account_stats": {
+            "$ref": "#/components/schemas/SiteAccountStats"
+          },
+          "adapter": {
+            "title": "Adapter",
+            "type": "string"
+          },
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "api_key_configured": {
+            "title": "Api Key Configured",
+            "type": "boolean"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "cookie": {
+            "title": "Cookie",
+            "type": "string"
+          },
+          "cookie_configured": {
+            "title": "Cookie Configured",
+            "type": "boolean"
+          },
+          "cookie_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cookiecloud",
+                  "manual",
+                  "moviepilot"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookie Source"
+          },
+          "cookie_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookie Updated At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "integer"
+          },
+          "icon_endpoint": {
+            "title": "Icon Endpoint",
+            "type": "string"
+          },
+          "icon_url": {
+            "title": "Icon Url",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Duration Ms"
+          },
+          "last_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message"
+          },
+          "last_status": {
+            "title": "Last Status",
+            "type": "string"
+          },
+          "last_tested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Tested At"
+          },
+          "limit_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Count"
+          },
+          "limit_interval": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Interval"
+          },
+          "local_stats": {
+            "$ref": "#/components/schemas/SiteLocalStats"
+          },
+          "migration_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Migration Note"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "proxy": {
+            "title": "Proxy",
+            "type": "integer"
+          },
+          "render": {
+            "title": "Render",
+            "type": "integer"
+          },
+          "rss_url": {
+            "title": "Rss Url",
+            "type": "string"
+          },
+          "rss_url_configured": {
+            "title": "Rss Url Configured",
+            "type": "boolean"
+          },
+          "search_enabled": {
+            "title": "Search Enabled",
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "user_agent": {
+            "title": "User Agent",
+            "type": "string"
+          },
+          "user_agent_configured": {
+            "title": "User Agent Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "adapter",
+          "base_url",
+          "api_key",
+          "cookie",
+          "user_agent",
+          "priority",
+          "timeout_seconds",
+          "rss_url",
+          "icon_url",
+          "proxy",
+          "render",
+          "limit_interval",
+          "limit_count",
+          "enabled",
+          "search_enabled",
+          "migration_note",
+          "last_status",
+          "last_message",
+          "last_duration_ms",
+          "last_tested_at",
+          "cookie_updated_at",
+          "cookie_source",
+          "profile",
+          "api_key_configured",
+          "cookie_configured",
+          "user_agent_configured",
+          "rss_url_configured",
+          "icon_endpoint",
+          "local_stats",
+          "account_stats"
+        ],
+        "title": "Site",
+        "type": "object"
+      },
+      "SiteAccountStats": {
+        "properties": {
+          "bonus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bonus"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "downloaded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "seeding": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seeding"
+          },
+          "uploaded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded"
+          }
+        },
+        "required": [
+          "uploaded",
+          "downloaded",
+          "ratio",
+          "bonus",
+          "seeding",
+          "checked_at",
+          "error"
+        ],
+        "title": "SiteAccountStats",
+        "type": "object"
+      },
+      "SiteAttemptSummary": {
+        "properties": {
+          "average_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Ms"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          },
+          "site_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Id"
+          },
+          "site_name": {
+            "title": "Site Name",
+            "type": "string"
+          },
+          "succeeded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Succeeded"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "site_id",
+          "site_name",
+          "total",
+          "succeeded",
+          "failed",
+          "average_ms"
+        ],
+        "title": "SiteAttemptSummary",
+        "type": "object"
+      },
+      "SiteCheck": {
+        "properties": {
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ok",
+          "status",
+          "duration_ms",
+          "message"
+        ],
+        "title": "SiteCheck",
+        "type": "object"
+      },
+      "SiteChecks": {
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SiteCheck"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "ok",
+          "results"
+        ],
+        "title": "SiteChecks",
+        "type": "object"
+      },
+      "SiteCookieRefreshed": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "id",
+          "name",
+          "message"
+        ],
+        "title": "SiteCookieRefreshed",
+        "type": "object"
+      },
+      "SiteLocalStats": {
+        "properties": {
+          "average_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Ms"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "result_count": {
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "success_rate",
+          "average_ms",
+          "result_count",
+          "last_attempt_at"
+        ],
+        "title": "SiteLocalStats",
+        "type": "object"
+      },
+      "SiteOption": {
+        "properties": {
+          "context_available": {
+            "title": "Context Available",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "in_selection": {
+            "title": "In Selection",
+            "type": "integer"
+          },
+          "is_free": {
+            "title": "Is Free",
+            "type": "boolean"
+          },
+          "seeders": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seeders"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          }
+        },
+        "required": [
+          "id",
+          "site_name",
+          "seeders",
+          "size",
+          "is_free",
+          "in_selection",
+          "context_available"
+        ],
+        "title": "SiteOption",
+        "type": "object"
+      },
+      "SitePayload": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "clear_api_key": {
+            "default": false,
+            "title": "Clear Api Key",
+            "type": "boolean"
+          },
+          "clear_cookie": {
+            "default": false,
+            "title": "Clear Cookie",
+            "type": "boolean"
+          },
+          "clear_rss_url": {
+            "default": false,
+            "title": "Clear Rss Url",
+            "type": "boolean"
+          },
+          "cookie": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookie"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "icon_url": {
+            "default": "",
+            "maxLength": 1500000,
+            "title": "Icon Url",
+            "type": "string"
+          },
+          "limit_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Count"
+          },
+          "limit_interval": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Interval"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "priority": {
+            "default": 100,
+            "maximum": 999.0,
+            "minimum": 1.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "proxy": {
+            "default": false,
+            "title": "Proxy",
+            "type": "boolean"
+          },
+          "render": {
+            "default": false,
+            "title": "Render",
+            "type": "boolean"
+          },
+          "rss_url": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Rss Url",
+            "type": "string"
+          },
+          "search_enabled": {
+            "default": false,
+            "title": "Search Enabled",
+            "type": "boolean"
+          },
+          "timeout_seconds": {
+            "default": 30,
+            "maximum": 300.0,
+            "minimum": 3.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "user_agent": {
+            "default": "",
+            "maxLength": 512,
+            "title": "User Agent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SitePayload",
+        "type": "object"
+      },
+      "SiteSaved": {
+        "properties": {
+          "adapter": {
+            "title": "Adapter",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "search_enabled": {
+            "title": "Search Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "adapter",
+          "enabled",
+          "search_enabled"
+        ],
+        "title": "SiteSaved",
+        "type": "object"
+      },
+      "SubmissionNote": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "title",
+          "reason"
+        ],
+        "title": "SubmissionNote",
+        "type": "object"
+      },
+      "SubmitResult": {
+        "properties": {
+          "blocked_site": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionNote"
+            },
+            "title": "Blocked Site",
+            "type": "array"
+          },
+          "blocked_unknown": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionNote"
+            },
+            "title": "Blocked Unknown",
+            "type": "array"
+          },
+          "expired_items": {
+            "items": {
+              "$ref": "#/components/schemas/ExpiredItem"
+            },
+            "title": "Expired Items",
+            "type": "array"
+          },
+          "needs_research": {
+            "title": "Needs Research",
+            "type": "integer"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionNote"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionNote"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submitted",
+          "needs_research",
+          "expired_items",
+          "skipped",
+          "blocked_unknown",
+          "removed",
+          "blocked_site"
+        ],
+        "title": "SubmitResult",
+        "type": "object"
+      },
+      "TaskPayload": {
+        "properties": {
+          "count": {
+            "default": 50,
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "integer"
+          },
+          "range_end": {
+            "default": 1,
+            "maximum": 200000.0,
+            "minimum": 1.0,
+            "title": "Range End",
+            "type": "integer"
+          },
+          "range_start": {
+            "default": 1,
+            "maximum": 200000.0,
+            "minimum": 1.0,
+            "title": "Range Start",
+            "type": "integer"
+          },
+          "scope": {
+            "default": "range",
+            "pattern": "^(range|pending)$",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "playlist_id"
+        ],
+        "title": "TaskPayload",
+        "type": "object"
+      },
+      "Timeline": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEvent"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Timeline",
+        "type": "object"
+      },
+      "TimelineEvent": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "film_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Film Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "submit",
+              "search",
+              "recognition",
+              "library",
+              "notice",
+              "system"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "error"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "task_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Status"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "level",
+          "title",
+          "detail",
+          "film_id"
+        ],
+        "title": "TimelineEvent",
+        "type": "object"
+      },
+      "TmdbMatch": {
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "original_title": {
+            "title": "Original Title",
+            "type": "string"
+          },
+          "overview": {
+            "title": "Overview",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "title": "Tmdb Id",
+            "type": "integer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "tmdb_id",
+          "title",
+          "original_title",
+          "year",
+          "overview",
+          "current"
+        ],
+        "title": "TmdbMatch",
+        "type": "object"
+      },
+      "Todo": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "emby_configured": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emby Configured"
+          },
+          "key": {
+            "enum": [
+              "search_missing",
+              "pick",
+              "submit",
+              "unrecognized",
+              "unchecked",
+              "no_eligible",
+              "submit_failed",
+              "context_expired",
+              "failing_sites",
+              "empty_sites"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Names"
+          }
+        },
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "Todo",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "AutoList"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "电影藏馆界面入口；前端由 frontend/ 构建到 app/static/ui。",
+        "operationId": "index__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Index"
+      }
+    },
+    "/api/config": {
+      "get": {
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Config Api Config Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Config"
+      },
+      "put": {
+        "operationId": "put_config_api_config_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Put Config Api Config Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Config"
+      }
+    },
+    "/api/config/release-groups": {
+      "get": {
+        "operationId": "release_groups_api_config_release_groups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseGroupCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Release Groups"
+      }
+    },
+    "/api/config/score-preview": {
+      "post": {
+        "operationId": "score_preview_api_config_score_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScorePreviewPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateAnalysis"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Score Preview"
+      }
+    },
+    "/api/connection": {
+      "get": {
+        "operationId": "connection_api_connection_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "force_refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force Refresh",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connection"
+      }
+    },
+    "/api/cookiecloud/status": {
+      "get": {
+        "operationId": "cookiecloud_status_api_cookiecloud_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookieCloudStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Cookiecloud Status"
+      }
+    },
+    "/api/films": {
+      "get": {
+        "operationId": "films_api_films_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "playlist_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 120,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Films"
+      }
+    },
+    "/api/films/{item_id}": {
+      "get": {
+        "operationId": "film_detail_api_films__item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Film Detail"
+      }
+    },
+    "/api/films/{item_id}/recognize": {
+      "post": {
+        "description": "按导入时的原名、年份与 IMDb 重新识别这一部影片（整体替换原有识别结果）。",
+        "operationId": "recognize_film_api_films__item_id__recognize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recognize Film"
+      }
+    },
+    "/api/films/{item_id}/search": {
+      "post": {
+        "operationId": "search_film_api_films__item_id__search_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmSearchStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Film"
+      }
+    },
+    "/api/films/{item_id}/tmdb": {
+      "post": {
+        "description": "手动指定 TMDB 影片，覆盖自动识别结果。",
+        "operationId": "set_film_tmdb_api_films__item_id__tmdb_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilmTmdbPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Film Tmdb"
+      }
+    },
+    "/api/films/{item_id}/tmdb-matches": {
+      "get": {
+        "description": "手动指定用：按关键词在 TMDB 搜索候选影片。",
+        "operationId": "tmdb_matches_api_films__item_id__tmdb_matches_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 120,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TmdbMatch"
+                  },
+                  "title": "Response Tmdb Matches Api Films  Item Id  Tmdb Matches Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tmdb Matches"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/history": {
+      "delete": {
+        "operationId": "delete_history_api_history_delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete History"
+      },
+      "get": {
+        "operationId": "history_api_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HistoryRecord"
+                  },
+                  "title": "Response History Api History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "History"
+      }
+    },
+    "/api/home": {
+      "get": {
+        "operationId": "home_api_home_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "playlist_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeData"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Home"
+      }
+    },
+    "/api/logs/events": {
+      "delete": {
+        "description": "Truncate the event log file (rotated backups are left untouched).",
+        "operationId": "clear_log_events_api_logs_events_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Clear Log Events Api Logs Events Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Log Events"
+      },
+      "get": {
+        "description": "Return the most recent structured event lines, newest first.\n\nlevel: exact match on INFO/WARNING/ERROR; query: substring match on the\nwhole line (event name, movie, site, error text ...).",
+        "operationId": "log_events_api_logs_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Level",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Query",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogEvent"
+                  },
+                  "title": "Response Log Events Api Logs Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Log Events"
+      }
+    },
+    "/api/picks": {
+      "get": {
+        "description": "挑选台：有候选、已选定与无合格资源的影片，按片单顺序，附带候选行。",
+        "operationId": "picks_api_picks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "playlist_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PickPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Picks"
+      }
+    },
+    "/api/playlist-items/{item_id}/backdrop": {
+      "get": {
+        "description": "影片详情横幅：fanart.tv 剧照优先，没有时用 TMDB 剧照（w1280）。",
+        "operationId": "playlist_item_backdrop_api_playlist_items__item_id__backdrop_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "v",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "V",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playlist Item Backdrop"
+      }
+    },
+    "/api/playlist-items/{item_id}/fanart-poster": {
+      "get": {
+        "description": "Proxy a fanart.tv poster; when fanart.tv has none, serve the Emby/TMDB poster instead.\n\n只有地址里的版本号与当前海报一致时才允许浏览器长期缓存；“待定”地址返回的是本次刚选出的海报，\n之后列表会换成带版本号的地址，因此只短期缓存，重新挑选海报后不会继续显示旧图。",
+        "operationId": "playlist_item_fanart_poster_api_playlist_items__item_id__fanart_poster_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "v",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "V",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playlist Item Fanart Poster"
+      }
+    },
+    "/api/playlist-items/{item_id}/tmdb-poster": {
+      "get": {
+        "description": "Proxy a TMDB poster so films outside Emby still get artwork without exposing the TMDB key.",
+        "operationId": "playlist_item_tmdb_poster_api_playlist_items__item_id__tmdb_poster_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playlist Item Tmdb Poster"
+      }
+    },
+    "/api/playlist-items/{playlist_item_id}/poster": {
+      "get": {
+        "operationId": "playlist_item_poster_api_playlist_items__playlist_item_id__poster_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_item_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Tag",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playlist Item Poster"
+      }
+    },
+    "/api/playlists": {
+      "get": {
+        "operationId": "playlists_api_playlists_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlaylistRow"
+                  },
+                  "title": "Response Playlists Api Playlists Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Playlists"
+      }
+    },
+    "/api/playlists/import": {
+      "post": {
+        "operationId": "import_playlist_api_playlists_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistImported"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Playlist"
+      }
+    },
+    "/api/playlists/import/preview": {
+      "post": {
+        "operationId": "preview_playlist_import_api_playlists_import_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Playlist Import"
+      }
+    },
+    "/api/playlists/reorder": {
+      "post": {
+        "operationId": "reorder_playlists_api_playlists_reorder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaylistOrderPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reorder Playlists Api Playlists Reorder Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reorder Playlists"
+      }
+    },
+    "/api/playlists/{playlist_id}": {
+      "delete": {
+        "operationId": "delete_playlist_api_playlists__playlist_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Playlist Api Playlists  Playlist Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Playlist"
+      },
+      "put": {
+        "operationId": "update_playlist_api_playlists__playlist_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaylistUpdatePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Playlist Api Playlists  Playlist Id  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Playlist"
+      }
+    },
+    "/api/playlists/{playlist_id}/automation": {
+      "put": {
+        "operationId": "configure_playlist_automation_api_playlists__playlist_id__automation_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaylistAutomationPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Configure Playlist Automation Api Playlists  Playlist Id  Automation Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configure Playlist Automation"
+      }
+    },
+    "/api/playlists/{playlist_id}/automation/run": {
+      "post": {
+        "operationId": "run_playlist_automation_now_api_playlists__playlist_id__automation_run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Playlist Automation Now"
+      }
+    },
+    "/api/playlists/{playlist_id}/library-scan": {
+      "post": {
+        "operationId": "scan_playlist_library_api_playlists__playlist_id__library_scan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Scan Playlist Library Api Playlists  Playlist Id  Library Scan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scan Playlist Library"
+      }
+    },
+    "/api/playlists/{playlist_id}/recognize": {
+      "post": {
+        "description": "missing：识别还没识别的影片；verify：补齐来源编号并按 IMDb 校准整份片单。",
+        "operationId": "recognize_playlist_api_playlists__playlist_id__recognize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "missing",
+              "enum": [
+                "missing",
+                "verify"
+              ],
+              "title": "Mode",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Recognize Playlist Api Playlists  Playlist Id  Recognize Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recognize Playlist"
+      }
+    },
+    "/api/playlists/{playlist_id}/refresh-source": {
+      "post": {
+        "operationId": "refresh_playlist_source_api_playlists__playlist_id__refresh_source_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Refresh Playlist Source Api Playlists  Playlist Id  Refresh Source Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Playlist Source"
+      }
+    },
+    "/api/playlists/{playlist_id}/sync-now": {
+      "post": {
+        "operationId": "sync_playlist_now_api_playlists__playlist_id__sync_now_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistSynced"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Playlist Now"
+      }
+    },
+    "/api/playlists/{playlist_id}/sync-settings": {
+      "put": {
+        "operationId": "configure_playlist_sync_api_playlists__playlist_id__sync_settings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playlist_id",
+            "required": true,
+            "schema": {
+              "title": "Playlist Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaylistSyncPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Configure Playlist Sync Api Playlists  Playlist Id  Sync Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configure Playlist Sync"
+      }
+    },
+    "/api/search-tasks": {
+      "get": {
+        "operationId": "search_tasks_api_search_tasks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "playlist_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SearchTask"
+                  },
+                  "title": "Response Search Tasks Api Search Tasks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Tasks"
+      },
+      "post": {
+        "operationId": "create_task_api_search_tasks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTaskStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Task"
+      }
+    },
+    "/api/search-tasks/{task_id}": {
+      "get": {
+        "operationId": "task_status_api_search_tasks__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTask"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Task Status"
+      }
+    },
+    "/api/search-tasks/{task_id}/attempts": {
+      "get": {
+        "operationId": "task_attempts_api_search_tasks__task_id__attempts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchAttempts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Task Attempts"
+      }
+    },
+    "/api/search-tasks/{task_id}/cancel": {
+      "post": {
+        "operationId": "cancel_task_api_search_tasks__task_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTaskCancelled"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Task"
+      }
+    },
+    "/api/search-tasks/{task_id}/logs": {
+      "get": {
+        "operationId": "task_logs_api_search_tasks__task_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SearchTaskLog"
+                  },
+                  "title": "Response Task Logs Api Search Tasks  Task Id  Logs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Task Logs"
+      }
+    },
+    "/api/search-tasks/{task_id}/restart": {
+      "post": {
+        "operationId": "restart_task_api_search_tasks__task_id__restart_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTaskStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restart Task"
+      }
+    },
+    "/api/search-tasks/{task_id}/retry": {
+      "post": {
+        "operationId": "retry_task_api_search_tasks__task_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTaskStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Task"
+      }
+    },
+    "/api/selection": {
+      "get": {
+        "operationId": "selection_api_selection_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SelectionItem"
+                  },
+                  "title": "Response Selection Api Selection Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Selection"
+      }
+    },
+    "/api/selection/items/{candidate_id}": {
+      "post": {
+        "operationId": "toggle_selection_api_selection_items__candidate_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectionToggled"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Toggle Selection"
+      }
+    },
+    "/api/selection/submit": {
+      "post": {
+        "operationId": "submit_selection_api_selection_submit_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Submit Selection"
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "operationId": "get_runtime_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Runtime Settings"
+      },
+      "put": {
+        "operationId": "put_runtime_settings_api_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeSettingsPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Runtime Settings"
+      }
+    },
+    "/api/settings/test": {
+      "post": {
+        "operationId": "test_runtime_settings_api_settings_test_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "tmdb",
+                    "fanart",
+                    "emby",
+                    "transmission",
+                    "moviepilot",
+                    "cookiecloud"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/ProviderCheck"
+                  },
+                  "title": "Response Test Runtime Settings Api Settings Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Runtime Settings"
+      }
+    },
+    "/api/sites": {
+      "get": {
+        "operationId": "sites_api_sites_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Site"
+                  },
+                  "title": "Response Sites Api Sites Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sites"
+      },
+      "post": {
+        "operationId": "add_site_api_sites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SitePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Site"
+      }
+    },
+    "/api/sites/sync-cookiecloud": {
+      "post": {
+        "operationId": "sync_sites_from_cookiecloud_api_sites_sync_cookiecloud_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookieCloudSynced"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync Sites From Cookiecloud"
+      }
+    },
+    "/api/sites/sync-moviepilot": {
+      "post": {
+        "description": "Sync and import PT sites configured in MoviePilot into AutoList.",
+        "operationId": "sync_sites_from_mp_api_sites_sync_moviepilot_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoviePilotSitesSynced"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync Sites From Mp"
+      }
+    },
+    "/api/sites/test": {
+      "post": {
+        "operationId": "test_all_sites_api_sites_test_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteChecks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Test All Sites"
+      }
+    },
+    "/api/sites/{site_id}": {
+      "delete": {
+        "operationId": "delete_site_api_sites__site_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Site Api Sites  Site Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Site"
+      },
+      "put": {
+        "operationId": "update_site_api_sites__site_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SitePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Site"
+      }
+    },
+    "/api/sites/{site_id}/health-history": {
+      "get": {
+        "operationId": "site_health_history_api_sites__site_id__health_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Site Health History Api Sites  Site Id  Health History Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Site Health History"
+      }
+    },
+    "/api/sites/{site_id}/icon": {
+      "get": {
+        "description": "Validate, proxy and cache a local/custom site favicon.",
+        "operationId": "site_icon_api_sites__site_id__icon_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Site Icon"
+      }
+    },
+    "/api/sites/{site_id}/refresh-cookie": {
+      "post": {
+        "description": "Refresh one local site's Cookie from the configured CookieCloud source.",
+        "operationId": "refresh_site_cookie_api_sites__site_id__refresh_cookie_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteCookieRefreshed"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Site Cookie"
+      }
+    },
+    "/api/sites/{site_id}/test": {
+      "post": {
+        "operationId": "test_site_api_sites__site_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Site"
+      }
+    },
+    "/api/timeline": {
+      "get": {
+        "description": "动态：提交、寻片、识别、Emby 刷新、同步通知与少量设置变更，按时间倒序。",
+        "operationId": "timeline_api_timeline_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "film_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Film Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 120,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Timeline"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Timeline"
+      }
+    }
+  }
+}

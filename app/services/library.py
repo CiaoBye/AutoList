@@ -10,7 +10,6 @@ from ..config import settings
 from ..database import connect
 from ..domain.titles import canonical_item_title, canonical_item_year
 from ..security import safe_error
-from ..state import running_library_tasks
 from ..util import rows_to_dicts, utc_now
 
 
@@ -126,5 +125,3 @@ async def run_library_scan(task_id: int) -> None:
         raise
     except Exception as exc:
         update_library_task(task_id, status="failed", error_message=safe_error(exc))
-    finally:
-        running_library_tasks.pop(task_id, None)

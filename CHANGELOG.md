@@ -2,6 +2,155 @@
 
 本项目的功能更新、问题修复和可交付界面调整均记录在此文件。
 
+## 1.67 - 2026-09-29
+
+接口声明返回格式，前端接口类型改为由 OpenAPI 生成：后端字段改动而前端没跟上时，测试或前端构建会直接失败。界面行为不变。
+
+### 新增
+
+- **接口返回格式（`app/responses.py`）**：前端读取的 44 个接口（影片、藏馆、挑选、动态、待入馆清单与提交、提交记录、寻片任务、站点、CookieCloud、片单、设置与连接检测、入馆标准、日志）用 Pydantic 声明返回格式并写上 `response_model`。返回值按声明校验，未声明的字段不再返回（前端不使用的 `automation_auto_select`、站点的 `created_at` 与 `search_average_ms`）；未返回的可选字段（如待办的 `names`、动态的 `task_id`）现在以 `null` 返回。
+- **前端类型生成**：`scripts/export_openapi.py` 把接口声明导出到 `frontend/openapi.json`（入库，去掉随版本变化的版本号）；`npm run dev` / `build` / `typecheck` 先用 `openapi-typescript`（新增开发依赖，7.13.0）生成 `src/api-schema.d.ts`（不入库），`src/types.ts` 只保留对生成类型的别名。各处手写的接口结果类型（导入预览、入馆标准试算、站点检测与同步、提交记录清理等）改用生成的类型，设置页操作的回调按接口结果推断类型，不再强制转换。
+- **契约测试（`tests/test_contract.py`）**：`frontend/openapi.json` 与当前声明不一致时失败；前端读取的接口都必须声明返回格式；用覆盖全部影片状态的样本经 HTTP 请求各读取接口，返回值必须通过校验；返回格式里的影片状态与异常取值必须与状态计算一致。
+
+### 调整
+
+- 测试样本 `FilmFixture` 移到 `tests/support.py`，影片测试与契约测试共用；异常处理测试注册的临时路由在测试结束后移除，不再混入其他用例看到的接口声明。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：297 项全部通过。
+- 验证链路：临时去掉后端 `Film.poster_url` 后，快照测试失败；重新导出后前端构建在 4 处使用该字段的地方报错；已还原。
+- 上线前在飞牛上用线上数据库副本比对新旧版本：115 个读取接口（含 100 部影片详情）全部返回 200，新版返回的每个字段与旧版的值一致；副本、临时镜像与源码目录已删除。
+- 前端构建产物的 JS 与 1.66 完全一致（只改类型）；Docker 镜像构建（含安装依赖、生成类型与类型检查）通过。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+
+## 1.66 - 2026-09-29
+
+CookieCloud 只从与 MoviePilot 共用的服务拉取：缩短拉取间隔，站点 Cookie 失效时立即重新拉取；移除 AutoList 自带的插件推送接收端。
+
+### 调整
+
+- **拉取间隔**：定时拉取 CookieCloud 从每小时一次改为每 10 分钟一次；保存 CookieCloud 设置后下一轮定时任务立即拉取。
+- **Cookie 失效后重新拉取**：寻片、站点检测、提交前确认种子时，站点返回登录页（Cookie 已失效）会立即拉取一次 CookieCloud，拿到新 Cookie 就用它重试这次请求；寻片任务里后续的请求直接使用新 Cookie。同时发现失效的多个请求只拉一次，2 分钟内最多补拉一次，浏览器里的登录也过期时不会反复拉取。最近一次同步摘要与日志新增“Cookie 失效后重新拉取”。
+- **移除插件推送接收端**：删除 `/cookiecloud/update`、`/cookiecloud/get/*` 及 `/update`、`/get/*` 别名，连同其跨域与私网访问头、访问令牌豁免、上传与读取限流、请求体解压与上限处理；拉取的数据不再写入数据目录的 `cookiecloud/`。CookieCloud 现在需要填写服务器地址才算配置完成。
+- 设置页 Cookie 来源面板去掉推送地址，改为说明拉取间隔与失效后的重新拉取；连接设置提示填写 MoviePilot 自带的 CookieCloud 地址。
+- 内部：`services/cookiecloud_store.py` 改为 `services/cookiecloud.py`，定时拉取、手动同步、单站刷新、从 MoviePilot 同步站点后的 Cookie 更新与失效补拉共用同一个拉取入口，同一时间只有一次拉取。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：293 项全部通过。删除接收端相关的 7 项用例；新增：拉取服务器密文并解密更新站点（不写数据目录）、接收端路由已移除且启用访问令牌后不再豁免、拉取间隔 10 分钟、Cookie 失效后补拉并重试一次、冷却期内不重复拉取、未配置 CookieCloud 时不补拉、寻片请求在补拉后使用新 Cookie。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+
+## 1.65 - 2026-09-29
+
+架构重构第二批：测试按领域重组、路由中的 SQL 收进查询模块、样式按页面拆分。除刷新片单来源的一条提示文字外，界面与接口行为不变。
+
+### 调整
+
+- **测试按领域重组**：原来按审计轮次组织的 `test_regressions`、`test_workflows`、`test_backend_hardening`、`test_round2_safety`、`test_audit_*` 等 10 个文件拆分合并为 `tests/test_<领域>.py`：app、security、settings、playlists、recognition、search、sites、submission、tasks、migrations、films。用例全部保留（295 项，比 1.64 多 1 项新增）。测试直接从业务模块导入，删除 `app/compat.py` 中转层；需要临时数据目录的用例统一继承 `IsolatedAppTestCase`，预置 250 部影片的用例改用 `SeededPlaylistTestCase`，不再各自维护隔离样板。
+- **路由不再直接写 SQL**：片单、待入馆清单、寻片任务、站点、影片、海报与动态的读写收进 `app/queries/`（新增 `playlists`、`selection`、`search`、`sites`、`timeline`），站点相关查询从 `queries/films.py` 移到 `queries/sites.py`；删除 `api/films.py` 中未使用的重复寻片汇总函数。“片单是否有进行中的任务”改由 `app/tasks.py` 的 `active_playlist_task` 按四类任务统一判断。
+- **样式按页面拆分**：2287 行的 `app.css` 拆为 `frontend/src/styles/` 下的 `base`、`shell`、`common`、`home`、`films`、`film-drawer`、`pick`、`timeline`、`settings`，各页面的窄屏规则写回该页文件；`app.css` 只按固定顺序引入它们。
+- 刷新片单来源时，“片单仍有任务运行”的提示改用统一的任务名称：“寻片”“识别”“Emby 状态刷新”“新片处理”（原为“搜索”“识别”“入库检查”“自动化”）。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：295 项全部通过；拆分前后用例名称逐一核对一致；新增刷新片单来源时有新片处理任务运行会被拒绝且不访问来源的用例，并断言寻片任务竞态时的提示文字。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+- 样式拆分：新旧编译产物的规则逐条比对一致（381 条，无缺失、无多余）；在浏览器中对同一页面分别套用新旧样式，逐个元素（含伪元素）比对全部计算样式：藏馆、片单、两种状态的影片详情、挑选、动态与 7 个设置分区，在 1440、1098、1024、768、375px 下以及 `cinema` 主题中均无差异。
+
+## 1.64 - 2026-09-29
+
+架构重构第二批：数据库迁移改为按编号排列的步骤。界面与接口行为不变。
+
+### 调整
+
+- **迁移编号化（`app/migrations.py`）**：数据库迁移整理为 `MIGRATIONS` 中按编号排列的步骤，每步只在数据库版本（`PRAGMA user_version`）低于其编号时执行一次；程序支持的数据库版本即最大编号（现为 19）。旧版本建的表缺少的列改为声明表 `ADDED_COLUMNS`，与建索引一样每次启动都补齐，不占编号。
+- **历史整理只执行一次**：原先每次启动都会重跑的整理（中断同一片单重复的进行中任务、提交记录回填影片编号与资源指纹、停用旧的自动加入清单与经 MoviePilot 搜索设置、为旧失败任务补日志、清理孤立行、脱敏历史错误文本）改为第 14–19 步。线上数据库升级时会一次性执行这 6 步，之后启动不再重复扫描。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：294 项全部通过；新增 `tests/test_migrations.py`（编号唯一且递增、只执行比数据库版本新的步骤、重复启动不重跑、新库包含全部补齐列），旧数据类测试改为显式设置对应的旧版本号。
+- 在容器内用线上数据库副本试运行：版本 13 → 19，各表行数、索引与数据不变，`integrity_check` 为 ok，副本已删除。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+
+## 1.63 - 2026-09-28
+
+架构重构第一批收尾：统一后台任务框架、拆分影片路由、出站安全代码独立。界面与接口行为不变。
+
+### 调整
+
+- **统一后台任务框架（`app/tasks.py`）**：寻片、识别、Emby 状态刷新、新片处理四类任务共用运行登记、容量限制、取消、服务重启后标记中断与首页“进行中”列表，任务结束后自动注销；取代原来四个登记字典、两套容量函数与散落在各处的清理代码。容量提示统一为“已有 N 个××任务在运行，请稍后再试”（寻片任务原先写作“搜索任务”）。
+- **拆分影片路由**：原 841 行的 `api/films.py` 按页面拆为 `films`（列表、详情、单片寻片、识别修正）、`home`、`picks`、`timeline` 与 `images`（海报与剧照代理）；影片、片单与站点展示用的查询收进 `app/queries/films.py`，候选的分组展示移到 `services/candidates.py`。
+- **出站安全代码独立**：目标地址校验、DNS 固定、重定向逐跳检查、跨域剥离凭据与响应大小上限从 `util.py` 移到 `app/outbound.py`（`util.py` 从 730 行减到约 150 行）。
+
+### 修复
+
+- CookieCloud 面板把定时拉取缓存的数据误显示为“接收插件推送”；现在保存的数据带来源标记，只有插件真正推送过才显示。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：290 项全部通过；新增 `tests/test_tasks.py`（任务结束自动注销、四类任务容量与取消一致、重启时中断未完成任务但保留排队的新片处理）与 CookieCloud 来源显示测试。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+
+## 1.62 - 2026-09-28
+
+“下载车 / cart”在代码里统一改名为待入馆清单（selection）；站点超时放宽到 30 秒。
+
+### 调整
+
+- **统一命名**：接口 `/api/cart` → `/api/selection`、`/api/cart/items/{id}` → `/api/selection/items/{id}`、`/api/cart/download` → `/api/selection/submit`；模块 `api/cart.py` → `api/selection.py`，提交记录路由拆到 `api/history.py`；候选字段 `in_cart` → `in_selection`，片单自动化字段 `auto_cart` → `auto_select`；提示文案里的“下载列表”改为“待入馆清单”。
+- **数据库迁移（schema v13）**：表 `cart_items` 改名为 `selection_items`、`playlists.automation_auto_cart` 改名为 `automation_auto_select`，在建表之前完成，已选定的资源原样保留。
+- **站点超时**：从 MoviePilot 新同步的站点至少 30 秒（MoviePilot 默认 15 秒，站点F、站点G一次搜索就要 23–25 秒）；再次同步不再覆盖本地设置的超时。现有 17 个站点已按要求调为 30 秒。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：286 项全部通过；新增旧命名数据库升级后保留已选定资源、MoviePilot 同步保留本地超时且新站点至少 30 秒。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+- 线上：站点M重新登录后经 CookieCloud 同步恢复可搜索；站点G、站点F在 30 秒超时下检测通过（约 25 秒、23 秒）。
+
+## 1.61 - 2026-09-28
+
+候选下载上下文加密存库；提交前回站点确认种子仍在。
+
+### 调整
+
+- **候选上下文加密存库**：寻片得到的下载上下文（含带 passkey 的下载地址）改存数据库新表 `candidate_contexts`（schema v12），用 AES-GCM 加密，密钥单独保存在数据目录的 `candidate-context.key`（权限 600）；服务重启不再让待入馆清单全部过期，有效期由 2 小时延长到 7 天。数据库与备份中没有下载地址明文；密钥被替换时旧上下文按已过期处理并清理。
+- **站点 Cookie 不随候选保存**：提交时按候选所属站点读取当前 Cookie 与 UA 交给 MoviePilot，CookieCloud 在候选保存期间更新的 Cookie 会直接生效。
+- **提交前确认种子仍在站点**：NexusPHP 站点在提交前回详情页确认。种子已被删除（404 或“没有该ID的种子”等提示）时移出待入馆清单、标记为排除并提示重新寻片；Cookie 失效、二次验证或站点无法访问时暂缓提交，保留在清单中并说明原因。官方 API、M-Team、RSS 与 Torznab 站点不做这项确认。
+
+### 修复
+
+- 提交成功后删除候选上下文不再等待同一次提交事务的写锁。
+- 密钥文件在飞牛等不采用创建权限的文件系统上显式设为 600，权限被放宽时读取会重新收紧。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：285 项全部通过；新增上下文加密（数据库中无下载地址明文、不含站点 Cookie、换密钥后视为过期、密钥文件权限 600）、提交时使用站点当前 Cookie、种子被删除时移出并排除、站点无法确认时暂缓，以及详情页删除提示、登录页与跨域详情页的判断。
+- 线上 14 个可搜索的 NexusPHP 站点逐一实测：现有种子全部确认存在；不存在的种子编号 13 个站点识别为已删除，站点C对不存在的编号只提示“你没有该权限”，按无法判断处理、照常提交。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+
+## 1.60 - 2026-09-28
+
+重写 PT 站点接入（参考 MoviePilot 的站点档案与通用爬虫设计），覆盖现有 17 个站点。
+
+### 调整
+
+- **新的 `app/sites/`**：每个站点由一份档案描述（搜索路径、关键词参数、IMDb 搜索方式、列表选择器、详情与下载链接规则），通用 NexusPHP 解析器按档案搜索；页面解析改用 lxml（新增依赖 `lxml`、`cssselect`），取代原先手写的 HTMLParser 行解析与零散的站点特例字典。
+- **按表头识别列**：优先用 NexusPHP 通用的排序链接 `sort=N`（站点J等改过主题的站点也保留），其次按表头文字与图标；多出“进度”“置顶促销”等列的站点不再错位。表格行被 `<form>` 包住（站点H）、下载按钮是表单（站点K）都能处理；未登记的站点找不到列表表格时，退回到种子行最多的表格，并按列顺序推断做种 / 下载 / 完成数。
+- **结果字段更完整**：新增下载人数、完成数、副标题；优惠按实际折扣计算（免费 / 50% / 30% / 2X 上传，此前只认“免费”，其余一律当原价）；读取行内 IMDb 编号并补齐前导零。字段同时按 MoviePilot 的 TorrentInfo 命名（`peers`、`grabs`、`uploadvolumefactor`、`imdbid`、`description`）。
+- **按 IMDb 编号确认资源**：站点行带 IMDb 编号时以编号为准——与目标影片不一致直接排除（如搜《教父》搜到的《日本的首领》tt0076461），一致则不再比对年份与片名；合集仍排除。
+- **站点A支持按 IMDb 搜索**：关键词写成 `imdb0068646`（与 MoviePilot 相同）。
+- **站点D官方接口**：填写 API Key 后改走 `api.tracker-d.example` 搜索，不受网页二次验证影响，结果直接带 TMDB / IMDb 编号；未填时仍走网页。
+- **登录页判断更准**：登录表单里嵌 Cloudflare Turnstile 验证码时仍判定为“Cookie 已失效”，只有 Cloudflare 拦截页才报“人机验证”。
+- 站点详情显示解析方式（通用 NexusPHP / 站点A专用 / 站点D官方 API）。
+- 搜索请求加上 `search_mode=0`（全部关键词都要匹配）与 `notnewword=1`（不计入站点热搜）。
+
+### 验证
+
+- `.venv/bin/python -m unittest discover -s tests`：279 项全部通过；站点测试移到 `tests/test_sites.py`，用 14 个站点去除账号信息后的真实搜索页回归（每站首条种子的片名、大小、做种、IMDb 与下载方式），另测档案参数、页面拦截识别、兜底解析、站点D接口与 IMDb 身份判断。
+- 用线上 17 个站点刚抓取的真实页面离线验证：14 个站点全部解析成功，字段完整；站点M、站点D、站点E分别识别为登录失效、二次验证、维护。
+- `python3 -m compileall -q app`、`frontend` 的 `npm run build`、`git diff --check` 通过。
+
 ## 1.59 - 2026-09-28
 
 理清站点 Cookie 与 CookieCloud：放在一起、看得见同步结果、Cookie 变了自动重新检测。

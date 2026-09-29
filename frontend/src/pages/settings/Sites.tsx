@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../../api";
 import { formatSize, formatTime } from "../../format";
 import { useLoad } from "../../hooks";
-import type { Site } from "../../types";
+import type { MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteCookieRefreshed, SiteSaved } from "../../types";
 import { SecretField, SectionHead, TextField, Toggle, useAction } from "./shared";
 import { CookieCloudPanel } from "./CookieCloudPanel";
 
@@ -19,6 +19,12 @@ const CONNECTION: Record<string, { label: string; className: string }> = {
   empty: { label: "搜不到", className: "st-candidates" },
   error: { label: "失败", className: "st-issue" },
   untested: { label: "未检测", className: "st-unchecked" },
+};
+
+const PROFILE_LABELS: Record<string, string> = {
+  nexusphp: "通用 NexusPHP 页面",
+  alt_layout: "站点A专用",
+  official_api_site: "站点D官方 API",
 };
 
 const COOKIE_SOURCE_LABELS: Record<string, string> = { cookiecloud: "由 CookieCloud 更新", manual: "手动填写", moviepilot: "从 MoviePilot 同步" };
@@ -115,7 +121,7 @@ function SiteEditor({ site, onClose, onSaved }: { site: Site | null; onClose: ()
     if (!valid) return;
     const body = sitePayload(form, site, cleared);
     void run(
-      () => (site ? api(`/api/sites/${site.id}`, { method: "PUT", body }) : api<{ id: number }>("/api/sites", { method: "POST", body })),
+      () => (site ? api(`/api/sites/${site.id}`, { method: "PUT", body }) : api<SiteSaved>("/api/sites", { method: "POST", body })),
       site ? "站点已保存" : "站点已添加",
       async () => onSaved(site ? site.id : undefined),
     );
@@ -146,7 +152,7 @@ function SiteEditor({ site, onClose, onSaved }: { site: Site | null; onClose: ()
               <span><strong class="num">{summary?.success_rate == null ? "—" : `${summary.success_rate}%`}</strong><small>搜索成功率</small></span>
             </div>
             <span class="muted" style={{ fontSize: "13px" }}>
-              协议：{ADAPTER_LABELS[site.adapter] || site.adapter}（按地址自动识别）
+              协议：{ADAPTER_LABELS[site.adapter] || site.adapter} · 解析方式：{PROFILE_LABELS[site.profile] || site.profile}
               {site.last_tested_at ? ` · 最近检测 ${formatTime(site.last_tested_at)}：${site.last_message || CONNECTION[site.last_status]?.label || ""}` : " · 尚未检测"}
               {site.cookie_updated_at ? ` · Cookie ${COOKIE_SOURCE_LABELS[site.cookie_source || ""] || "更新"}于 ${formatTime(site.cookie_updated_at)}` : ""}
               {account?.error ? ` · 账户统计：${account.error}` : ""}
@@ -154,10 +160,10 @@ function SiteEditor({ site, onClose, onSaved }: { site: Site | null; onClose: ()
             </span>
             {site.migration_note ? <span class="notice notice-bad">{site.migration_note}</span> : null}
             <span class="actions">
-              <button class="btn btn-small" type="button" disabled={busy} onClick={() => void run(() => api<{ message: string }>(`/api/sites/${site.id}/test`, { method: "POST", timeoutMs: 60000 }), (result) => (result as { message: string }).message || "检测完成", () => onSaved(site.id))}>
+              <button class="btn btn-small" type="button" disabled={busy} onClick={() => void run(() => api<SiteCheck>(`/api/sites/${site.id}/test`, { method: "POST", timeoutMs: 60000 }), (result) => result.message || "检测完成", () => onSaved(site.id))}>
                 检测连接
               </button>
-              <button class="btn btn-small" type="button" disabled={busy} onClick={() => void run(() => api<{ message: string }>(`/api/sites/${site.id}/refresh-cookie`, { method: "POST", timeoutMs: 60000 }), (result) => (result as { message: string }).message || "Cookie 已刷新", () => onSaved(site.id))}>
+              <button class="btn btn-small" type="button" disabled={busy} onClick={() => void run(() => api<SiteCookieRefreshed>(`/api/sites/${site.id}/refresh-cookie`, { method: "POST", timeoutMs: 60000 }), (result) => result.message || "Cookie 已刷新", () => onSaved(site.id))}>
                 从 CookieCloud 刷新 Cookie
               </button>
             </span>
@@ -185,7 +191,11 @@ function SiteEditor({ site, onClose, onSaved }: { site: Site | null; onClose: ()
               configured={Boolean(site?.api_key_configured)}
               cleared={cleared.includes("api_key")}
               onToggleClear={site ? () => toggleClear("api_key") : undefined}
-              hint="M-Team 与 Torznab 需要"
+              hint={
+                /official_api_site\.com/.test(form.base_url)
+                  ? "填写后改走站点D官方搜索接口，不受网页二次验证影响（在站点控制面板生成）"
+                  : "M-Team、Torznab 与站点D官方接口需要"
+              }
             />
             <SecretField
               label="RSS 地址"
@@ -266,10 +276,10 @@ export function Sites() {
         title="站点"
         actions={
           <>
-            <button class="btn" type="button" disabled={busy} onClick={() => void run(() => api<{ message: string }>("/api/sites/sync-moviepilot", { method: "POST", timeoutMs: 120000 }), (result) => (result as { message: string }).message, () => sites.reload())}>
+            <button class="btn" type="button" disabled={busy} onClick={() => void run(() => api<MoviePilotSitesSynced>("/api/sites/sync-moviepilot", { method: "POST", timeoutMs: 120000 }), (result) => result.message, () => sites.reload())}>
               从 MoviePilot 同步
             </button>
-            <button class="btn" type="button" disabled={busy} onClick={() => void run(() => api<{ total: number; ok: number }>("/api/sites/test", { method: "POST", timeoutMs: 180000 }), (result) => `检测完成：${(result as { ok: number }).ok} / ${(result as { total: number }).total} 个可用`, () => sites.reload())}>
+            <button class="btn" type="button" disabled={busy} onClick={() => void run(() => api<SiteChecks>("/api/sites/test", { method: "POST", timeoutMs: 180000 }), (result) => `检测完成：${result.ok} / ${result.total} 个可用`, () => sites.reload())}>
               {busy ? "处理中…" : "检测全部"}
             </button>
             <button class="btn btn-primary" type="button" onClick={() => setEditing("new")}>

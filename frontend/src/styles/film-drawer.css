@@ -1,0 +1,271 @@
+/* 影片详情抽屉：剧照横幅、候选、提交记录与识别修正。 */
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  border: 0;
+  background: var(--overlay);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: min(480px, 100vw);
+  overflow-y: auto;
+  padding: 24px 28px 40px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.drawer-film {
+  --drawer-pad: 28px;
+  width: min(560px, 100vw);
+}
+
+/* 抽屉是可滚动的纵向 flex 容器：内容较长时子元素不能被压缩，否则横幅会被压扁。 */
+.drawer > * {
+  flex-shrink: 0;
+}
+
+/* 影片详情顶部剧照横幅：通栏显示，底部渐隐到抽屉底色，海报压在渐隐处。 */
+.film-banner {
+  position: relative;
+  height: 220px;
+  margin: -4px calc(-1 * var(--drawer-pad)) 0;
+  overflow: hidden;
+  background: var(--wash);
+}
+
+.film-banner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.film-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 45%, var(--surface));
+}
+
+.film-hero.has-banner {
+  margin-top: -96px;
+}
+
+.film-hero.has-banner .poster {
+  position: relative;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  outline: 3px solid var(--surface);
+}
+
+.film-hero.has-banner .film-meta {
+  padding-top: 100px;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.film-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 20px;
+}
+
+.film-hero h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.25;
+}
+
+.film-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+.step-mark {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.step-done .step-mark {
+  border-color: var(--st-in_library-fg);
+  background: var(--st-in_library-fg);
+}
+
+.step-now .step-mark {
+  border-color: var(--accent);
+}
+
+.step-now strong {
+  font-weight: 700;
+}
+
+.step-todo {
+  color: var(--muted);
+}
+
+.step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-text span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--radius-m);
+  background: var(--paper);
+}
+
+.panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.candidate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.candidate-name {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.candidate-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid var(--wash);
+  font-size: 13px;
+}
+
+.identity summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.identity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.match-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.match-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.match-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.match-text span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .drawer {
+    width: 100vw;
+    padding: 16px 16px calc(32px + env(safe-area-inset-bottom));
+    border-left: 0;
+  }
+
+  .film-hero {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .drawer-film {
+    --drawer-pad: 16px;
+  }
+
+  .film-banner {
+    height: 170px;
+  }
+
+  .film-hero.has-banner {
+    margin-top: -72px;
+  }
+
+  .film-hero.has-banner .film-meta {
+    padding-top: 76px;
+  }
+}

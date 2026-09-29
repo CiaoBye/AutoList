@@ -6,7 +6,7 @@ import { IssueBadges, StatusBadge } from "../components/StatusBadge";
 import { formatSize } from "../format";
 import { useLoad, useToast } from "../hooks";
 import { href, navigate, type Route } from "../router";
-import type { CartItem, PickBucket, PickItem, PickPage, SubmitResult } from "../types";
+import type { SelectionItem, PickBucket, PickItem, PickPage, SubmitResult } from "../types";
 
 const BUCKET_LABELS: Record<PickBucket | "all", string> = {
   all: "全部",
@@ -16,7 +16,7 @@ const BUCKET_LABELS: Record<PickBucket | "all", string> = {
 };
 const BUCKETS: (PickBucket | "all")[] = ["all", "candidates", "selected", "no_eligible"];
 
-const cartTitle = (item: CartItem): string => item.tmdb_title || item.chinese_title || item.original_title;
+const selectionTitle = (item: SelectionItem): string => item.tmdb_title || item.chinese_title || item.original_title;
 
 function describeResult(result: SubmitResult): string {
   const parts = [`已提交 ${result.submitted} 部`];
@@ -26,6 +26,11 @@ function describeResult(result: SubmitResult): string {
   }
   if (result.needs_research) parts.push(`${result.needs_research} 个候选已过期，需要重新寻片`);
   if (result.blocked_unknown.length) parts.push(`${result.blocked_unknown.length} 部无法确认 Emby 状态，已暂缓`);
+  if (result.removed.length) parts.push(`${result.removed.length} 个种子已被站点删除，已移出清单，请重新寻片`);
+  if (result.blocked_site.length) {
+    const reasons = [...new Set(result.blocked_site.map((item) => item.reason))].join("、");
+    parts.push(`${result.blocked_site.length} 个无法确认种子仍在站点，已暂缓（${reasons}）`);
+  }
   return parts.join("；");
 }
 
@@ -57,7 +62,7 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
       <div class="pick-body">
         {expired ? (
           <div class="notice notice-bad">
-            下载信息已过期（服务重启或超过 2 小时），需要重新寻片后才能提交。
+            下载信息已过期（超过 7 天），需要重新寻片后才能提交。
             <button class="btn btn-small" type="button" disabled={busy} onClick={() => onSearch(film.id)}>
               重新寻片
             </button>
@@ -91,7 +96,7 @@ export function Pick({ route }: { route: Route }) {
   const status = (route.query.get("status") as PickBucket | null) || "all";
   const playlist = route.query.get("playlist");
   const [busy, setBusy] = useState(false);
-  const [showCart, setShowCart] = useState(false);
+  const [showSelection, setShowSelection] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
   const picks = useLoad<PickPage>(
@@ -102,10 +107,10 @@ export function Pick({ route }: { route: Route }) {
     },
     [status, playlist],
   );
-  const cart = useLoad<CartItem[]>((signal) => api<CartItem[]>("/api/cart", { signal }), []);
+  const selection = useLoad<SelectionItem[]>((signal) => api<SelectionItem[]>("/api/selection", { signal }), []);
 
   const reloadAll = async () => {
-    await Promise.all([picks.reload(), cart.reload()]);
+    await Promise.all([picks.reload(), selection.reload()]);
   };
 
   const act = async (run: () => Promise<unknown>, success: string) => {
@@ -122,7 +127,7 @@ export function Pick({ route }: { route: Route }) {
   };
 
   const toggle = (candidateId: string) =>
-    void act(() => api(`/api/cart/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
+    void act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
   const search = (filmId: number) =>
     void act(() => api(`/api/films/${filmId}/search`, { method: "POST" }), "已开始寻片，完成后会回到这里");
 
@@ -130,7 +135,7 @@ export function Pick({ route }: { route: Route }) {
     setBusy(true);
     setResult(null);
     try {
-      const outcome = await api<SubmitResult>("/api/cart/download", { method: "POST", timeoutMs: 180000 });
+      const outcome = await api<SubmitResult>("/api/selection/submit", { method: "POST", timeoutMs: 180000 });
       const message = describeResult(outcome);
       setResult(message);
       toast.show(message);
@@ -146,9 +151,9 @@ export function Pick({ route }: { route: Route }) {
   };
 
   const data = picks.data;
-  const items = cart.data || [];
+  const items = selection.data || [];
   const totalSize = items.reduce((sum, item) => sum + (item.size || 0), 0);
-  const expiredInCart = items.filter((item) => !item.context_available).length;
+  const expiredInSelection = items.filter((item) => !item.context_available).length;
 
   return (
     <main class={`page${items.length ? " has-tray" : ""}`}>
@@ -225,12 +230,12 @@ export function Pick({ route }: { route: Route }) {
 
       {items.length ? (
         <aside class="tray" aria-label="待入馆清单">
-          {showCart ? (
+          {showSelection ? (
             <ul class="tray-list">
               {items.map((item) => (
                 <li key={item.id}>
                   <span class="tray-item-text">
-                    <strong>{cartTitle(item)}</strong>
+                    <strong>{selectionTitle(item)}</strong>
                     <span>
                       {item.site_name || "未知站点"} · <span class="mono">{formatSize(item.size)}</span>
                       {item.context_available ? "" : " · 已过期，需要重新寻片"}
@@ -249,15 +254,15 @@ export function Pick({ route }: { route: Route }) {
                 待入馆清单 · {items.length} 部 · <span class="mono">{formatSize(totalSize)}</span>
               </strong>
               <span>
-                {expiredInCart
-                  ? `${expiredInCart} 部已过期，提交时会跳过，需要重新寻片`
+                {expiredInSelection
+                  ? `${expiredInSelection} 部已过期，提交时会跳过，需要重新寻片`
                   : "提交前会再次确认 Emby 与 Transmission，避免重复下载"}
               </span>
             </span>
-            <button class="btn tray-btn" type="button" aria-expanded={showCart} onClick={() => setShowCart((value) => !value)}>
-              {showCart ? "收起清单" : "查看清单"}
+            <button class="btn tray-btn" type="button" aria-expanded={showSelection} onClick={() => setShowSelection((value) => !value)}>
+              {showSelection ? "收起清单" : "查看清单"}
             </button>
-            <button class="btn btn-primary btn-large" type="button" disabled={busy || expiredInCart === items.length} onClick={() => void submit()}>
+            <button class="btn btn-primary btn-large" type="button" disabled={busy || expiredInSelection === items.length} onClick={() => void submit()}>
               {busy ? "处理中…" : "提交入馆"}
             </button>
           </div>

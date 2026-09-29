@@ -1,4 +1,4 @@
-"""AutoList HTTP routes."""
+"""待入馆清单：加入与移出候选、查看清单、统一提交到 MoviePilot。"""
 
 from __future__ import annotations
 
@@ -9,20 +9,31 @@ from fastapi import APIRouter, HTTPException
 
 from ..clients import EmbyClient, MoviePilotClient, TransmissionClient
 from ..database import connect, json_value
+from ..queries import selection as queries
+from ..queries.sites import all_sites
 from ..domain.titles import is_transmission_downloading, normalized_download_name, torrent_matches_item
 from ..security import safe_error, sanitize_sensitive_text
-from ..services.history import clear_download_history, playlist_item_snapshot, projected_download_history
+from ..services.history import playlist_item_snapshot
 from ..services.library import library_details
+from ..services.cookiecloud import with_cookie_refresh
+from ..services.search import wait_for_site_rate_limit
+from ..sites import verify as verify_on_site
 from ..logs import event_logger
 from ..state import (
-    download_cart_lock,
+    selection_submit_lock,
     forget_raw_candidate,
     prune_raw_candidates,
     raw_candidates,
 )
-from ..util import to_int, first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, utc_now
+from ..util import to_int, first_value, resource_fingerprint
+from ..outbound import safe_detail_url
+from ..responses import SelectionItem, SelectionToggled, SubmitResult
 
 router = APIRouter()
+
+# 这些适配器下载种子要带站点 Cookie；Cookie 不随候选存库，提交时按站点当前配置补上。
+COOKIE_ADAPTERS = {"nexusphp", "rss"}
+SITE_DELETED_REASON = "种子已被站点删除"
 
 
 def _moviepilot_success(response: Any) -> bool:
@@ -37,6 +48,22 @@ def _moviepilot_success(response: Any) -> bool:
     return str(value or "").strip().casefold() in {"true", "1", "yes", "ok", "success"}
 
 
+def _candidate_site(torrent: dict[str, Any], site_name: str, sites: list[dict[str, Any]]) -> dict[str, Any] | None:
+    site_id = to_int(torrent.get("_site_id") or 0)
+    return next((site for site in sites if site_id and to_int(site["id"]) == site_id), None) or next(
+        (site for site in sites if str(site["name"]) == site_name), None,
+    )
+
+
+def _submission_torrent(torrent: dict[str, Any], site: dict[str, Any] | None) -> dict[str, Any]:
+    """交给 MoviePilot 的种子信息：补上站点当前的 Cookie 与 UA。"""
+    payload = dict(torrent)
+    if site and str(site.get("adapter")) in COOKIE_ADAPTERS:
+        payload["site_cookie"] = str(site.get("cookie") or "")
+        payload["site_ua"] = str(site.get("user_agent") or payload.get("site_ua") or "")
+    return payload
+
+
 def _matches_active_torrent(candidate: Any, item: dict[str, Any], active_torrents: list[dict[str, Any]]) -> bool:
     """Return True when the candidate's release already has an active Transmission task."""
     candidate_name = normalized_download_name(candidate["title"])
@@ -48,85 +75,63 @@ def _matches_active_torrent(candidate: Any, item: dict[str, Any], active_torrent
             return True
     return False
 
-@router.post("/api/cart/items/{candidate_id}")
-async def toggle_cart(candidate_id: str) -> dict[str, Any]:
+@router.post("/api/selection/items/{candidate_id}", response_model=SelectionToggled)
+async def toggle_selection(candidate_id: str) -> dict[str, Any]:
     prune_raw_candidates()
     with connect() as conn:
         # Serialize the check-and-insert across workers; the candidate primary
         # key alone cannot protect the same release represented by two rows.
         conn.execute("BEGIN IMMEDIATE")
-        candidate = conn.execute(
-            "SELECT eligibility,exclusion_reason,playlist_item_id,site_name,resource_key FROM candidates WHERE id=?",
-            (candidate_id,),
-        ).fetchone()
+        candidate = queries.selection_candidate(conn, candidate_id)
         if not candidate:
             raise HTTPException(404, "候选不存在")
-        exists = conn.execute("SELECT 1 FROM cart_items WHERE candidate_id=?", (candidate_id,)).fetchone()
-        if exists:
-            conn.execute("DELETE FROM cart_items WHERE candidate_id=?", (candidate_id,))
-            return {"candidate_id": candidate_id, "in_cart": False}
+        if queries.is_selected(conn, candidate_id):
+            queries.remove_from_selection(conn, candidate_id)
+            return {"candidate_id": candidate_id, "in_selection": False}
         if candidate["eligibility"] != "eligible":
             raise HTTPException(422, f"该资源已被电影策略排除：{candidate['exclusion_reason'] or '不符合允许组合'}")
         if candidate_id not in raw_candidates:
-            raise HTTPException(409, "该候选的搜索上下文已失效，请重新搜索后再加入下载列表")
-        # 同一影片、同一站点、同一发布已入车时不重复加入，避免跨任务重复提交。
-        duplicate = conn.execute(
-            """SELECT cart.candidate_id FROM cart_items cart
-               JOIN candidates c ON c.id=cart.candidate_id
-               WHERE c.playlist_item_id=? AND c.site_name=? AND COALESCE(c.resource_key,'')=?
-               LIMIT 1""",
-            (candidate["playlist_item_id"], candidate["site_name"], candidate["resource_key"] or ""),
-        ).fetchone()
-        if duplicate:
-            raise HTTPException(422, "该发布已在下载列表中（相同影片与站点），请先移除现有条目")
-        conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", (candidate_id, utc_now()))
-        return {"candidate_id": candidate_id, "in_cart": True}
+            raise HTTPException(409, "该候选的搜索上下文已失效，请重新寻片后再加入待入馆清单")
+        # 同一影片、同一站点、同一发布已在清单中时不重复加入，避免跨任务重复提交。
+        if queries.same_release_selected(conn, candidate["playlist_item_id"], candidate["site_name"], candidate["resource_key"]):
+            raise HTTPException(422, "该发布已在待入馆清单中（相同影片与站点），请先移除现有条目")
+        queries.add_to_selection(conn, candidate_id)
+        return {"candidate_id": candidate_id, "in_selection": True}
 
-@router.get("/api/cart")
-async def cart() -> list[dict[str, Any]]:
+@router.get("/api/selection", response_model=list[SelectionItem])
+async def selection() -> list[dict[str, Any]]:
     prune_raw_candidates()
     with connect() as conn:
-        rows = conn.execute(
-            """SELECT c.id, c.title, c.site_name, c.size, c.resolution, c.library_state, c.detail_url,
-                      p.original_title, p.rank_no, p.chinese_title, p.tmdb_title, p.tmdb_original_title, p.tmdb_year, p.year
-               FROM cart_items cart JOIN candidates c ON c.id=cart.candidate_id
-               JOIN playlist_items p ON p.id=c.playlist_item_id ORDER BY cart.selected_at"""
-        ).fetchall()
-    items = rows_to_dicts(rows)
+        items = queries.selection_items(conn)
     for item in items:
         item["detail_url"] = safe_detail_url(item.get("detail_url"))
         item["context_available"] = item["id"] in raw_candidates
     return items
 
-@router.post("/api/cart/download")
-async def download_cart() -> dict[str, Any]:
+@router.post("/api/selection/submit", response_model=SubmitResult)
+async def submit_selection() -> dict[str, Any]:
     prune_raw_candidates()
-    if download_cart_lock.locked():
-        raise HTTPException(409, "下载列表正在提交，请勿重复操作")
-    async with download_cart_lock:
+    if selection_submit_lock.locked():
+        raise HTTPException(409, "待入馆清单正在提交，请勿重复操作")
+    async with selection_submit_lock:
         with connect() as conn:
-            rows = conn.execute(
-                """SELECT c.*, p.original_title AS playlist_original_title,p.chinese_title AS playlist_chinese_title,
-                          p.year AS playlist_year,p.imdb_id AS playlist_imdb_id,p.tmdb_id AS playlist_tmdb_id,
-                          p.tmdb_title AS playlist_tmdb_title,p.tmdb_original_title AS playlist_tmdb_original_title,
-                          p.tmdb_year AS playlist_tmdb_year,p.tmdb_imdb_id AS playlist_tmdb_imdb_id,
-                          p.library_state AS playlist_library_state,p.library_checked_at AS playlist_library_checked_at,
-                          p.id AS playlist_snapshot_id
-                   FROM cart_items cart JOIN candidates c ON c.id=cart.candidate_id
-                   JOIN playlist_items p ON p.id=c.playlist_item_id ORDER BY cart.selected_at"""
-            ).fetchall()
+            rows = queries.selection_for_submission(conn)
         if not rows:
-            raise HTTPException(422, "下载列表为空")
+            raise HTTPException(422, "待入馆清单为空")
         transmission = TransmissionClient()
         try:
             current_torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
         except Exception as exc:
             raise HTTPException(503, "无法确认 Transmission 当前下载任务，已暂停提交") from exc
         active_torrents = [torrent for torrent in current_torrents if is_transmission_downloading(torrent)]
+        with connect() as conn:
+            sites = all_sites(conn)
         emby = EmbyClient()
         moviepilot, completed, needs_research, submitted_tasks, expired_items = MoviePilotClient(), 0, 0, [], []
         skipped: list[dict[str, Any]] = []
         blocked_unknown: list[dict[str, Any]] = []
+        removed: list[dict[str, Any]] = []
+        blocked_site: list[dict[str, Any]] = []
         for candidate in rows:
             item_snapshot = playlist_item_snapshot({
                 "id": candidate["playlist_snapshot_id"],
@@ -146,39 +151,21 @@ async def download_cart() -> dict[str, Any]:
             if not raw:
                 needs_research += 1
                 expired_items.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"]})
-                message = "搜索上下文已失效，请重新搜索后加入下载列表"
+                message = "搜索上下文已失效，请重新寻片后加入待入馆清单"
                 resource_key = candidate["resource_key"] or resource_fingerprint(candidate["title"], candidate["size"])
                 with connect() as conn:
-                    already_recorded = conn.execute(
-                        "SELECT 1 FROM download_history WHERE candidate_id=? AND success=0 AND message=? LIMIT 1",
-                        (candidate["id"], message),
-                    ).fetchone()
-                    if not already_recorded:
-                        conn.execute(
-                            """INSERT INTO download_history(
-                                   candidate_id,playlist_item_id,playlist_item_snapshot_json,resource_key,title,torrent_name,site_name,success,message,created_at
-                               ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                            (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), resource_key, candidate["playlist_original_title"], candidate["title"], candidate["site_name"], 0, message, utc_now()),
+                    if not queries.failure_recorded(conn, candidate["id"], message):
+                        queries.record_submission(
+                            conn, candidate, snapshot_json=json_value(item_snapshot), resource_key=resource_key,
+                            success=False, message=message,
                         )
                 continue
             # 幂等复查 1：相同发布已成功提交过（同候选或同影片+站点+资源指纹），跳过避免重复下载。
-            # 去重依据同时落在 candidates.submitted_at（审计 3-2）：清空下载历史不解除防重复。
             resource_key = candidate["resource_key"] or resource_fingerprint(candidate["title"], candidate["size"])
             with connect() as conn:
-                already_submitted = conn.execute(
-                    """SELECT 1 FROM download_history h
-                       WHERE h.success=1 AND (
-                         h.candidate_id=? OR h.resource_key=? OR EXISTS (
-                           SELECT 1 FROM candidates c WHERE c.id=h.candidate_id
-                             AND c.playlist_item_id=? AND c.site_name=? AND c.resource_key=?
-                         )
-                       )
-                       UNION ALL
-                       SELECT 1 FROM candidates c
-                       WHERE c.id=? AND c.submitted_at IS NOT NULL
-                       LIMIT 1""",
-                    (candidate["id"], resource_key, candidate["playlist_item_id"], candidate["site_name"], resource_key, candidate["id"]),
-                ).fetchone()
+                already_submitted = queries.release_already_submitted(
+                    conn, candidate["id"], resource_key, candidate["playlist_item_id"], candidate["site_name"],
+                )
             if already_submitted:
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "该发布已提交过"})
                 continue
@@ -207,12 +194,32 @@ async def download_cart() -> dict[str, Any]:
             if state == "unknown":
                 blocked_unknown.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "无法确认 Emby 媒体库状态"})
                 continue
+            # 幂等复查 4：候选可能已存放数天，提交前回站点确认种子没有被删除。
+            site = _candidate_site(raw.get("torrent") or {}, str(candidate["site_name"] or ""), sites)
+            if site and str(site.get("adapter")) == "nexusphp":
+                try:
+                    await wait_for_site_rate_limit(site)
+                    detail_url = candidate["detail_url"] or (raw.get("torrent") or {}).get("detail_url")
+                    # Cookie 失效时补拉 CookieCloud 并重试一次；新 Cookie 同时用于随后交给 MoviePilot 的种子。
+                    present = await with_cookie_refresh(site, lambda current: verify_on_site(current, detail_url))
+                except Exception as exc:
+                    blocked_site.append({
+                        "candidate_id": candidate["id"], "title": candidate["playlist_original_title"],
+                        "reason": f"无法确认种子仍在{site['name']}：{safe_error(exc, 200)}",
+                    })
+                    continue
+                if present is False:
+                    with connect() as conn:
+                        queries.exclude_deleted_on_site(conn, candidate["id"], SITE_DELETED_REASON)
+                    forget_raw_candidate(candidate["id"])
+                    removed.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": SITE_DELETED_REASON})
+                    continue
             try:
                 if not raw.get("media"):
                     raise RuntimeError("缺少媒体信息，无法应用 MoviePilot 分类规则")
                 # 固定走 MoviePilot DownloadChain：它补全 TMDB 媒体信息、按 MP 分类目录选择路径，
                 # 再交由 Transmission 写入 MOVIEPILOT 与站点标签，供 MP 后续整理。
-                response = await moviepilot.download(raw["media"], raw["torrent"], downloader="Transmission")
+                response = await moviepilot.download(raw["media"], _submission_torrent(raw["torrent"], site), downloader="Transmission")
                 success = _moviepilot_success(response)
                 if not isinstance(response, dict):
                     message = "MoviePilot 返回格式无效，未确认提交成功"
@@ -228,38 +235,26 @@ async def download_cart() -> dict[str, Any]:
             except Exception as exc:
                 success, message, submission_hash = False, safe_error(exc), None
             with connect() as conn:
-                conn.execute(
-                    """INSERT INTO download_history(
-                           candidate_id,playlist_item_id,playlist_item_snapshot_json,resource_key,title,torrent_name,site_name,submission_hash,success,message,created_at
-                       ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                    (candidate["id"], candidate["playlist_item_id"], json_value(item_snapshot), resource_key, candidate["playlist_original_title"], candidate["title"], candidate["site_name"], submission_hash, int(success), message, utc_now()),
+                queries.record_submission(
+                    conn, candidate, snapshot_json=json_value(item_snapshot), resource_key=resource_key,
+                    success=success, message=message, submission_hash=submission_hash,
                 )
                 if success:
-                    conn.execute("DELETE FROM cart_items WHERE candidate_id=?", (candidate["id"],))
-                    conn.execute("UPDATE candidates SET submitted_at=? WHERE id=?", (utc_now(), candidate["id"]))
+                    queries.mark_submitted(conn, candidate["id"])
                     completed += 1
-                    forget_raw_candidate(candidate["id"])
-        if needs_research and completed == 0 and not skipped:
-            raise HTTPException(409, f"下载列表中 {needs_research} 个资源的搜索上下文已失效，请重新搜索后加入下载列表")
-        failed = len(rows) - completed - len(skipped) - needs_research - len(blocked_unknown)
+            if success:
+                # 事务提交后再删上下文，避免在同一数据库上等待自己的写锁。
+                forget_raw_candidate(candidate["id"])
+        if needs_research and completed == 0 and not (skipped or removed or blocked_site):
+            raise HTTPException(409, f"待入馆清单中 {needs_research} 个资源的搜索上下文已失效，请重新寻片后加入")
+        failed = len(rows) - completed - len(skipped) - needs_research - len(blocked_unknown) - len(removed) - len(blocked_site)
         event_logger().info("download_submit", extra={
             "submitted": completed, "skipped": len(skipped), "blocked_unknown": len(blocked_unknown), "needs_research": needs_research, "failed": failed,
+            "removed": len(removed), "blocked_site": len(blocked_site),
             "skipped_reasons": sorted({str(item.get("reason")) for item in skipped}),
         })
         return {
             "submitted": completed, "needs_research": needs_research, "expired_items": expired_items,
-            "skipped": skipped, "blocked_unknown": blocked_unknown, "mode": "moviepilot", "tasks": submitted_tasks,
+            "skipped": skipped, "blocked_unknown": blocked_unknown, "removed": removed, "blocked_site": blocked_site,
+            "mode": "moviepilot", "tasks": submitted_tasks,
         }
-
-@router.get("/api/history")
-async def history() -> list[dict[str, Any]]:
-    return await projected_download_history()
-
-
-@router.delete("/api/history")
-async def delete_history(status: str = "all") -> dict[str, Any]:
-    try:
-        deleted = await clear_download_history(status)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    return {"deleted": deleted, "status": status}

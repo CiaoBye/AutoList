@@ -1,154 +1,248 @@
-"""第二轮修复的专项回归测试。
+"""安全：凭据脱敏、访问令牌、请求体与响应体上限、出站地址校验与 DNS 固定、媒体签名。"""
 
-覆盖第二轮审计列出的待补齐证据：
-- scheduler health 状态
-- CookieCloud 请求体上限
-- safe_request 响应体上限
-- 媒体签名 URL 鉴权
-- RSS 坏 enclosure.length 容错
-- 站点重名 409
-- 并发任务唯一索引与启动收敛
-- RuntimeSettings 部分更新语义
-"""
+from __future__ import annotations
 
-import asyncio
-import gzip
+import json
 import os
 import socket
 import tempfile
 import time
 import unittest
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
+from defusedxml import ElementTree
+from defusedxml.common import EntitiesForbidden
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from app.compat import main  # noqa: E402 (审计 2-12：测试兼容层) # type: ignore[import-not-found]
 from app import main as app_main
-from app.config import settings
-from app.database import connect, initialize
+from app.api import system as system_routes
+from app.config import (
+    ACCESS_TOKEN_MIN_LENGTH,
+    access_token_is_strong,
+    access_token_strength,
+    access_token_strength_enforced,
+    access_token_validation_error,
+    settings,
+)
+from app.database import connect
+from app.main import app
+from app.outbound import safe_detail_url, safe_request, validate_outbound_url
+from app.schemas import ImportPayload, TaskPayload
 from app.security import (
     MEDIA_SIGNATURE_TTL_SECONDS,
     media_signature_matches,
+    safe_error,
+    sanitize_sensitive_text,
     signed_media_url,
 )
-from app.state import (
-    _scheduler_last_heartbeat_monotonic,
-    mark_scheduler_heartbeat,
-    mark_scheduler_started,
-    mark_scheduler_success,
-    scheduler_health,
-    scheduler_last_error,
-    scheduler_last_heartbeat_at,
-    scheduler_last_success_at,
-    scheduler_running,
-    scheduler_started_at,
-)
-from app.util import read_request_body_limited, safe_request, to_int
+from app.util import secret_free, to_int, utc_now
+from tests.support import IsolatedAppTestCase, SeededPlaylistTestCase
 
 STRONG_TOKEN = "A9b8C7d6" * 4  # 32 字符，满足强度要求
 
+class RedactionAndAccessTokenTests(unittest.TestCase):
+    def test_sensitive_values_are_redacted_in_urls_headers_and_json(self) -> None:
+        message = (
+            "GET https://user:password@tracker.test/download?passkey=secret&api_key=key "
+            "headers={'Authorization': 'Bearer abc.def', 'Cookie': 'uid=1; token=two'}"
+        )
+        sanitized = sanitize_sensitive_text(message)
+        for secret in ("password@", "passkey=secret", "api_key=key", "abc.def", "uid=1", "token=two"):
+            self.assertNotIn(secret, sanitized)
+        self.assertIn("passkey=***", sanitized)
+        self.assertIn("'Cookie': '***'", sanitized)
 
-from tests.support import IsolatedAppTestCase as _IsolatedTestCase  # noqa: N813 (审计 3-17：共享隔离样板)
+    def test_untrusted_xml_entities_are_rejected(self) -> None:
+        malicious = '<!DOCTYPE data [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><data>&xxe;</data>'
+        with self.assertRaises(EntitiesForbidden):
+            ElementTree.fromstring(malicious)
+
+    def test_secret_free_redacts_download_urls_and_magnets(self) -> None:
+        safe = secret_free({
+            "enclosure": "https://tracker.example/download?passkey=secret",
+            "magnet": "magnet:?xt=urn:btih:privatehash",
+            "description": "详情见 https://tracker.example/details?id=1",
+            "labels": ["FREE"],
+        })
+        self.assertNotIn("secret", json.dumps(safe, ensure_ascii=False))
+        self.assertNotIn("privatehash", json.dumps(safe, ensure_ascii=False))
+        self.assertNotIn("https://tracker.example/details", json.dumps(safe, ensure_ascii=False))
+        self.assertEqual(safe["labels"], ["FREE"])
+
+    def test_access_token_helpers_use_constant_time_compare(self) -> None:
+        from app.security import extract_access_token, token_matches
+
+        self.assertTrue(token_matches("secret-token", "secret-token"))
+        self.assertFalse(token_matches("secret-token", "other-token"))
+        self.assertFalse(token_matches("", "secret-token"))
+        self.assertEqual(extract_access_token("Bearer abc123", None), "abc123")
+        self.assertEqual(extract_access_token(None, " header-token "), "header-token")
+
+    def test_access_token_middleware_protects_api_but_keeps_health_open(self) -> None:
+        previous_token = os.environ.get("AUTOLIST_ACCESS_TOKEN")
+        previous_strict = os.environ.get("AUTOLIST_REQUIRE_STRONG_TOKEN")
+        previous_data_dir = settings.data_dir
+        temp = tempfile.TemporaryDirectory()
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = "unit-test-token"
+        os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = "false"
+        settings.data_dir = temp.name
+        try:
+            with TestClient(app) as client:
+                health = client.get("/api/health")
+                self.assertEqual(health.status_code, 200)
+                self.assertTrue(health.json().get("access_token_required"))
+                self.assertEqual(client.get("/favicon.ico").status_code, 200)
+                denied = client.get("/api/settings")
+                self.assertEqual(denied.status_code, 401)
+                allowed = client.get("/api/settings", headers={"X-AutoList-Token": "unit-test-token"})
+                self.assertEqual(allowed.status_code, 200)
+                bearer = client.get("/api/settings", headers={"Authorization": "Bearer unit-test-token"})
+                self.assertEqual(bearer.status_code, 200)
+        finally:
+            settings.data_dir = previous_data_dir
+            if previous_token is None:
+                os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
+            else:
+                os.environ["AUTOLIST_ACCESS_TOKEN"] = previous_token
+            if previous_strict is None:
+                os.environ.pop("AUTOLIST_REQUIRE_STRONG_TOKEN", None)
+            else:
+                os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = previous_strict
+            temp.cleanup()
 
 
-class SchedulerHealthTests(_IsolatedTestCase):
-    def _restore_scheduler_state(self) -> None:
-        # 测试会修改进程级 scheduler 状态，通过模块对象恢复默认值。
-        import app.state as state
+class BaseUrlValidationTests(SeededPlaylistTestCase):
+    async def test_validated_base_url_rejects_private_only_domain_with_token(self) -> None:
+        """启用访问令牌时，出站地址域名必须全部解析到公网；白名单与 IP 字面量规则生效。"""
+        previous_token = os.environ.get("AUTOLIST_ACCESS_TOKEN")
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = "test-token"
+        previous_hosts = os.environ.get("AUTOLIST_ALLOW_PRIVATE_HOSTS")
+        try:
+            with patch("app.outbound.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("192.168.1.5", 0))]):
+                with self.assertRaises(HTTPException) as raised:
+                    system_routes.validated_base_url("https://private.example", "站点地址", True)
+                self.assertEqual(raised.exception.status_code, 422)
+            with patch("app.outbound.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]):
+                result = system_routes.validated_base_url("https://public.example", "站点地址", True)
+            self.assertEqual(result, "https://public.example")
+            with patch("app.outbound.socket.getaddrinfo", side_effect=socket.gaierror("nxdomain")):
+                with self.assertRaises(HTTPException):
+                    system_routes.validated_base_url("https://nx.example", "站点地址", True)
+            os.environ["AUTOLIST_ALLOW_PRIVATE_HOSTS"] = "prowlarr.lan"
+            with patch("app.outbound.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("192.168.1.9", 0))]):
+                result = system_routes.validated_base_url("https://prowlarr.lan", "站点地址", True)
+            self.assertEqual(result, "https://prowlarr.lan")
+        finally:
+            if previous_hosts is None:
+                os.environ.pop("AUTOLIST_ALLOW_PRIVATE_HOSTS", None)
+            else:
+                os.environ["AUTOLIST_ALLOW_PRIVATE_HOSTS"] = previous_hosts
+            if previous_token is None:
+                os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
+            else:
+                os.environ["AUTOLIST_ACCESS_TOKEN"] = previous_token
 
-        state.scheduler_running = False
-        state.scheduler_started_at = None
-        state.scheduler_last_heartbeat_at = None
-        state.scheduler_last_success_at = None
-        state.scheduler_last_error = None
-        state._scheduler_last_heartbeat_monotonic = None
 
-    async def test_health_endpoint_exposes_scheduler_snapshot(self) -> None:
-        with TestClient(main.app) as client:
+class AccessTokenAndOutboundTests(IsolatedAppTestCase):
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        settings.tr_base_url = ""
+        settings.emby_base_url = ""
+        settings.emby_api_key = ""
+
+    def test_access_token_strength_is_visible_without_leaking_token(self) -> None:
+        weak = "unit-test-token"
+        strong = "A9b8C7d6" * (ACCESS_TOKEN_MIN_LENGTH // 8)
+        self.assertIsNotNone(access_token_validation_error(weak))
+        self.assertFalse(access_token_is_strong(weak))
+        self.assertIsNone(access_token_validation_error(strong))
+        self.assertTrue(access_token_is_strong(strong))
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = weak
+        self.assertEqual(access_token_strength(), "weak")
+        public = settings.public_values()
+        self.assertEqual(public["access_token_strength"], "weak")
+        self.assertNotIn(weak, json.dumps(public, ensure_ascii=False))
+
+    def test_strict_token_mode_blocks_weak_token_but_health_remains_diagnostic(self) -> None:
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = "short-token"
+        os.environ["AUTOLIST_REQUIRE_STRONG_TOKEN"] = "true"
+        with TestClient(app) as client:
             health = client.get("/api/health")
-        self.assertEqual(health.status_code, 200)
-        scheduler = health.json()["scheduler"]
-        self.assertIn("running", scheduler)
-        self.assertIn("status", scheduler)
-        self.assertIn("last_heartbeat_at", scheduler)
-        self.assertIn("last_success_at", scheduler)
-        self.assertIn("last_error", scheduler)
-        self.assertEqual(health.json()["scheduler_ok"], scheduler["ok"])
+            self.assertEqual(health.status_code, 200)
+            self.assertEqual(health.json()["access_token_strength"], "weak")
+            blocked = client.get("/api/settings", headers={"X-AutoList-Token": "short-token"})
+        self.assertEqual(blocked.status_code, 503)
+        # 审计 3-12：503 只返回统一提示，不泄露鉴权配置明细。
+        self.assertEqual(blocked.json()["detail"], "服务端访问令牌强度不足，请更换至少 32 个字符的随机令牌")
+        self.assertNotIn("code", blocked.json())
+        self.assertNotIn("configured", blocked.json())
+        self.assertNotIn("validation", blocked.json())
 
-    async def test_scheduler_health_reports_stopped_when_never_started(self) -> None:
-        self._restore_scheduler_state()
-        snapshot = scheduler_health()
-        self.assertFalse(snapshot["ok"])
-        self.assertEqual(snapshot["status"], "stopped")
-        self.assertFalse(snapshot["running"])
-        self.assertIsNone(snapshot["last_heartbeat_at"])
-        self.assertIsNone(snapshot["last_error"])
+    def test_token_strength_is_enforced_by_default_when_token_is_configured(self) -> None:
+        os.environ["AUTOLIST_ACCESS_TOKEN"] = "short-token"
+        os.environ.pop("AUTOLIST_REQUIRE_STRONG_TOKEN", None)
+        self.assertTrue(access_token_strength_enforced())
+        with TestClient(app) as client:
+            blocked = client.get("/api/settings", headers={"X-AutoList-Token": "short-token"})
+        self.assertEqual(blocked.status_code, 503)
 
-    async def test_scheduler_health_tracks_heartbeat_success_and_staleness(self) -> None:
-        self._restore_scheduler_state()
-        mark_scheduler_started("2026-08-10T00:00:00Z")
-        fresh = scheduler_health()
-        self.assertTrue(fresh["ok"])
-        self.assertEqual(fresh["status"], "starting")
-        mark_scheduler_heartbeat("2026-08-10T00:01:00Z", monotonic_now=100.0)
-        beating = scheduler_health(monotonic_now=110.0)
-        self.assertEqual(beating["status"], "ok")
-        self.assertTrue(beating["ok"])
-        self.assertEqual(beating["last_heartbeat_at"], "2026-08-10T00:01:00Z")
-        mark_scheduler_success("2026-08-10T00:02:00Z")
-        successful = scheduler_health(monotonic_now=110.0)
-        self.assertEqual(successful["last_success_at"], "2026-08-10T00:02:00Z")
-        # 超过 180 秒未心跳 → stale
-        stale = scheduler_health(monotonic_now=300.0)
-        self.assertEqual(stale["status"], "stale")
-        self.assertFalse(stale["ok"])
+    async def test_safe_request_validates_redirects_and_strips_cross_origin_credentials(self) -> None:
+        seen: list[tuple[str, str | None, str | None, str | None]] = []
 
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append((str(request.url), request.headers.get("authorization"), request.headers.get("cookie"), request.headers.get("x-api-key")))
+            if request.url.path == "/start":
+                return httpx.Response(302, headers={"Location": "https://other.example/final"})
+            return httpx.Response(200, json={"ok": True})
 
-class _FakeRequest:
-    """最小 ASGI 风格请求：支持 headers 与异步 stream()。"""
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            headers={"Authorization": "Bearer secret", "Cookie": "uid=secret", "X-API-Key": "api-secret"},
+            follow_redirects=False,
+        ) as client:
+            response = await safe_request(
+                client, "GET", "https://source.example/start",
+                headers={"Authorization": "Bearer secret", "Cookie": "uid=secret", "X-API-Key": "api-secret"},
+                allow_private=True,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0][1], "Bearer secret")
+        self.assertEqual(seen[0][2], "uid=secret")
+        self.assertEqual(seen[0][3], "api-secret")
+        self.assertIsNone(seen[1][1])
+        self.assertIsNone(seen[1][2])
+        self.assertIsNone(seen[1][3])
 
-    def __init__(self, chunks: list[bytes], content_length: str | None = None) -> None:
-        self.headers = {}
-        if content_length is not None:
-            self.headers["content-length"] = content_length
-        self._chunks = chunks
+    async def test_safe_request_rejects_sensitive_cross_origin_redirect(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302, headers={"Location": "https://other.example/final?token=leak"})
 
-    async def stream(self) -> AsyncIterator[bytes]:
-        for chunk in self._chunks:
-            yield chunk
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False) as client:
+            with self.assertRaisesRegex(RuntimeError, "敏感查询参数"):
+                await safe_request(client, "GET", "https://source.example/start", allow_private=True)
 
+    def test_outbound_validator_and_detail_url_keep_safe_semantics(self) -> None:
+        with self.assertRaisesRegex(ValueError, "内网"):
+            validate_outbound_url("http://127.0.0.1:8080/api", allow_private=False)
+        self.assertEqual(validate_outbound_url("http://127.0.0.1:8080/api", allow_private=True), "http://127.0.0.1:8080/api")
+        safe = safe_detail_url("https://tracker.example/details.php?id=42&passkey=secret&token=secret#private")
+        self.assertEqual(safe, "https://tracker.example/details.php?id=42")
+        self.assertIsNone(safe_detail_url("magnet:?xt=urn:btih:private"))
 
-class CookieCloudBodyLimitTests(_IsolatedTestCase):
-    async def test_read_request_body_limited_rejects_declared_oversize(self) -> None:
-        request = _FakeRequest([b"x" * 2048], content_length="4096")
-        with self.assertRaises(HTTPException) as raised:
-            await read_request_body_limited(request, limit=2048)
-        self.assertEqual(raised.exception.status_code, 413)
-
-    async def test_read_request_body_limited_rejects_chunked_oversize_without_header(self) -> None:
-        request = _FakeRequest([b"a" * 1500, b"b" * 1500])
-        with self.assertRaises(HTTPException) as raised:
-            await read_request_body_limited(request, limit=2048)
-        self.assertEqual(raised.exception.status_code, 413)
-
-    async def test_read_request_body_limited_accepts_exact_limit(self) -> None:
-        payload = b"x" * 2048
-        request = _FakeRequest([payload])
-        self.assertEqual(await read_request_body_limited(request, limit=2048), payload)
-
-    async def test_read_request_body_limited_rejects_invalid_content_length(self) -> None:
-        request = _FakeRequest([b"x"], content_length="not-a-number")
-        with self.assertRaises(HTTPException) as raised:
-            await read_request_body_limited(request)
-        self.assertEqual(raised.exception.status_code, 400)
+    def test_search_and_import_payloads_have_server_limits(self) -> None:
+        with self.assertRaises(ValidationError):
+            TaskPayload(playlist_id=1, scope="range", range_start=1, range_end=2001)
+        with self.assertRaises(ValidationError):
+            ImportPayload(json_data={"films": [{"title": "x", "description": "x" * (10 * 1024 * 1024)}]})
 
 
-class RequestBodyLimitTests(_IsolatedTestCase):
+class RequestBodyLimitTests(IsolatedAppTestCase):
     async def test_import_routes_use_schema_sized_http_limit(self) -> None:
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             ordinary = client.post(
                 "/api/config/score-preview", content=b"{}",
                 headers={"content-length": str(app_main.MAX_REQUEST_BODY_BYTES + 1)},
@@ -169,13 +263,13 @@ class RequestBodyLimitTests(_IsolatedTestCase):
         async def body():
             yield b"{}"
 
-        transport = httpx.ASGITransport(app=main.app)
+        transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             response = await client.post("/api/playlists/import", content=body())
         self.assertEqual(response.status_code, 411)
 
 
-class SafeRequestResponseLimitTests(_IsolatedTestCase):
+class SafeRequestResponseLimitTests(IsolatedAppTestCase):
     async def test_safe_request_rejects_declared_oversize_response(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, content=b"x" * 1024, headers={"content-length": "1024"})
@@ -249,7 +343,7 @@ class SafeRequestResponseLimitTests(_IsolatedTestCase):
             await client.aclose()
 
 
-class SafeRequestRedirectTests(_IsolatedTestCase):
+class SafeRequestRedirectTests(IsolatedAppTestCase):
     async def test_303_converts_post_to_get_and_clears_body(self) -> None:
         seen: list[tuple[str, bytes, str | None]] = []
 
@@ -319,7 +413,7 @@ class SafeRequestRedirectTests(_IsolatedTestCase):
         self.assertEqual(seen, [("POST", b"private-body"), ("POST", b"private-body")])
 
 
-class MediaSignatureTests(_IsolatedTestCase):
+class MediaSignatureTests(IsolatedAppTestCase):
     async def test_signed_media_url_passthrough_without_token(self) -> None:
         os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
         self.assertEqual(signed_media_url("/api/sites/7/icon"), "/api/sites/7/icon")
@@ -360,7 +454,7 @@ class MediaSignatureTests(_IsolatedTestCase):
         from app.state import remember_site_icon
 
         remember_site_icon(7, (b"icon", "image/x-icon"))
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             unsigned = client.get(path)
             signed_url = signed_media_url(path)
             signed = client.get(signed_url)
@@ -375,7 +469,7 @@ class MediaSignatureTests(_IsolatedTestCase):
 
         remember_site_icon(7, (b"icon", "image/x-icon"))
         signed_url = signed_media_url("/api/sites/7/icon")
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             blocked = client.get(signed_url)
         self.assertEqual(blocked.status_code, 503)
 
@@ -384,7 +478,7 @@ class MediaSignatureTests(_IsolatedTestCase):
         from app.state import remember_site_icon
 
         remember_site_icon(7, (b"icon", "image/x-icon"))
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             plain = client.get("/api/sites/7/icon")
         self.assertEqual(plain.status_code, 200)
         self.assertEqual(plain.content, b"icon")
@@ -396,7 +490,7 @@ class MediaSignatureTests(_IsolatedTestCase):
         with connect() as conn:
             playlist_id = to_int(conn.execute(
                 "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
-                ("签名海报片单", 1, main.utc_now()),
+                ("签名海报片单", 1, utc_now()),
             ).lastrowid)
             conn.execute(
                 """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,emby_item_id,emby_image_tag)
@@ -407,7 +501,7 @@ class MediaSignatureTests(_IsolatedTestCase):
 
         remember_poster("emby-item-42:tag1", (b"\x89PNG\r\n\x1a\nposter", "image/png"))
         signed = signed_media_url("/api/playlist-items/1/poster?tag=tag1")
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             unsigned = client.get("/api/playlist-items/1/poster?tag=tag1")
             authorized = client.get(signed)
         self.assertEqual(unsigned.status_code, 401)
@@ -415,171 +509,22 @@ class MediaSignatureTests(_IsolatedTestCase):
         self.assertEqual(authorized.content, b"\x89PNG\r\n\x1a\nposter")
 
 
-class RSSBadEnclosureTests(_IsolatedTestCase):
-    async def test_rss_client_tolerates_non_numeric_enclosure_length(self) -> None:
-        from app.clients import RSSClient
-
-        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-        <rss version="2.0"><channel><item>
-          <title>Movie 2020 1080p WEB-DL</title>
-          <enclosure url="https://tracker.example/detail/torrent.torrent" length="not-a-number"/>
-        </item><item>
-          <title>Movie 2020 2160p REMUX</title>
-          <enclosure url="https://tracker.example/detail/torrent2.torrent" length="1.5GB"/>
-        </item><item>
-          <title>Movie 2020 720p</title>
-          <enclosure url="https://tracker.example/detail/torrent3.torrent"/>
-        </item></channel></rss>"""
-        response = Mock()
-        response.status_code = 200
-        response.content = xml
-        response.headers = {}
-        response.raise_for_status = Mock()
-        site = {
-            "name": "RSS 测试站", "rss_url": "https://feed.example/rss.xml", "user_agent": "AutoList",
-            "cookie": "", "timeout_seconds": 30,
-        }
-        with patch("app.clients.safe_request", new=AsyncMock(return_value=response)) as request:
-            results = await RSSClient().search(site, "Movie 2020")
-        request.assert_awaited_once()
-        self.assertEqual(len(results), 3)
-        self.assertEqual([item["size"] for item in results], [0, 0, 0])
-        self.assertEqual(results[0]["site_name"], "RSS 测试站")
-
-
-class DuplicateSiteNameTests(_IsolatedTestCase):
-    async def test_duplicate_site_name_returns_409_not_500(self) -> None:
-        payload = {"name": "重复站点", "base_url": "https://tracker.example"}
-        with TestClient(main.app) as client:
-            first = client.post("/api/sites", json=payload)
-            second = client.post("/api/sites", json=payload)
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(second.status_code, 409)
-        self.assertEqual(second.json()["detail"], "站点名称已存在")
-
-    async def test_rename_to_existing_name_returns_409(self) -> None:
-        with TestClient(main.app) as client:
-            first = client.post("/api/sites", json={"name": "站点甲", "base_url": "https://tracker-a.example"})
-            second = client.post("/api/sites", json={"name": "站点乙", "base_url": "https://tracker-b.example"})
-            self.assertEqual(first.status_code, 200)
-            self.assertEqual(second.status_code, 200)
-            site_id = second.json()["id"]
-            renamed = client.put(
-                f"/api/sites/{site_id}",
-                json={"name": "站点甲", "base_url": "https://tracker-b.example", "clear_api_key": False, "clear_cookie": False, "clear_rss_url": False},
-            )
-        self.assertEqual(renamed.status_code, 409)
-
-
-class ActiveTaskUniquenessTests(_IsolatedTestCase):
-    async def test_unique_partial_indexes_exist_after_initialize(self) -> None:
-        with connect() as conn:
-            indexes = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
-        for expected in (
-            "idx_automation_active_playlist",
-            "idx_recognition_active_playlist",
-            "idx_library_scan_active_playlist",
-        ):
-            self.assertIn(expected, indexes)
-
-    async def test_duplicate_active_automation_task_is_rejected_by_index(self) -> None:
-        with connect() as conn:
-            playlist_id = to_int(conn.execute(
-                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
-                ("并发片单", 1, main.utc_now()),
-            ).lastrowid)
-            now = main.utc_now()
-            conn.execute(
-                """INSERT INTO automation_runs(playlist_id,status,trigger,created_at,updated_at)
-                   VALUES(?,?,?,?,?)""",
-                (playlist_id, "queued", "manual", now, now),
-            )
-            with self.assertRaises(Exception) as raised:
-                conn.execute(
-                    """INSERT INTO automation_runs(playlist_id,status,trigger,created_at,updated_at)
-                       VALUES(?,?,?,?,?)""",
-                    (playlist_id, "running", "manual", now, now),
-                )
-        self.assertIn("UNIQUE", str(raised.exception).upper())
-
-    async def test_initialize_retires_legacy_duplicate_active_tasks(self) -> None:
-        # 模拟旧版本留下的重复 active 任务：先删掉唯一索引再插入两条。
-        with connect() as conn:
-            conn.execute("DROP INDEX IF EXISTS idx_automation_active_playlist")
-            playlist_id = to_int(conn.execute(
-                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
-                ("遗留片单", 1, main.utc_now()),
-            ).lastrowid)
-            now = main.utc_now()
-            conn.execute(
-                """INSERT INTO automation_runs(playlist_id,status,trigger,created_at,updated_at)
-                   VALUES(?,?,?,?,?)""",
-                (playlist_id, "queued", "manual", now, now),
-            )
-            conn.execute(
-                """INSERT INTO automation_runs(playlist_id,status,trigger,created_at,updated_at)
-                   VALUES(?,?,?,?,?)""",
-                (playlist_id, "running", "scheduler", now, now),
-            )
-        initialize()
-        with connect() as conn:
-            rows = conn.execute(
-                "SELECT id,status,message FROM automation_runs WHERE playlist_id=? ORDER BY id",
-                (playlist_id,),
-            ).fetchall()
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]["status"], "interrupted")
-        self.assertIn("重复", rows[0]["message"] or "")
-        self.assertEqual(rows[1]["status"], "running")
-
-
-class RuntimeSettingsPartialUpdateTests(_IsolatedTestCase):
-    async def test_partial_update_keeps_omitted_values_and_nulls_preserve_existing(self) -> None:
-        with TestClient(main.app) as client:
-            baseline = client.get("/api/settings").json()
-            self.assertEqual(baseline["mp_base_url"], "")
-            self.assertFalse(baseline["mp_api_key_configured"])
-            updated = client.put("/api/settings", json={"mp_base_url": "https://mp.example", "mp_api_key": "secret-key"})
-            self.assertEqual(updated.status_code, 200)
-            after = client.get("/api/settings").json()
-            self.assertEqual(after["mp_base_url"], "https://mp.example")
-            self.assertTrue(after["mp_api_key_configured"])
-            # 显式 null 保留原值（设置页留空字段不清除已保存密钥）
-            kept = client.put("/api/settings", json={"mp_api_key": None})
-            self.assertEqual(kept.status_code, 200)
-            kept_after = client.get("/api/settings").json()
-            self.assertTrue(kept_after["mp_api_key_configured"])
-            # 显式空字符串清除密钥
-            cleared = client.put("/api/settings", json={"mp_api_key": "", "emby_base_url": ""})
-            self.assertEqual(cleared.status_code, 200)
-            cleared_after = client.get("/api/settings").json()
-            self.assertFalse(cleared_after["mp_api_key_configured"])
-            self.assertEqual(cleared_after["emby_base_url"], "")
-
-    async def test_partial_update_validates_provided_urls_only(self) -> None:
-        with TestClient(main.app) as client:
-            baseline = client.get("/api/settings").json()
-            bad = client.put("/api/settings", json={"tr_base_url": "not a url"})
-        self.assertEqual(bad.status_code, 422)
-        self.assertEqual(baseline["tr_base_url"], "")
-
-
-class DNSRebindingTests(_IsolatedTestCase):
+class DNSRebindingTests(IsolatedAppTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
-        import app.util as util_module
-        util_module._dns_address_cache.clear()
+        import app.outbound as outbound_module
+        outbound_module._dns_address_cache.clear()
 
     async def asyncTearDown(self) -> None:
-        import app.util as util_module
-        util_module._dns_address_cache.clear()
+        import app.outbound as outbound_module
+        outbound_module._dns_address_cache.clear()
         await super().asyncTearDown()
 
     async def test_bind_outbound_host_pins_hostname_and_preserves_ip_literals(self) -> None:
-        from app.util import _bind_outbound_host
+        from app.outbound import _bind_outbound_host
 
         info = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
-        with patch("app.util.socket.getaddrinfo", return_value=info):
+        with patch("app.outbound.socket.getaddrinfo", return_value=info):
             bound, host = await _bind_outbound_host(
                 "https://api.example.org/v1/data", allow_private=False,
             )
@@ -595,10 +540,10 @@ class DNSRebindingTests(_IsolatedTestCase):
         self.assertIsNone(trusted_host)
 
     async def test_bind_outbound_host_rejects_private_resolution(self) -> None:
-        from app.util import _bind_outbound_host
+        from app.outbound import _bind_outbound_host
 
         info = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.10", 443))]
-        with patch("app.util.socket.getaddrinfo", return_value=info):
+        with patch("app.outbound.socket.getaddrinfo", return_value=info):
             with self.assertRaisesRegex(ValueError, "内网"):
                 await _bind_outbound_host("https://api.example.org/v1", allow_private=False)
 
@@ -610,7 +555,7 @@ class DNSRebindingTests(_IsolatedTestCase):
             return httpx.Response(200, json={"ok": True})
 
         info = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 8443))]
-        with patch("app.util.socket.getaddrinfo", return_value=info):
+        with patch("app.outbound.socket.getaddrinfo", return_value=info):
             async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
                 response = await safe_request(
                     client, "GET", "https://api.example.org:8443/v1/data", allow_private=False, max_redirects=0,
@@ -632,7 +577,7 @@ class DNSRebindingTests(_IsolatedTestCase):
             return httpx.Response(200, json={"ok": True})
 
         info = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
-        with patch("app.util.socket.getaddrinfo", return_value=info):
+        with patch("app.outbound.socket.getaddrinfo", return_value=info):
             async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
                 response = await safe_request(client, "GET", "https://api.example.org/start", allow_private=False)
         self.assertEqual(response.status_code, 200)
@@ -642,7 +587,7 @@ class DNSRebindingTests(_IsolatedTestCase):
 
     async def test_safe_request_rejects_domain_resolving_to_private(self) -> None:
         info = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))]
-        with patch("app.util.socket.getaddrinfo", return_value=info):
+        with patch("app.outbound.socket.getaddrinfo", return_value=info):
             async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200))) as client:
                 with self.assertRaisesRegex(Exception, "内网"):
                     await safe_request(client, "GET", "https://api.example.org/v1", allow_private=False)
@@ -651,8 +596,8 @@ class DNSRebindingTests(_IsolatedTestCase):
         # 代理场景 DNS 由可信代理解析：不得把目标改写成 IP 字面量，否则
         # CONNECT 目标、虚拟主机与 TLS SNI 全部失效。
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200))) as client:
-            with patch("app.util._bind_outbound_host", new=AsyncMock(return_value=("https://8.8.8.8/v1", "api.example.org"))) as bind, \
-                 patch("app.util.socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]):
+            with patch("app.outbound._bind_outbound_host", new=AsyncMock(return_value=("https://8.8.8.8/v1", "api.example.org"))) as bind, \
+                 patch("app.outbound.socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]):
                 response = await safe_request(
                     client, "GET", "https://api.example.org/v1", allow_private=False,
                     proxy_mode=True, max_redirects=0,
@@ -661,71 +606,34 @@ class DNSRebindingTests(_IsolatedTestCase):
             bind.assert_not_awaited()
 
 
-if __name__ == "__main__":
-    unittest.main()
+class DiagnosticRedactionTests(unittest.TestCase):
+    def test_all_url_query_credentials_are_redacted(self):
+        for query in (
+            "key=AUDIT_FIRST&token=AUDIT_SECOND",
+            "key=AUDIT_FIRST&key=AUDIT_SECOND",
+            "%6bey=AUDIT_FIRST&api_key=AUDIT_SECOND",
+        ):
+            with self.subTest(query=query):
+                text = safe_error(RuntimeError(f"Failed https://example.org/rss?{query}&id=7"))
+                self.assertNotIn("AUDIT_FIRST", text)
+                self.assertNotIn("AUDIT_SECOND", text)
+                self.assertIn("id=7", text)
 
 
-class RouteCoverageTests(_IsolatedTestCase):
-    """2-18/2-19：取消任务、通知与设置测试路由的最小行为测试。"""
+class TokenFailureRateLimitTests(IsolatedAppTestCase):
+    def test_token_failure_rate_limit_per_client_ip(self):
+        from app.main import TOKEN_FAILURE_LIMIT, _token_failure_by_ip, _token_failure_rate_limited
 
-    async def _seed_search_task(self, status: str = "queued") -> int:
-        with connect() as conn:
-            playlist_id = to_int(conn.execute(
-                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
-                ("路由覆盖片单", 1, main.utc_now()),
-            ).lastrowid)
-            return to_int(conn.execute(
-                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,trigger,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?)""",
-                (playlist_id, 1, 1, status, 1, "manual", main.utc_now(), main.utc_now()),
-            ).lastrowid)
+        _token_failure_by_ip.clear()
+        bad_ip = "198.51.100.1"
+        good_ip = "203.0.113.2"
 
-    async def test_cancel_task_rejects_unknown_and_finished(self) -> None:
-        with TestClient(main.app) as client:
-            missing = client.post("/api/search-tasks/999999/cancel")
-            self.assertEqual(missing.status_code, 404)
-            finished_id = await self._seed_search_task("completed")
-            finished = client.post(f"/api/search-tasks/{finished_id}/cancel")
-            self.assertEqual(finished.status_code, 409)
+        # 连续失败达到阈值前允许尝试
+        for _ in range(TOKEN_FAILURE_LIMIT):
+            self.assertFalse(_token_failure_rate_limited(bad_ip))
 
-    async def test_cancel_task_cancels_running_db_task(self) -> None:
-        # 任务须在 TestClient（lifespan）启动之后再插入：启动时会把存量
-        # queued/running 任务置为 interrupted。
-        with TestClient(main.app) as client:
-            task_id = await self._seed_search_task("running")
-            response = client.post(f"/api/search-tasks/{task_id}/cancel")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "cancelled")
-        with connect() as conn:
-            row = conn.execute("SELECT status FROM search_tasks WHERE id=?", (task_id,)).fetchone()
-        self.assertEqual(row["status"], "cancelled")
+        # 达到阈值后该 IP 被限速
+        self.assertTrue(_token_failure_rate_limited(bad_ip))
 
-    async def test_score_preview_route_returns_analysis(self) -> None:
-        from app.candidate_policy import DEFAULT_POLICY
-        with TestClient(main.app) as client:
-            response = client.post("/api/config/score-preview", json={
-                "title": "Movie.2024.1080p.BluRay.x265-FRDS",
-                "candidate_policy": DEFAULT_POLICY,
-            })
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertIn("recommendation", body)
-        self.assertIn("ranking", body)
-        self.assertEqual(body["group"], "FRDS")
-
-
-class RouteCoverageExpansionTests(_IsolatedTestCase):
-    """2-19：补齐剩余零覆盖路由的最小行为断言。"""
-
-    async def _playlist(self) -> int:
-        with connect() as conn:
-            return to_int(conn.execute(
-                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)",
-                ("路由扩展片单", 1, main.utc_now()),
-            ).lastrowid)
-
-    async def test_connection_endpoint(self) -> None:
-        with TestClient(main.app) as client:
-            connection = client.get("/api/connection")
-            self.assertEqual(connection.status_code, 200)
-            self.assertIn("providers", connection.json())
+        # 另一合法 IP 不受影响
+        self.assertFalse(_token_failure_rate_limited(good_ip))

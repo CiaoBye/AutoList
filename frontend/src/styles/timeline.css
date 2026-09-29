@@ -1,0 +1,83 @@
+/* 动态页。 */
+
+.timeline-day {
+  margin-bottom: 24px;
+}
+
+.timeline-date {
+  margin-bottom: 10px;
+  font-size: 18px;
+}
+
+.timeline {
+  margin: 0;
+  padding: 4px 20px;
+  list-style: none;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 52px 10px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-top: 1px solid var(--wash);
+}
+
+.timeline-item:first-child {
+  border-top: 0;
+}
+
+.timeline-time {
+  font-size: 13px;
+}
+
+.timeline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.timeline-title {
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+a.timeline-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.timeline-detail {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tabs .tab-link {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 16px;
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.tabs .tab-link[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+@media (max-width: 900px) {
+  .timeline {
+    padding: 4px 14px;
+  }
+
+  .timeline-item {
+    grid-template-columns: 44px 10px minmax(0, 1fr);
+    gap: 8px;
+  }
+}

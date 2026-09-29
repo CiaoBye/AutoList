@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
-import secrets
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,29 +22,26 @@ from ..config import (
     save_runtime_settings,
     settings,
 )
-from ..cookiecloud import cookie_groups, decrypt_cookiecloud
 from ..database import config_values, json_value, save_config
 from ..logs import event_logger
 from ..schemas import (
-    COOKIECLOUD_KEY_PATTERN,
     ConfigPayload,
-    CookieCloudUploadPayload,
     RuntimeSettingsPayload,
     ScorePreviewPayload,
 )
 from ..security import safe_error
-from ..services.cookiecloud_store import cookiecloud_file
-from ..services.recognition import analyze_candidate
-from ..services.sites import apply_cookie_groups
-from .. import state
-from ..state import (
-    enforce_cookiecloud_anonymous_rate_limit,
-    enforce_cookiecloud_get_rate_limit,
-    enforce_cookiecloud_rate_limit,
-    require_configured_cookiecloud_uuid,
-    scheduler_health,
+from ..services.cookiecloud import (
+    PULL_INTERVAL_SECONDS,
+    cookiecloud_configured,
+    cookiecloud_key_valid,
+    fetch_cookiecloud,
+    reset_pull_clock,
 )
-from ..util import decode_cookiecloud_body, read_request_body_limited, validated_base_url
+from ..services.recognition import analyze_candidate
+from .. import state
+from ..state import scheduler_health
+from ..outbound import validated_base_url
+from ..responses import CandidateAnalysis, ConnectionStatus, CookieCloudStatus, ProviderCheck, PublicSettings, ReleaseGroupCatalog
 
 router = APIRouter()
 
@@ -65,112 +59,15 @@ async def health() -> dict[str, Any]:
         "scheduler_ok": scheduler["ok"],
     }
 
-@router.get("/cookiecloud")
-@router.get("/cookiecloud/")
-@router.get("/cookiecloud//")
-async def cookiecloud_root() -> Response:
-    return Response("AutoList CookieCloud API · /cookiecloud", media_type="text/plain")
-
-@router.post("/cookiecloud/update")
-@router.post("/cookiecloud/update/")
-@router.post("/cookiecloud//update")
-@router.post("/update")
-@router.post("/update/")
-@router.post("//update")
-async def cookiecloud_update(request: Request) -> dict[str, Any]:
-    anonymous_rejection = enforce_cookiecloud_anonymous_rate_limit()
-    if anonymous_rejection is not None:
-        raise HTTPException(429, anonymous_rejection)
-    try:
-        raw_content = await read_request_body_limited(request)
-        content = decode_cookiecloud_body(raw_content, request.headers.get("content-encoding", ""))
-        payload = CookieCloudUploadPayload.model_validate_json(content)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(422, f"CookieCloud 上传数据无效：{safe_error(exc)}") from exc
-    uuid_rejection = require_configured_cookiecloud_uuid(payload.uuid)
-    if uuid_rejection is not None:
-        raise HTTPException(uuid_rejection[0], uuid_rejection[1])
-    # 限流在 uuid 校验之后：未认证垃圾请求不得消耗合法同步预算（审计 2-4）。
-    rate_rejection = enforce_cookiecloud_rate_limit()
-    if rate_rejection is not None:
-        raise HTTPException(429, rate_rejection)
-    if not settings.cookiecloud_password:
-        raise HTTPException(422, "请先在 AutoList 设置中配置 CookieCloud 端对端加密密码")
-    try:
-        decrypted = decrypt_cookiecloud(
-            payload.uuid,
-            settings.cookiecloud_password,
-            payload.encrypted,
-            payload.crypto_type,
-        )
-        groups = cookie_groups(decrypted)
-    except Exception as exc:
-        raise HTTPException(422, f"CookieCloud 解密失败：{safe_error(exc)}") from exc
-    path = cookiecloud_file(payload.uuid)
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    try:
-        temporary.write_text(json.dumps(payload.model_dump(), ensure_ascii=False), encoding="utf-8")
-        temporary.chmod(0o600)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-    path.chmod(0o600)
-    applied = apply_cookie_groups(groups, origin="push")
-    event_logger().info(
-        "cookiecloud_uploaded",
-        extra={
-            "detail": f"收到 Chrome 扩展推送，已自动更新 {len(applied['updated'])} 个站点 Cookie",
-            "total": len(applied["updated"]),
-        },
-    )
-    return {
-        "action": "done",
-        "updated_sites": len(applied["updated"]),
-        "missing_sites": applied["missing"],
-    }
-
-@router.get("/cookiecloud/get/{uuid_value}")
-@router.get("/cookiecloud/get/{uuid_value}/")
-@router.get("/cookiecloud//get/{uuid_value}")
-@router.get("/get/{uuid_value}")
-@router.get("/get/{uuid_value}/")
-@router.get("//get/{uuid_value}")
-async def cookiecloud_get(uuid_value: str) -> dict[str, Any]:
-    read_rejection = enforce_cookiecloud_get_rate_limit()
-    if read_rejection is not None:
-        raise HTTPException(429, read_rejection)
-    uuid_rejection = require_configured_cookiecloud_uuid(uuid_value)
-    if uuid_rejection is not None:
-        raise HTTPException(uuid_rejection[0], uuid_rejection[1])
-    path = cookiecloud_file(uuid_value)
-    if not path.exists():
-        raise HTTPException(404, "CookieCloud 数据不存在")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(422, "CookieCloud 数据文件无法解析") from exc
-    return data
-
-@router.get("/api/cookiecloud/status")
+@router.get("/api/cookiecloud/status", response_model=CookieCloudStatus)
 async def cookiecloud_status() -> dict[str, Any]:
-    key = (settings.cookiecloud_key or "").strip()
-    key_valid = bool(re.fullmatch(COOKIECLOUD_KEY_PATTERN, key)) if key else False
-    configured = bool(key_valid and settings.cookiecloud_password)
-    try:
-        path = cookiecloud_file(key) if key_valid else None
-    except HTTPException:
-        path = None
     return {
-        "configured": configured,
-        "key_valid": key_valid,
+        "configured": cookiecloud_configured(),
+        "key_valid": cookiecloud_key_valid(),
         "url_configured": bool(settings.cookiecloud_url),
         "url": public_endpoint_url(settings.cookiecloud_url),
-        "received": bool(path and path.exists()),
-        "updated_at": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat() if path and path.exists() else None,
-        "endpoint": "/cookiecloud",
-        # 最近一次整体同步：origin 为 pull（定时拉取）/ push（插件推送）/ manual（手动同步）。
+        "pull_interval_minutes": PULL_INTERVAL_SECONDS // 60,
+        # 最近一次整体同步：origin 为 schedule（定时拉取）/ expired（Cookie 失效后补拉）/ manual（手动同步）。
         "last_sync": dict(state.last_cookie_sync) or None,
     }
 
@@ -232,7 +129,7 @@ def _runtime_setting_clear_values(raw_payload: dict[str, Any]) -> dict[str, str]
     return cleared
 
 
-@router.get("/api/connection")
+@router.get("/api/connection", response_model=ConnectionStatus, response_model_exclude_unset=True)
 async def connection(force_refresh: bool = False) -> dict[str, Any]:
     global _connection_cache
     if not force_refresh and _connection_cache is not None and time.monotonic() - _connection_cache[0] < CONNECTION_CACHE_TTL_SECONDS:
@@ -257,15 +154,15 @@ async def connection(force_refresh: bool = False) -> dict[str, Any]:
     return payload
 
 
-@router.get("/api/config")
+@router.get("/api/config", response_model=dict[str, str])
 async def get_config() -> dict[str, str]:
     return config_values()
 
-@router.get("/api/settings")
+@router.get("/api/settings", response_model=PublicSettings)
 async def get_runtime_settings() -> dict[str, Any]:
     return settings.public_values()
 
-@router.put("/api/settings")
+@router.put("/api/settings", response_model=PublicSettings)
 async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request) -> dict[str, Any]:
     values = payload.model_dump(exclude_unset=True)
     try:
@@ -294,30 +191,24 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request
         elif str(values[key]).strip() == "":
             values[key] = ""
     save_runtime_settings(values)
+    if any(key.startswith("cookiecloud_") for key in values):
+        reset_pull_clock()
     event_logger().info("settings_saved", extra={"detail": "系统配置已保存"})
     global _connection_cache
     _connection_cache = None
     return settings.public_values()
 
-@router.post("/api/settings/test")
+@router.post("/api/settings/test", response_model=dict[str, ProviderCheck], response_model_exclude_unset=True)
 async def test_runtime_settings(provider: Literal["tmdb", "fanart", "emby", "transmission", "moviepilot", "cookiecloud"] | None = None) -> dict[str, Any]:
     if provider == "cookiecloud":
-        if not settings.cookiecloud_key or not settings.cookiecloud_password:
-            return {"cookiecloud": {"ok": False, "configured": False, "message": "未配置 CookieCloud 用户 KEY 或端对端密码"}}
-        if settings.cookiecloud_url:
-            from ..services.cookiecloud_store import fetch_remote_cookiecloud
-            try:
-                await asyncio.wait_for(
-                    fetch_remote_cookiecloud(settings.cookiecloud_url, settings.cookiecloud_key, settings.cookiecloud_password),
-                    timeout=10,
-                )
-                return {"cookiecloud": {"ok": True, "configured": True, "message": "CookieCloud 连接并解密成功"}}
-            except Exception as exc:
-                return {"cookiecloud": {"ok": False, "configured": True, "message": safe_error(exc)}}
-        path = cookiecloud_file(settings.cookiecloud_key)
-        if path.exists():
-            return {"cookiecloud": {"ok": True, "configured": True, "message": "已收到推送数据"}}
-        return {"cookiecloud": {"ok": False, "configured": False, "message": "未配置服务器地址或未收到推送"}}
+        if not cookiecloud_configured():
+            return {"cookiecloud": {"ok": False, "configured": False, "message": "未配置 CookieCloud 服务器地址、用户 KEY 或端对端密码"}}
+        try:
+            await asyncio.wait_for(fetch_cookiecloud(), timeout=10)
+            return {"cookiecloud": {"ok": True, "configured": True, "message": "CookieCloud 连接并解密成功"}}
+        except Exception as exc:
+            detail = getattr(exc, "detail", None)
+            return {"cookiecloud": {"ok": False, "configured": True, "message": detail if isinstance(detail, str) else safe_error(exc)}}
     async def check(client: Any) -> dict[str, Any]:
         try:
             return await asyncio.wait_for(client.check(), timeout=6)
@@ -352,7 +243,7 @@ async def put_config(payload: ConfigPayload) -> dict[str, str]:
     save_config(values)
     return config_values()
 
-@router.post("/api/config/score-preview")
+@router.post("/api/config/score-preview", response_model=CandidateAnalysis)
 async def score_preview(payload: ScorePreviewPayload) -> dict[str, Any]:
     config = config_values()
     if payload.candidate_policy is not None:
@@ -362,7 +253,7 @@ async def score_preview(payload: ScorePreviewPayload) -> dict[str, Any]:
             raise HTTPException(422, safe_error(exc)) from exc
     return analyze_candidate(payload.title, 0, config, {"seeders": payload.seeders, "volume_factor": payload.volume_factor})
 
-@router.get("/api/config/release-groups")
+@router.get("/api/config/release-groups", response_model=ReleaseGroupCatalog)
 async def release_groups() -> dict[str, Any]:
     config = config_values()
     try:

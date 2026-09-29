@@ -1,22 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError } from "../api";
+import type { ImportPreview, PlaylistImported } from "../types";
 
 type Mode = "url" | "file" | "paste";
-
-interface PreviewResult {
-  name: string;
-  count: number;
-  source_type: string | null;
-  sample: { rank_no: number; original_title: string; chinese_title: string | null; year: number | null }[];
-}
-
-export interface ImportResult {
-  id: number;
-  name: string;
-  count: number;
-  recognition_task_id: number | null;
-  recognition_note: string | null;
-}
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -27,7 +13,7 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 /** 导入片单：先预览再写入；支持网址（TMDB、Letterboxd、IMDb、MDBList）、XLSX/CSV/JSON 文件与粘贴内容。 */
-export function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported: (result: ImportResult) => void }) {
+export function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported: (result: PlaylistImported) => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState<Mode>("url");
   const [name, setName] = useState("");
@@ -36,7 +22,7 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
   const [pasted, setPasted] = useState("");
   const [pastedCsv, setPastedCsv] = useState(false);
   const [limit, setLimit] = useState("5000");
-  const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -82,9 +68,9 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
     try {
       const payload = await buildPayload();
       if (kind === "preview") {
-        setPreview(await api<PreviewResult>("/api/playlists/import/preview", { method: "POST", body: payload, timeoutMs: 120000 }));
+        setPreview(await api<ImportPreview>("/api/playlists/import/preview", { method: "POST", body: payload, timeoutMs: 120000 }));
       } else {
-        const result = await api<ImportResult>("/api/playlists/import", { method: "POST", body: payload, timeoutMs: 180000 });
+        const result = await api<PlaylistImported>("/api/playlists/import", { method: "POST", body: payload, timeoutMs: 180000 });
         onImported(result);
         dialogRef.current?.close();
       }

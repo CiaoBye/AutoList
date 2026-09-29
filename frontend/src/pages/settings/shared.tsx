@@ -135,7 +135,7 @@ export function useProviderTest() {
 export function useAction() {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const run = async (action: () => Promise<unknown>, success: string | ((result: unknown) => string), after?: () => Promise<unknown> | void) => {
+  const run = async <T,>(action: () => Promise<T>, success: string | ((result: T) => string), after?: () => Promise<unknown> | void) => {
     setBusy(true);
     try {
       const result = await action();

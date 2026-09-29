@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.59"
+APP_VERSION = "1.67"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -179,7 +179,6 @@ class Settings:
             "cookiecloud_key_configured": bool(self.cookiecloud_key),
             "cookiecloud_password": REDACTED_SECRET,
             "cookiecloud_password_configured": bool(self.cookiecloud_password),
-            "cookiecloud_endpoint": "/cookiecloud",
             "outbound_proxy_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url": public_endpoint_url(self.outbound_proxy_url),

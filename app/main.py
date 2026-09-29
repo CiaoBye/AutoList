@@ -1,4 +1,4 @@
-"""AutoList FastAPI entrypoint: middleware, routers, and compatibility re-exports."""
+"""AutoList FastAPI entrypoint: middleware, routers, and application lifespan."""
 
 from __future__ import annotations
 
@@ -6,21 +6,25 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-import re
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import state
-from .api import cart as cart_routes
 from .api import films as film_routes
+from .api import history as history_routes
+from .api import home as home_routes
+from .api import images as image_routes
 from .api import logs as log_routes
+from .api import picks as pick_routes
 from .api import playlists as playlist_routes
 from .api import search as search_routes
+from .api import selection as selection_routes
 from .api import sites as site_routes
 from .api import system as system_routes
+from .api import timeline as timeline_routes
 from .config import (
     APP_VERSION,
     access_token,
@@ -36,8 +40,8 @@ from .security import extract_access_token, is_signed_media_path, media_signatur
 from .schemas import MAX_IMPORT_JSON_BYTES
 from .state import AUTH_EXEMPT_PATHS
 from .services.automation import sync_scheduler
+from .tasks import recover_after_restart
 from .clients import close_search_clients
-from .util import utc_now
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 @asynccontextmanager
@@ -47,17 +51,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     cleanup_old_data()
     with connect() as conn:
-        now = utc_now()
-        for table in ("search_tasks", "recognition_tasks", "library_scan_tasks"):
-            conn.execute(
-                f"UPDATE {table} SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",  # nosec B608
-                (now,),
-            )
-        # 自动化排队任务（queued）重启后保留，由调度器在容量释放后继续消费。
-        conn.execute(
-            "UPDATE automation_runs SET status='interrupted', updated_at=? WHERE status='running'",
-            (now,),
-        )
+        recover_after_restart(conn)
     state.scheduler_task = asyncio.create_task(sync_scheduler())
     try:
         yield
@@ -85,8 +79,13 @@ app.include_router(system_routes.router)
 app.include_router(site_routes.router)
 app.include_router(playlist_routes.router)
 app.include_router(search_routes.router)
-app.include_router(cart_routes.router)
+app.include_router(selection_routes.router)
+app.include_router(history_routes.router)
 app.include_router(film_routes.router)
+app.include_router(home_routes.router)
+app.include_router(pick_routes.router)
+app.include_router(timeline_routes.router)
+app.include_router(image_routes.router)
 app.include_router(log_routes.router)
 
 
@@ -110,8 +109,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         status_code=500,
     )
 
-# 非 CookieCloud 普通端点请求体上限（CookieCloud 由 read_request_body_limited
-# 单独限 40MB）。片单导入的字段上限来自 ImportPayload：xlsx_base64 最多
+# 请求体上限。片单导入的字段上限来自 ImportPayload：xlsx_base64 最多
 # 50,000,000 个 ASCII 字符，csv_text 最多 20,000,000 个 Unicode 字符。
 # JSON 字符串在 HTTP 层可能使用 \uXXXX 转义；按 UTF-16 surrogate pair 的
 # 最坏情况预留 12 字节/字符，再加 JSON 包装开销，确保 HTTP 限制不会比
@@ -155,60 +153,25 @@ def _token_failure_rate_limited(client_ip: str = "unknown") -> bool:
     return False
 
 
-def is_cookiecloud_request_path(raw_path: str) -> bool:
-    path = re.sub(r"/+", "/", raw_path).rstrip("/") or "/"
-    return (
-        path == "/cookiecloud"
-        or path.startswith("/cookiecloud/")
-        or path == "/update"
-        or path.startswith("/update/")
-        or path.startswith("/get/")
-        or path.startswith("/cookiecloud/get/")
-    )
-
-
-@app.middleware("http")
-async def cookiecloud_cors_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
-    """支持 Chrome CookieCloud 扩展跨域同步与 Private Network Access (PNA)。"""
-    if is_cookiecloud_request_path(request.url.path):
-        if request.method == "OPTIONS":
-            return Response(
-                status_code=204,
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Access-Control-Allow-Headers": "*",
-                    "Access-Control-Allow-Private-Network": "true",
-                    "Access-Control-Max-Age": "86400",
-                },
-            )
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Private-Network"] = "true"
-        return response
-    return await call_next(request)
-
-
 @app.middleware("http")
 async def request_size_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
     """拒绝声明过大的请求体，避免未认证请求耗尽内存（审计 3-14）。"""
-    if not is_cookiecloud_request_path(request.url.path):
-        body_limit = MAX_IMPORT_HTTP_BODY_BYTES if request.url.path in IMPORT_ROUTE_PATHS else MAX_REQUEST_BODY_BYTES
-        content_length = request.headers.get("content-length")
-        if content_length is None:
-            # chunked/无长度请求绕过 Content-Length 检查（审计 POST-006）：
-            # 非 GET/HEAD 且带 body 的请求必须声明长度，避免 Starlette 全量缓冲。
-            if request.method not in {"GET", "HEAD", "DELETE", "OPTIONS"}:
-                return JSONResponse({"detail": "请求必须声明 Content-Length"}, status_code=411)
-        else:
-            try:
-                declared_length = int(content_length)
-                if declared_length < 0:
-                    return JSONResponse({"detail": "请求体长度无效"}, status_code=400)
-                if declared_length > body_limit:
-                    return JSONResponse({"detail": "请求体过大"}, status_code=413)
-            except ValueError:
+    body_limit = MAX_IMPORT_HTTP_BODY_BYTES if request.url.path in IMPORT_ROUTE_PATHS else MAX_REQUEST_BODY_BYTES
+    content_length = request.headers.get("content-length")
+    if content_length is None:
+        # chunked/无长度请求绕过 Content-Length 检查（审计 POST-006）：
+        # 非 GET/HEAD 且带 body 的请求必须声明长度，避免 Starlette 全量缓冲。
+        if request.method not in {"GET", "HEAD", "DELETE", "OPTIONS"}:
+            return JSONResponse({"detail": "请求必须声明 Content-Length"}, status_code=411)
+    else:
+        try:
+            declared_length = int(content_length)
+            if declared_length < 0:
                 return JSONResponse({"detail": "请求体长度无效"}, status_code=400)
+            if declared_length > body_limit:
+                return JSONResponse({"detail": "请求体过大"}, status_code=413)
+        except ValueError:
+            return JSONResponse({"detail": "请求体长度无效"}, status_code=400)
     return await call_next(request)
 
 
@@ -217,9 +180,8 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
     if not access_token_required():
         return await call_next(request)
     path = request.url.path
-    # 健康检查、静态入口和 CookieCloud 保持既有公开契约；所有受保护
-    # 路径必须先通过强令牌检查，再考虑签名媒体豁免。
-    if is_cookiecloud_request_path(path) or path in AUTH_EXEMPT_PATHS or path.startswith("/assets/"):
+    # 健康检查与静态入口公开；所有受保护路径必须先通过强令牌检查，再考虑签名媒体豁免。
+    if path in AUTH_EXEMPT_PATHS or path.startswith("/assets/"):
         return await call_next(request)
     if access_token_strength_enforced() and not access_token_is_strong():
         # 只返回统一提示，不泄露 configured/validation 等鉴权配置细节（审计 3-12）。

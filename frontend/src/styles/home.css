@@ -1,0 +1,255 @@
+/* 藏馆首页：馆藏进度、待办、进行中的任务与海报架。 */
+
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.progress-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 32px 36px;
+}
+
+.progress-figure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+}
+
+.progress-figure .big {
+  font-size: clamp(52px, 6vw, 76px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.progress-figure .of {
+  font-size: clamp(22px, 2.6vw, 32px);
+  color: var(--muted);
+}
+
+.progress-figure .phrase {
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 2.2vw, 26px);
+  font-weight: 700;
+}
+
+.stack-bar {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--wash);
+}
+
+.stack-bar span {
+  display: block;
+  height: 100%;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.progress-hint {
+  font-size: 13px;
+}
+
+.todo-card {
+  padding: 24px 24px 12px;
+}
+
+/* 待决定事项只有一条或没有时，进度卡占满整行，事项收成进度卡下方的一条提醒。 */
+.home-grid.is-compact {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.todo-card.is-compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 12px 20px;
+}
+
+.todo-card.is-compact .section-title {
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.todo-card.is-compact .todo-list {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+.todo-card.is-compact .todo,
+.todo-card.is-compact .todo-empty {
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.todo-empty {
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--wash);
+}
+
+.todo-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--wash);
+}
+
+.todo .dot {
+  width: 10px;
+  height: 10px;
+}
+
+.todo-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.todo-text strong {
+  font-weight: 500;
+}
+
+.todo-text span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 280px) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+}
+
+.task-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--wash);
+}
+
+.task-bar span {
+  display: block;
+  height: 100%;
+  background: var(--st-searching-fg);
+}
+
+.shelf {
+  margin-top: 32px;
+}
+
+.shelf-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.shelf-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.task-tail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 窄屏下海报架保持一行，横向滑动，避免 8 张大海报占满两屏。 */
+  .shelf-row {
+    grid-template-columns: none;
+    grid-auto-columns: clamp(112px, 22vw, 150px);
+    grid-auto-flow: column;
+    margin: 0 calc(-1 * var(--page-gutter));
+    padding: 0 var(--page-gutter) 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding: 0 var(--page-gutter);
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+
+  .shelf-row > * {
+    scroll-snap-align: start;
+  }
+}
+
+@media (max-width: 900px) {
+  .progress-card {
+    padding: 22px;
+  }
+
+  .task {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .task-tail {
+    justify-content: flex-start;
+  }
+}

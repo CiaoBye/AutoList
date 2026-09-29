@@ -1,7 +1,7 @@
 import { api } from "../api";
 import { useLoad } from "../hooks";
 import { href, navigate, type Route } from "../router";
-import type { TimelineEvent } from "../types";
+import type { Timeline, TimelineEvent } from "../types";
 import { History } from "./History";
 import { TaskDrawer } from "./TaskDrawer";
 
@@ -47,7 +47,7 @@ export function Timeline({ route }: { route: Route }) {
   const kind = (["films", "system"].includes(route.query.get("type") || "") ? route.query.get("type") : "all") as Kind;
   const baseQuery = { type: kind === "all" ? null : kind };
   const events = useLoad<{ items: TimelineEvent[] }>(
-    (signal) => api<{ items: TimelineEvent[] }>(`/api/timeline?type=${kind}`, { signal }),
+    (signal) => api<Timeline>(`/api/timeline?type=${kind}`, { signal }),
     [kind],
     // 有进行中的寻片或识别时 10 秒刷新一次，否则 60 秒。
     (data) => (data?.items.some((event) => /进行中|排队中/.test(event.detail)) ? 10000 : 60000),

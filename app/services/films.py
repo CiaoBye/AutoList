@@ -57,6 +57,8 @@ class _Signals:
     last_submit_failed: set[int] = field(default_factory=set)
     downloading_active: set[int] = field(default_factory=set)
     transmission_state: str = "unknown"
+    # 仍有可用下载上下文的候选（加密存库，7 天有效）。
+    contexts: set[str] = field(default_factory=set)
 
 
 def _placeholders(values: Iterable[Any]) -> str:
@@ -148,7 +150,7 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
             ).fetchall()
         ]
     for row in conn.execute(
-        f"""SELECT c.playlist_item_id, c.id FROM cart_items cart JOIN candidates c ON c.id=cart.candidate_id
+        f"""SELECT c.playlist_item_id, c.id FROM selection_items sel JOIN candidates c ON c.id=sel.candidate_id
             WHERE c.playlist_item_id IN ({marks})""",  # nosec B608
         ids,
     ).fetchall():
@@ -168,6 +170,9 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
         if row["success"]:
             signals.submitted.setdefault(item_id, []).append(dict(row))
     signals.last_submit_failed = {item_id for item_id, success in latest_by_item.items() if not success}
+    signals.contexts = raw_candidates.available(
+        sorted({candidate for ids in (*signals.eligible.values(), *signals.selected.values()) for candidate in ids})
+    )
     return signals
 
 
@@ -208,14 +213,14 @@ def _resolve(item: dict[str, Any], signals: _Signals) -> tuple[str, list[str], s
         return "downloading", issues, transfer
     selected = signals.selected.get(item_id)
     if selected:
-        if not any(candidate_id in raw_candidates for candidate_id in selected):
+        if not any(candidate_id in signals.contexts for candidate_id in selected):
             issues.append("context_expired")
         return "selected", issues, None
     if item_id in signals.active_search:
         return "searching", issues, None
     eligible = signals.eligible.get(item_id) or []
     if eligible:
-        if not any(candidate_id in raw_candidates for candidate_id in eligible):
+        if not any(candidate_id in signals.contexts for candidate_id in eligible):
             issues.append("context_expired")
         return "candidates", issues, None
     if item_id in signals.searched:

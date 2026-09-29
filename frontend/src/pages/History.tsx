@@ -3,7 +3,7 @@ import { api } from "../api";
 import { formatTime } from "../format";
 import { useLoad } from "../hooks";
 import { useAction } from "./settings/shared";
-import type { HistoryRow } from "../types";
+import type { HistoryCleared, HistoryRecord } from "../types";
 
 const STATUS_OPTIONS: { id: string; label: string }[] = [
   { id: "all", label: "全部" },
@@ -26,7 +26,7 @@ const PAGE_SIZE = 30;
 
 /** 提交记录：按 MoviePilot、Transmission 与 Emby 的状态投影出每次提交当前走到哪一步。 */
 export function History() {
-  const history = useLoad<HistoryRow[]>((signal) => api<HistoryRow[]>("/api/history", { signal }), []);
+  const history = useLoad<HistoryRecord[]>((signal) => api<HistoryRecord[]>("/api/history", { signal }), []);
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const { busy, run } = useAction();
@@ -61,7 +61,7 @@ export function History() {
           disabled={busy || !rows.length}
           onClick={() => {
             if (!window.confirm(`清除“${label}”分组的 ${rows.length} 条提交记录？已提交过的资源仍会被识别为重复，不会重新下载。`)) return;
-            void run(() => api<{ deleted: number }>(`/api/history?status=${encodeURIComponent(status)}`, { method: "DELETE" }), (result) => `已清除 ${(result as { deleted: number }).deleted} 条`, () => history.reload());
+            void run(() => api<HistoryCleared>(`/api/history?status=${encodeURIComponent(status)}`, { method: "DELETE" }), (result) => `已清除 ${result.deleted} 条`, () => history.reload());
           }}
         >
           清除这一组

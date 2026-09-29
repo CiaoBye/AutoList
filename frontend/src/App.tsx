@@ -8,7 +8,7 @@ import { Timeline } from "./pages/Timeline";
 import { Settings } from "./pages/Settings";
 import { href, useRoute, type RouteName } from "./router";
 import { applyTheme, readTheme, type Theme } from "./theme";
-import type { ConnectionStatus, SearchTaskRow } from "./types";
+import type { ConnectionStatus, SearchTask } from "./types";
 
 const NAV: { name: RouteName; label: string; path: string; icon: string }[] = [
   { name: "home", label: "藏馆", path: "/", icon: "M3 10l8-6 8 6v9H3z M9 19v-5h4v5" },
@@ -29,8 +29,8 @@ const PAGE_TITLES: Record<RouteName, string> = {
 
 function SearchIndicator() {
   // 顶栏只读取轻量的任务列表：有进行中的寻片时每 5 秒刷新，否则 30 秒。
-  const tasks = useLoad<SearchTaskRow[]>(
-    (signal) => api<SearchTaskRow[]>("/api/search-tasks?limit=10", { signal }),
+  const tasks = useLoad<SearchTask[]>(
+    (signal) => api<SearchTask[]>("/api/search-tasks?limit=10", { signal }),
     [],
     (data) => (data?.some((task) => task.status === "running" || task.status === "queued") ? 5000 : 30000),
   );

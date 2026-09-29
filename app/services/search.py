@@ -15,6 +15,7 @@ import httpx
 from fastapi import HTTPException
 
 from ..candidate_policy import normalized_policy
+from .cookiecloud import with_cookie_refresh
 from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, TorznabClient, TransmissionClient
 from ..schemas import MAX_SEARCH_ITEMS
 from ..database import config_values, connect, json_value
@@ -27,13 +28,10 @@ from ..domain.titles import (
     torrent_matches_item,
 )
 from ..security import safe_error, sanitize_sensitive_text
-from ..state import (
-    enforce_search_task_capacity,
-    prune_raw_candidates,
-    remember_raw_candidate,
-    running_tasks,
-)
-from ..util import first_value, resource_fingerprint, rows_to_dicts, safe_detail_url, secret_free, to_float, to_int, utc_now
+from ..state import prune_raw_candidates, remember_raw_candidate
+from ..tasks import SEARCH
+from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, to_float, to_int, utc_now
+from ..outbound import safe_detail_url
 from .library import library_details
 from .recognition import analyze_candidate, persist_tmdb_item, recognize_item
 
@@ -203,7 +201,7 @@ def begin_search_task_slot(conn: sqlite3.Connection) -> None:
     active = to_int(conn.execute(
         "SELECT COUNT(*) FROM search_tasks WHERE status IN ('queued','running')",
     ).fetchone()[0])
-    capacity_rejection = enforce_search_task_capacity(active)
+    capacity_rejection = SEARCH.capacity_error(active)
     if capacity_rejection is not None:
         raise HTTPException(429, capacity_rejection)
 
@@ -279,7 +277,10 @@ async def search_one_site(
                 await wait_for_site_rate_limit(site)
                 query_count += 1
                 try:
-                    rows = await client.search(site, title, imdb_id)
+                    # Cookie 失效时补拉 CookieCloud 并重试一次；新 Cookie 写回 site，本次任务后续请求直接使用。
+                    rows = await with_cookie_refresh(
+                        site, lambda current, title=title, imdb_id=imdb_id: client.search(current, title, imdb_id),
+                    )
                 except Exception as exc:
                     errors.append(exc)
                     continue
@@ -331,7 +332,6 @@ async def run_search(task_id: int) -> None:
     if not task:
         return
     if task["status"] not in {"queued", "running"}:
-        running_tasks.pop(task_id, None)
         return
     pair_scope: set[tuple[int, int]] = set()
     try:
@@ -386,7 +386,6 @@ async def run_search(task_id: int) -> None:
         reason = safe_error(exc)
         update_task(task_id, status="failed", error_message=reason)
         task_log(task_id, "error", "snapshot", f"搜索快照校验失败：{reason}")
-        running_tasks.pop(task_id, None)
         return
     update_task(task_id, status="running")
     task_log(task_id, "info", "task", f"开始搜索，共 {len(items)} 部影片、{len(sites)} 个搜索来源")
@@ -478,6 +477,7 @@ async def run_search(task_id: int) -> None:
                     )
                     identity_ok, identity_reason = candidate_identity(
                         item, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
+                        first_value(torrent, ("imdbid", "imdb_id")),
                     )
                     if not identity_ok:
                         analysis = dict(analysis)
@@ -521,7 +521,9 @@ async def run_search(task_id: int) -> None:
                     candidate_id = uuid.uuid4().hex
                     title = str(first_value(torrent, ("title", "torrent_name", "name"), "未知资源"))
                     analyzed = analyze_candidate(title, index, config, torrent, policy)
-                    identity_ok, identity_reason = candidate_identity(item, source_media, title)
+                    identity_ok, identity_reason = candidate_identity(
+                        item, source_media, title, first_value(torrent, ("imdbid", "imdb_id")),
+                    )
                     if not identity_ok:
                         analyzed = dict(analyzed)
                         analyzed.update({
@@ -575,8 +577,6 @@ async def run_search(task_id: int) -> None:
         reason = safe_error(exc)
         update_task(task_id, status="failed", error_message=reason)
         task_log(task_id, "error", "task", f"任务异常停止：{reason}")
-    finally:
-        running_tasks.pop(task_id, None)
 
 def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, int]:
     with connect() as conn:

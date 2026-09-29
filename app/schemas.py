@@ -111,10 +111,6 @@ class SitePayload(BaseModel):
     clear_rss_url: bool = False
 
 
-class CookieCloudUploadPayload(BaseModel):
-    uuid: str = Field(max_length=128, pattern=rf"^{COOKIECLOUD_KEY_PATTERN}$")
-    encrypted: str = Field(min_length=16, max_length=32_000_000)
-    crypto_type: str = Field(default="legacy", pattern=r"^(legacy|aes-128-cbc-fixed)$")
 
 
 class PlaylistUpdatePayload(BaseModel):
@@ -127,7 +123,7 @@ class PlaylistOrderPayload(BaseModel):
 
 class PlaylistAutomationPayload(BaseModel):
     enabled: bool = False
-    auto_cart: bool = False
+    auto_select: bool = False
     batch_size: int = Field(default=50, ge=1, le=200)
 
 

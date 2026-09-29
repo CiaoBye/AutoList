@@ -7,7 +7,7 @@ import { percent } from "../format";
 import { useFitCount, useLoad, useToast } from "../hooks";
 import { href, navigate } from "../router";
 import { STATUS_BAR_COLOR, STATUS_LABELS } from "../status";
-import type { ActiveTask, Film, FilmStatus, HomeData, Todo } from "../types";
+import type { ActiveTask, Film, FilmStatus, HomeData, SearchTaskStarted, Todo } from "../types";
 
 const BAR_ORDER: FilmStatus[] = [
   "in_library",
@@ -40,7 +40,7 @@ interface TodoView {
 }
 
 export function startBatchSearch(playlistId: number): Promise<{ total: number }> {
-  return api<{ total: number }>("/api/search-tasks", {
+  return api<SearchTaskStarted>("/api/search-tasks", {
     method: "POST",
     body: { playlist_id: playlistId, scope: "pending", count: BATCH_SIZE },
   });
@@ -188,7 +188,7 @@ export function Home({ playlistParam }: { playlistParam: string | null }) {
       case "context_expired":
         return {
           title: `${todo.count} 部候选已过期`,
-          detail: "服务重启或超过 2 小时，需要重新寻片才能下载",
+          detail: "超过 7 天，需要重新寻片才能下载",
           color: "var(--issue-fg)",
           action: { label: "查看", href: films("issue:context_expired") },
         };
@@ -393,7 +393,7 @@ export function Home({ playlistParam }: { playlistParam: string | null }) {
   );
 }
 
-/** 海报最小宽度与间距，需与 app.css 中 .shelf-row 的列宽、间距一致。 */
+/** 海报最小宽度与间距，需与 styles/home.css 中 .shelf-row 的列宽、间距一致。 */
 const SHELF_CARD_MIN = 150;
 const SHELF_GAP = 16;
 

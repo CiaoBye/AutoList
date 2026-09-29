@@ -9,7 +9,7 @@ import httpx
 from defusedxml import ElementTree as ET
 
 from .config import settings
-from .util import safe_request
+from .outbound import safe_request
 
 
 ALLOWED_HOSTS = {

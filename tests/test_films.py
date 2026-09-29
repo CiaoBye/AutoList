@@ -1,8 +1,7 @@
-"""1.45 新界面“电影藏馆”：以影片为中心的状态计算与接口。"""
+"""影片：以影片为中心的状态计算、海报与剧照、藏馆 / 挑选 / 动态接口与身份修正。"""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import tempfile
@@ -12,107 +11,23 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from fastapi import HTTPException
 
-from app import state
 from app.api import films as film_routes
+from app.api import home as home_routes
+from app.api import images as image_routes
+from app.api import picks as pick_routes
 from app.api import system as system_routes
+from app.api import timeline as timeline_routes
+from app.api.playlists import playlist_item_poster
+from app.clients import EmbyClient
 from app.config import settings
 from app.database import SCHEMA_VERSION, connect
 from app.security import is_signed_media_path
 from app.services import films as film_service
 from app.services.recognition import persist_tmdb_item
 from app.util import to_int, utc_now
-from tests.support import IsolatedAppTestCase
+from tests.support import FilmFixture, IsolatedAppTestCase, SeededPlaylistTestCase
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
-
-
-class FilmFixture(IsolatedAppTestCase):
-    """A playlist whose items cover every film status and issue."""
-
-    async def asyncSetUp(self) -> None:
-        await super().asyncSetUp()
-        now = utc_now()
-        with connect() as conn:
-            self.playlist_id = to_int(conn.execute(
-                "INSERT INTO playlists(name,position,created_at) VALUES(?,?,?)", ("测试片单", 1, now),
-            ).lastrowid)
-            self.site_id = to_int(conn.execute(
-                "INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at) VALUES(?,?,?,?,?,?)",
-                ("春天", "nexusphp", "https://site.example", 1, 1, now),
-            ).lastrowid)
-            self.items: dict[str, int] = {}
-            specs = [
-                ("in_library", 1, 101, "in_library"),
-                ("missing", 2, 102, "not_found"),
-                ("unchecked", 3, 103, "unknown"),
-                ("unrecognized", 4, None, "not_found"),
-                ("candidates", 5, 105, "not_found"),
-                ("selected", 6, 106, "not_found"),
-                ("downloading", 7, 107, "not_found"),
-                ("no_eligible", 8, 108, "not_found"),
-                ("submit_failed", 9, 109, "not_found"),
-                ("strm", 10, 110, "strm"),
-            ]
-            for key, rank, tmdb_id, library_state in specs:
-                self.items[key] = to_int(conn.execute(
-                    """INSERT INTO playlist_items(
-                         playlist_id,rank_no,original_title,year,tmdb_id,tmdb_title,tmdb_original_title,tmdb_year,
-                         library_state,library_checked_at
-                       ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (self.playlist_id, rank, f"Movie {key}", 2000 + rank, tmdb_id,
-                     f"电影{key}" if tmdb_id else None, f"Movie {key}" if tmdb_id else None,
-                     2000 + rank if tmdb_id else None, library_state, now),
-                ).lastrowid)
-            self.task_id = to_int(conn.execute(
-                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,trigger,item_ids_json,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?)""",
-                (self.playlist_id, 5, 8, "completed", 3, "manual",
-                 json.dumps([self.items["candidates"], self.items["selected"], self.items["no_eligible"]]), now, now),
-            ).lastrowid)
-            for key in ("candidates", "selected", "no_eligible"):
-                conn.execute(
-                    """INSERT INTO search_attempts(task_id,playlist_item_id,site_id,site_name,status,result_count,duration_ms,created_at,finished_at)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (self.task_id, self.items[key], self.site_id, "春天", "success", 2, 500, now, now),
-                )
-            self.candidate_ids = {
-                "candidates": self._candidate(conn, "candidates", "Movie.candidates.2005.1080p.BluRay.x265-CHD", "eligible"),
-                "selected": self._candidate(conn, "selected", "Movie.selected.2006.1080p.BluRay.x265-CHD", "eligible"),
-                "excluded": self._candidate(conn, "no_eligible", "Movie.no_eligible.2008.1080p.WEB-DL", "excluded", "WEB-DL 已排除"),
-            }
-            conn.execute("INSERT INTO cart_items(candidate_id,selected_at) VALUES(?,?)", (self.candidate_ids["selected"], now))
-            conn.execute(
-                """INSERT INTO download_history(playlist_item_id,title,torrent_name,site_name,submission_hash,success,message,created_at)
-                   VALUES(?,?,?,?,?,?,?,?)""",
-                (self.items["downloading"], "电影downloading", "Movie.downloading.2007.1080p.x265-CHD", "春天", "hash7", 1, "ok", now),
-            )
-            conn.execute(
-                """INSERT INTO download_history(playlist_item_id,title,torrent_name,site_name,success,message,created_at)
-                   VALUES(?,?,?,?,?,?,?)""",
-                (self.items["submit_failed"], "电影submit_failed", "Movie.submit_failed.2009", "春天", 0,
-                 "失败：https://site.example/download.php?passkey=SECRET_PASSKEY", now),
-            )
-        state.raw_candidates[self.candidate_ids["candidates"]] = {"media": {}, "torrent": {}}
-
-    def _candidate(self, conn, key: str, title: str, eligibility: str, reason: str | None = None) -> str:
-        candidate_id = f"cand-{key}-{eligibility}"
-        conn.execute(
-            """INSERT INTO candidates(
-                 id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,ranking,recommendation,
-                 eligibility,exclusion_reason,resource_key,metadata_json,created_at
-               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (candidate_id, self.task_id, self.items[key], 0, title, "春天", 9_000_000_000, 12, 1,
-             "preferred" if eligibility == "eligible" else "excluded", eligibility, reason, title, "{}", utc_now()),
-        )
-        return candidate_id
-
-    def _no_transmission(self):
-        return patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=([], "known_empty")))
-
-    async def _films(self, **params):
-        defaults = {"playlist_id": self.playlist_id, "status": "all", "q": "", "page": 1, "page_size": 60}
-        with self._no_transmission():
-            return await film_routes.films(**{**defaults, **params})
 
 
 class FilmStatusTests(FilmFixture):
@@ -182,15 +97,15 @@ class FilmStatusTests(FilmFixture):
         self.assertEqual(detail["excluded_summary"], [{"reason": "WEB-DL 已排除", "count": 1}])
         self.assertEqual(detail["search"]["sites"], 1)
         self.assertNotIn("SECRET_PASSKEY", json.dumps(failed["history"], ensure_ascii=False))
-        self.assertEqual(selected["candidates"][0]["in_cart"], 1)
+        self.assertEqual(selected["candidates"][0]["in_selection"], 1)
         self.assertFalse(selected["candidates"][0]["context_available"])
         with self.assertRaises(HTTPException) as missing:
             await film_routes.film_detail(99999)
         self.assertEqual(missing.exception.status_code, 404)
 
     async def test_home_summarises_todos_and_recent(self) -> None:
-        with self._no_transmission(), patch("app.api.films.hydrate_recent_emby_posters", new=AsyncMock()):
-            home = await film_routes.home(playlist_id=None)
+        with self._no_transmission(), patch("app.api.home.hydrate_recent_emby_posters", new=AsyncMock()):
+            home = await home_routes.home(playlist_id=None)
         todos = {todo["key"]: todo["count"] for todo in home["todos"]}
         self.assertEqual(home["playlist_id"], self.playlist_id)
         # 缺片 4 部中有 1 部无合格资源，不再重复提示寻片。
@@ -246,10 +161,10 @@ class TmdbPosterTests(FilmFixture):
         item_id = self.items["missing"]
         details = AsyncMock(return_value={"poster_path": "/abc123.jpg"})
         image = AsyncMock(return_value=(PNG, "image/png"))
-        with patch("app.api.films.TMDBClient.movie_details", new=details), \
-             patch("app.api.films.TMDBClient.poster_image", new=image):
-            first = await film_routes.playlist_item_tmdb_poster(item_id)
-            second = await film_routes.playlist_item_tmdb_poster(item_id)
+        with patch("app.api.images.TMDBClient.movie_details", new=details), \
+             patch("app.api.images.TMDBClient.poster_image", new=image):
+            first = await image_routes.playlist_item_tmdb_poster(item_id)
+            second = await image_routes.playlist_item_tmdb_poster(item_id)
         self.assertEqual((first.status_code, first.media_type), (200, "image/png"))
         self.assertEqual(second.body, PNG)
         details.assert_awaited_once()
@@ -261,9 +176,9 @@ class TmdbPosterTests(FilmFixture):
     async def test_unsafe_or_missing_poster_paths_are_rejected(self) -> None:
         settings.tmdb_api_key = "tmdb-test"
         item_id = self.items["candidates"]
-        with patch("app.api.films.TMDBClient.movie_details", new=AsyncMock(return_value={"poster_path": "https://evil.example/x.jpg"})):
+        with patch("app.api.images.TMDBClient.movie_details", new=AsyncMock(return_value={"poster_path": "https://evil.example/x.jpg"})):
             with self.assertRaises(HTTPException) as rejected:
-                await film_routes.playlist_item_tmdb_poster(item_id)
+                await image_routes.playlist_item_tmdb_poster(item_id)
         self.assertEqual(rejected.exception.status_code, 404)
         with connect() as conn:
             stored = conn.execute("SELECT tmdb_poster_path FROM playlist_items WHERE id=?", (item_id,)).fetchone()[0]
@@ -272,13 +187,13 @@ class TmdbPosterTests(FilmFixture):
         result = await self._films(status="candidates")
         self.assertIsNone(result["items"][0]["poster_url"])
         with self.assertRaises(HTTPException) as unrecognized:
-            await film_routes.playlist_item_tmdb_poster(self.items["unrecognized"])
+            await image_routes.playlist_item_tmdb_poster(self.items["unrecognized"])
         self.assertEqual(unrecognized.exception.status_code, 404)
 
     async def test_poster_endpoint_without_tmdb_key_is_not_found(self) -> None:
         settings.tmdb_api_key = ""
         with self.assertRaises(HTTPException) as raised:
-            await film_routes.playlist_item_tmdb_poster(self.items["missing"])
+            await image_routes.playlist_item_tmdb_poster(self.items["missing"])
         self.assertEqual(raised.exception.status_code, 404)
 
     async def test_recognition_persists_only_tmdb_shaped_paths(self) -> None:
@@ -335,13 +250,13 @@ class FanartPosterTests(FilmFixture):
         lookup = AsyncMock(return_value=httpx.Response(200, json=payload, request=httpx.Request("GET", "https://webservice.fanart.tv/v3/movies/102")))
         image = AsyncMock(return_value=(PNG, "image/png"))
         with patch("app.clients.FanartClient._movie", new=lookup), \
-             patch("app.api.films.FanartClient.poster_image", new=image):
-            first = await film_routes.playlist_item_fanart_poster(item_id)
-            second = await film_routes.playlist_item_fanart_poster(item_id)
+             patch("app.api.images.FanartClient.poster_image", new=image):
+            first = await image_routes.playlist_item_fanart_poster(item_id)
+            second = await image_routes.playlist_item_fanart_poster(item_id)
         self.assertEqual((first.status_code, first.media_type, second.body), (200, "image/png", PNG))
         # 未带版本号（待定地址）只短期缓存；带上当前海报的版本号才长期缓存。
-        self.assertEqual(first.headers["Cache-Control"], film_routes.FALLBACK_POSTER_CACHE)
-        versioned = await film_routes.playlist_item_fanart_poster(item_id, film_service.fanart_version(FANART_URL))
+        self.assertEqual(first.headers["Cache-Control"], image_routes.FALLBACK_POSTER_CACHE)
+        versioned = await image_routes.playlist_item_fanart_poster(item_id, film_service.fanart_version(FANART_URL))
         self.assertIn("max-age=604800", versioned.headers["Cache-Control"])
         lookup.assert_awaited_once_with(102)
         # 非 fanart.tv 地址被丢弃；日语片取日文版（不看 TMDB 显示语言），同语言取点赞多的，http 统一为 https。
@@ -367,11 +282,11 @@ class FanartPosterTests(FilmFixture):
         item_id = self.items["missing"]
         details = AsyncMock(return_value={"original_language": "cn"})
         posters = AsyncMock(return_value="")
-        tmdb = AsyncMock(return_value=film_routes.Response(content=PNG, media_type="image/png"))
-        with patch("app.api.films.TMDBClient.movie_details", new=details), \
-             patch("app.api.films.FanartClient.movie_poster_url", new=posters), \
-             patch("app.api.films.playlist_item_tmdb_poster", new=tmdb):
-            await film_routes.playlist_item_fanart_poster(item_id)
+        tmdb = AsyncMock(return_value=image_routes.Response(content=PNG, media_type="image/png"))
+        with patch("app.api.images.TMDBClient.movie_details", new=details), \
+             patch("app.api.images.FanartClient.movie_poster_url", new=posters), \
+             patch("app.api.images.playlist_item_tmdb_poster", new=tmdb):
+            await image_routes.playlist_item_fanart_poster(item_id)
         # 粤语片（TMDB 记为 cn）按中文海报挑选。
         posters.assert_awaited_once_with(102, "zh")
         with connect() as conn:
@@ -384,26 +299,26 @@ class FanartPosterTests(FilmFixture):
         item_id = self.items["missing"]
         with connect() as conn:
             conn.execute("UPDATE playlist_items SET tmdb_original_language='en' WHERE id=?", (item_id,))
-        tmdb = AsyncMock(return_value=film_routes.Response(content=PNG, media_type="image/png"))
+        tmdb = AsyncMock(return_value=image_routes.Response(content=PNG, media_type="image/png"))
         with patch("app.clients.FanartClient._movie", new=AsyncMock(return_value=httpx.Response(404, json={}))), \
-             patch("app.api.films.playlist_item_tmdb_poster", new=tmdb):
-            response = await film_routes.playlist_item_fanart_poster(item_id)
+             patch("app.api.images.playlist_item_tmdb_poster", new=tmdb):
+            response = await image_routes.playlist_item_fanart_poster(item_id)
         self.assertEqual(response.body, PNG)
-        self.assertEqual(response.headers["Cache-Control"], film_routes.FALLBACK_POSTER_CACHE)
+        self.assertEqual(response.headers["Cache-Control"], image_routes.FALLBACK_POSTER_CACHE)
         self.assertEqual(self._fanart_row(item_id), "")
 
     async def test_lookup_failure_falls_back_without_remembering(self) -> None:
         settings.fanart_api_key = "fanart-test"
         settings.tmdb_api_key = "tmdb-test"
         item_id = self.items["missing"]
-        tmdb = AsyncMock(return_value=film_routes.Response(content=PNG, media_type="image/png"))
+        tmdb = AsyncMock(return_value=image_routes.Response(content=PNG, media_type="image/png"))
         with patch("app.clients.FanartClient._movie", new=AsyncMock(side_effect=httpx.ConnectError("down"))), \
-             patch("app.api.films.playlist_item_tmdb_poster", new=tmdb):
-            response = await film_routes.playlist_item_fanart_poster(item_id)
+             patch("app.api.images.playlist_item_tmdb_poster", new=tmdb):
+            response = await image_routes.playlist_item_fanart_poster(item_id)
         self.assertEqual(response.body, PNG)
         self.assertIsNone(self._fanart_row(item_id))
         with self.assertRaises(HTTPException) as unrecognized:
-            await film_routes.playlist_item_fanart_poster(self.items["unrecognized"])
+            await image_routes.playlist_item_fanart_poster(self.items["unrecognized"])
         self.assertEqual(unrecognized.exception.status_code, 404)
 
     async def test_both_fanart_url_formats_are_accepted(self) -> None:
@@ -535,7 +450,7 @@ class CandidateTaskChainTests(FilmFixture):
 class PickQueueTests(FilmFixture):
     async def test_pick_queue_groups_selectable_and_blocked_films(self) -> None:
         with self._no_transmission():
-            queue = await film_routes.picks(playlist_id=self.playlist_id, status="all")
+            queue = await pick_routes.picks(playlist_id=self.playlist_id, status="all")
         buckets = {item["id"]: item["bucket"] for item in queue["items"]}
         self.assertEqual(queue["counts"], {"all": 3, "candidates": 1, "selected": 1, "no_eligible": 1})
         self.assertEqual(buckets[self.items["candidates"]], "candidates")
@@ -543,27 +458,27 @@ class PickQueueTests(FilmFixture):
         self.assertEqual(buckets[self.items["no_eligible"]], "no_eligible")
         by_id = {item["id"]: item for item in queue["items"]}
         self.assertTrue(by_id[self.items["candidates"]]["candidates"][0]["context_available"])
-        self.assertEqual(by_id[self.items["selected"]]["candidates"][0]["in_cart"], 1)
+        self.assertEqual(by_id[self.items["selected"]]["candidates"][0]["in_selection"], 1)
         self.assertEqual(by_id[self.items["no_eligible"]]["candidates"], [])
         self.assertEqual(by_id[self.items["no_eligible"]]["excluded_count"], 1)
         with self._no_transmission():
-            selected = await film_routes.picks(playlist_id=self.playlist_id, status="selected")
+            selected = await pick_routes.picks(playlist_id=self.playlist_id, status="selected")
         self.assertEqual([item["id"] for item in selected["items"]], [self.items["selected"]])
         with self.assertRaises(HTTPException) as invalid:
-            await film_routes.picks(playlist_id=None, status="bogus")
+            await pick_routes.picks(playlist_id=None, status="bogus")
         self.assertEqual(invalid.exception.status_code, 422)
 
 
 class TimelineTests(FilmFixture):
     async def test_timeline_merges_sources_and_filters(self) -> None:
-        with patch("app.api.films.log_events", new=AsyncMock(return_value=[
+        with patch("app.api.timeline.log_events", new=AsyncMock(return_value=[
             {"ts": "2099-01-01T00:00:00+00:00", "level": "INFO", "event": "playlist_imported", "detail": "导入片单【测试】"},
             {"ts": "2099-01-01T00:00:01+00:00", "level": "INFO", "event": "cookiecloud_sync", "detail": "不应出现"},
         ])):
-            everything = await film_routes.timeline(type="all", film_id=None, limit=120)
-            films = await film_routes.timeline(type="films", film_id=None, limit=120)
-            system = await film_routes.timeline(type="system", film_id=None, limit=120)
-            one = await film_routes.timeline(type="all", film_id=self.items["selected"], limit=120)
+            everything = await timeline_routes.timeline(type="all", film_id=None, limit=120)
+            films = await timeline_routes.timeline(type="films", film_id=None, limit=120)
+            system = await timeline_routes.timeline(type="system", film_id=None, limit=120)
+            one = await timeline_routes.timeline(type="all", film_id=self.items["selected"], limit=120)
         kinds = {event["kind"] for event in everything["items"]}
         self.assertTrue({"submit", "search", "system"} <= kinds)
         # 日志只收录白名单事件，并按时间倒序。
@@ -575,7 +490,7 @@ class TimelineTests(FilmFixture):
         # 批量搜索任务包含该影片，按影片筛选时也要出现。
         self.assertEqual([event["kind"] for event in one["items"]], ["search"])
         with self.assertRaises(HTTPException) as invalid:
-            await film_routes.timeline(type="bogus", film_id=None, limit=10)
+            await timeline_routes.timeline(type="bogus", film_id=None, limit=10)
         self.assertEqual(invalid.exception.status_code, 422)
 
 
@@ -658,90 +573,6 @@ class IdentityCorrectionTests(FilmFixture):
         with self.assertRaises(HTTPException) as no_key:
             await film_routes.tmdb_matches(self.items["missing"], q="x", year=None)
         self.assertEqual(no_key.exception.status_code, 422)
-
-
-class SettingsKeepTests(IsolatedAppTestCase):
-    async def test_null_cookiecloud_url_keeps_saved_address(self) -> None:
-        import httpx
-
-        from app.main import app
-
-        settings.cookiecloud_url = "http://cc.example:8088/cookiecloud"
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            kept = await client.put("/api/settings", json={"cookiecloud_url": None, "tmdb_proxy_enabled": True})
-            self.assertEqual(kept.status_code, 200, kept.text)
-            self.assertEqual(settings.cookiecloud_url, "http://cc.example:8088/cookiecloud")
-            cleared = await client.put("/api/settings", json={"clear_cookiecloud_url": True})
-            self.assertEqual(cleared.status_code, 200, cleared.text)
-        self.assertEqual(settings.cookiecloud_url, "")
-
-
-CURE_ZH_RESULTS = [
-    {"id": 6715, "title": "鳄鱼波鞋走天涯", "original_title": "The Cure", "original_language": "en",
-     "release_date": "1995-04-21", "vote_count": 368},
-    {"id": 1199410, "title": "Say It, Fight It, Cure It", "original_title": "Say It, Fight It, Cure It",
-     "original_language": "en", "release_date": "1997-10-05", "vote_count": 1},
-    {"id": 36095, "title": "X圣治", "original_title": "キュア", "original_language": "ja",
-     "release_date": "1997-12-27", "vote_count": 881},
-]
-
-
-class RecognitionMatchTests(IsolatedAppTestCase):
-    """以线上真实的误识别为样本：Cure (1997) 曾被配到 “Say It, Fight It, Cure It”。"""
-
-    async def test_single_shared_word_is_not_a_title_match(self) -> None:
-        from app.services.recognition import select_tmdb_match
-
-        self.assertIsNone(select_tmdb_match(CURE_ZH_RESULTS, "Cure", 1997))
-
-    async def test_main_title_and_word_coverage_still_match(self) -> None:
-        from app.services.recognition import select_tmdb_match
-
-        m = [{"id": 832, "title": "M就是凶手", "original_title": "M - Eine Stadt sucht einen Mörder",
-              "original_language": "de", "release_date": "1931-05-11"}]
-        self.assertEqual(select_tmdb_match(m, "M", 1931)["id"], 832)
-        dr = [{"id": 935, "title": "奇爱博士", "original_title": "Dr. Strangelove or: How I Learned to Stop Worrying and Love the Bomb",
-               "original_language": "en", "release_date": "1964-01-29"}]
-        self.assertEqual(select_tmdb_match(dr, "Dr. Strangelove", 1964)["id"], 935)
-
-    async def test_same_title_prefers_the_most_voted_film(self) -> None:
-        from app.services.recognition import select_tmdb_match
-
-        options = [
-            {"id": 1, "title": "Psycho", "original_title": "Psycho", "release_date": "1960-06-01", "vote_count": 3},
-            {"id": 539, "title": "惊魂记", "original_title": "Psycho", "release_date": "1960-06-22", "vote_count": 10000},
-        ]
-        self.assertEqual(select_tmdb_match(options, "Psycho", 1960)["id"], 539)
-
-    async def test_english_search_recovers_international_title_and_keeps_localized_fields(self) -> None:
-        from app.services import recognition
-
-        settings.tmdb_language = "zh-CN"
-        tmdb = AsyncMock()
-        tmdb.search_movie.side_effect = [
-            CURE_ZH_RESULTS,
-            [{"id": 36095, "title": "Cure", "original_title": "キュア", "original_language": "ja",
-              "release_date": "1997-12-27", "vote_count": 881}],
-        ]
-        tmdb.movie_details.return_value = {"title": "X圣治", "original_title": "キュア", "original_language": "ja",
-                                           "release_date": "1997-12-27", "poster_path": "/cure.jpg"}
-        tmdb.movie_external_ids.return_value = {"imdb_id": "tt0123948"}
-        with patch.object(recognition, "TMDBClient", return_value=tmdb):
-            media = await recognition.recognize_movie("Cure", 1997)
-        self.assertEqual((media["id"], media["title"], media["imdb_id"]), (36095, "X圣治", "tt0123948"))
-        self.assertEqual(tmdb.search_movie.await_args_list[1].kwargs, {"language": "en-US"})
-        self.assertEqual(recognition.tmdb_original_language(media), "ja")
-
-    async def test_imdb_id_is_trusted_even_when_titles_differ(self) -> None:
-        from app.services import recognition
-
-        tmdb = AsyncMock()
-        tmdb.find_by_imdb.return_value = [{"id": 25538, "title": "一一", "original_title": "一一", "release_date": "2000-05-14"}]
-        with patch.object(recognition, "TMDBClient", return_value=tmdb):
-            media = await recognition.recognize_movie("Yi Yi", 2000, "tt0244316")
-        self.assertEqual(media["id"], 25538)
-        tmdb.search_movie.assert_not_awaited()
 
 
 class SourceIdentityTests(FilmFixture):
@@ -853,9 +684,9 @@ class BackdropTests(FilmFixture):
         request = httpx.Request("GET", "https://webservice.fanart.tv/v3/movies/102")
         lookup = AsyncMock(return_value=httpx.Response(200, json=payload, request=request))
         image = AsyncMock(return_value=(PNG, "image/png"))
-        with patch("app.clients.FanartClient._movie", new=lookup), patch("app.api.films.FanartClient.background_image", new=image):
-            first = await film_routes.playlist_item_backdrop(item_id)
-            await film_routes.playlist_item_backdrop(item_id)
+        with patch("app.clients.FanartClient._movie", new=lookup), patch("app.api.images.FanartClient.background_image", new=image):
+            first = await image_routes.playlist_item_backdrop(item_id)
+            await image_routes.playlist_item_backdrop(item_id)
         self.assertEqual(first.body, PNG)
         image.assert_awaited_once_with("https://assets.fanart.tv/fanart/movie-bg-5214.jpg")
         self.assertEqual(self._row(item_id)[0], "https://assets.fanart.tv/fanart/movie-bg-5214.jpg")
@@ -869,9 +700,9 @@ class BackdropTests(FilmFixture):
         empty = httpx.Response(200, json={}, request=httpx.Request("GET", "https://webservice.fanart.tv/v3/movies/102"))
         tmdb_image = AsyncMock(return_value=(PNG, "image/png"))
         with patch("app.clients.FanartClient._movie", new=AsyncMock(return_value=empty)), \
-             patch("app.api.films.TMDBClient.movie_details", new=AsyncMock(return_value={"backdrop_path": "/still.jpg"})), \
-             patch("app.api.films.TMDBClient.poster_image", new=tmdb_image):
-            response = await film_routes.playlist_item_backdrop(item_id)
+             patch("app.api.images.TMDBClient.movie_details", new=AsyncMock(return_value={"backdrop_path": "/still.jpg"})), \
+             patch("app.api.images.TMDBClient.poster_image", new=tmdb_image):
+            response = await image_routes.playlist_item_backdrop(item_id)
         self.assertEqual(response.body, PNG)
         tmdb_image.assert_awaited_once_with("/still.jpg", size="w1280")
         self.assertEqual(self._row(item_id), ("", "/still.jpg"))
@@ -879,7 +710,7 @@ class BackdropTests(FilmFixture):
             conn.execute("UPDATE playlist_items SET tmdb_backdrop_path='' WHERE id=?", (item_id,))
         self.assertIsNone((await film_routes.film_detail(item_id))["backdrop_url"])
         with self.assertRaises(HTTPException) as missing:
-            await film_routes.playlist_item_backdrop(item_id)
+            await image_routes.playlist_item_backdrop(item_id)
         self.assertEqual(missing.exception.status_code, 404)
 
     async def test_reidentification_clears_backdrop_choice(self) -> None:
@@ -950,128 +781,24 @@ class ImdbFirstRecognitionTests(FilmFixture):
         self.assertEqual(kept[0], 105)
 
 
-class NexusSearchTests(IsolatedAppTestCase):
-    """线上站点实测后的搜索修正：IMDb 搜索范围、表单下载链接、听听歌的链接与参数、跳转页与连接检测。"""
-
-    HDSKY_ROW = (
-        '<table class="torrents"><tr><td><a href="userdetails.php?id=99412">me</a></td></tr>'
-        '<tr><td class="rowfollow"><table><tr><td><a href="details.php?id=624930&hit=1" title="Casablanca 1942 1080p BluRay x265-FRDS">'
-        'Casablanca 1942 1080p BluRay x265-FRDS</a></td><td><form action="download.php?id=624930&t=1&sign=abc" method="POST"></form></td>'
-        '</tr></table></td><td>0</td><td>2月</td><td>22.61 GB</td><td>3</td><td>0</td><td>22</td><td>0%</td><td>匿名</td></tr></table>'
-    )
-    TTG_ROW = (
-        '<table id="torrent_table"><tr><td></td><td><a href="/t/835105/"><b>Casablanca 1942 1080p BluRay x265-FRDS</b></a>'
-        '<a href="/dl/835105/1433">dl</a><a href="/details.php?id=835105&hit=1&filelist=1">3</a></td>'
-        '<td>3</td><td>0</td><td>2026-09-26</td><td>21 小时</td><td>12.30 GB</td><td>469 次</td><td>306 / 6</td><td>[匿名用户]</td></tr></table>'
-    )
-
-    async def _search(self, html: str, base: str, path: str, title: str = "Casablanca", imdb: str | None = None):
-        from app.clients import NexusPHPClient
-
-        response = httpx.Response(200, text=html, request=httpx.Request("GET", base.rstrip("/") + path))
-        request = AsyncMock(return_value=response)
-        with patch("app.clients.safe_request", new=request):
-            rows = await NexusPHPClient().search({"name": "站", "base_url": base, "cookie": "c"}, title, imdb)
-        return rows, request.await_args.kwargs["params"]
-
-    async def test_imdb_query_uses_imdb_search_area(self) -> None:
-        _, params = await self._search(self.HDSKY_ROW, "https://hdsky.me/", "/torrents.php", imdb="tt0034583")
-        self.assertEqual(params, {"search": "tt0034583", "search_area": 4})
-        _, params = await self._search(self.HDSKY_ROW, "https://hdsky.me/", "/torrents.php")
-        self.assertEqual(params, {"search": "Casablanca", "search_area": 0})
-
-    async def test_form_download_and_userdetails_are_handled(self) -> None:
-        rows, _ = await self._search(self.HDSKY_ROW, "https://hdsky.me/", "/torrents.php")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual((rows[0]["title"], rows[0]["seeders"]), ("Casablanca 1942 1080p BluRay x265-FRDS", 3))
-        self.assertTrue(rows[0]["enclosure"].startswith("https://hdsky.me/download.php?id=624930"))
-
-    async def test_totheglory_links_params_and_paired_seeders(self) -> None:
-        rows, params = await self._search(self.TTG_ROW, "https://totheglory.im/", "/browse.php", imdb="tt0034583")
-        # 听听歌不支持按 IMDb 搜索：改用片名，参数名为 search_field。
-        self.assertEqual(params, {"search_field": "Casablanca", "search_area": 0})
-        self.assertEqual(len(rows), 1)
-        self.assertEqual((rows[0]["title"], rows[0]["seeders"]), ("Casablanca 1942 1080p BluRay x265-FRDS", 306))
-        self.assertEqual(rows[0]["enclosure"], "https://totheglory.im/dl/835105/1433")
-
-    async def test_two_factor_and_maintenance_redirects_are_errors(self) -> None:
-        for path, expected in (("/take2fa.php", "二次验证"), ("/claim/", "维护")):
-            with self.assertRaisesRegex(RuntimeError, expected):
-                await self._search("<html></html>", "https://site.example/", path)
-
-    async def test_connection_check_runs_a_real_search(self) -> None:
-        from app.clients import NexusPHPClient
-
-        with patch.object(NexusPHPClient, "search", new=AsyncMock(return_value=[])) as search:
-            result = await NexusPHPClient().check({"name": "站"})
-        # 先按 IMDb 搜，搜不到再按片名搜；两次都没有结果才算“搜不到”。
-        self.assertEqual(
-            [call.args for call in search.await_args_list],
-            [({"name": "站"}, "The Godfather", "tt0068646"), ({"name": "站"}, "The Godfather 1972")],
-        )
-        self.assertTrue(result["empty"])
-        with patch.object(NexusPHPClient, "search", new=AsyncMock(return_value=[{"title": "x"}])):
-            result = await NexusPHPClient().check({"name": "站"})
-        self.assertNotIn("empty", result)
-
-    async def test_empty_search_is_recorded_as_its_own_status(self) -> None:
-        from app.clients import NexusPHPClient
-        from app.services.sites import test_site_config
-
+class EmbyPosterTests(SeededPlaylistTestCase):
+    async def test_emby_poster_is_proxied_and_validated(self) -> None:
         with connect() as conn:
-            site_id = to_int(conn.execute(
-                "INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at) VALUES(?,?,?,?,?,?)",
-                ("音乐站", "nexusphp", "https://music.example", 1, 1, utc_now()),
-            ).lastrowid)
-        with patch.object(NexusPHPClient, "check", new=AsyncMock(return_value={"ok": True, "empty": True, "message": "搜不到"})):
-            result = await test_site_config({"id": site_id, "name": "音乐站", "adapter": "nexusphp"})
-        self.assertEqual((result["status"], result["ok"]), ("empty", False))
+            item_id = conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1", (self.playlist_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE playlist_items SET emby_item_id='abc123',emby_image_tag='tag1' WHERE id=?", (item_id,),
+            )
+        original = EmbyClient.poster
 
+        async def fake_poster(_client: object, _item_id: str) -> tuple[bytes, str]:
+            return b"\x89PNG\r\n\x1a\nposter", "image/png"
 
-class CookieProvenanceTests(IsolatedAppTestCase):
-    """Cookie 的来源与更新时间、最近一次同步摘要，以及 Cookie 变化后的后台复测。"""
-
-    def _site(self, name: str, base: str, cookie: str = "old") -> int:
-        with connect() as conn:
-            return to_int(conn.execute(
-                "INSERT INTO pt_sites(name,adapter,base_url,cookie,enabled,search_enabled,created_at) VALUES(?,?,?,?,?,?,?)",
-                (name, "nexusphp", base, cookie, 1, 1, utc_now()),
-            ).lastrowid)
-
-    async def test_sync_records_source_summary_and_retests_changed_sites(self) -> None:
-        from app import state as app_state
-        from app.services import sites as site_service
-
-        changed = self._site("春天", "https://springsunday.net")
-        same = self._site("家园", "https://hdhome.org", cookie="same")
-        self._site("皇后", "https://open.cd")
-        groups = {"springsunday.net": "new", "hdhome.org": "same"}
-        with patch.object(site_service, "test_site_config", new=AsyncMock()) as retest:
-            result = site_service.apply_cookie_groups(groups, origin="pull")
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-        self.assertEqual((result["updated"], result["missing"]), (["春天"], ["皇后"]))
-        with connect() as conn:
-            rows = {r["id"]: r for r in conn.execute("SELECT id,cookie_source,cookie_updated_at FROM pt_sites")}
-        self.assertEqual(rows[changed]["cookie_source"], "cookiecloud")
-        self.assertIsNotNone(rows[changed]["cookie_updated_at"])
-        self.assertIsNone(rows[same]["cookie_source"])
-        summary = app_state.last_cookie_sync
-        self.assertEqual((summary["origin"], summary["updated"], summary["unchanged"], summary["missing"]), ("pull", ["春天"], 1, ["皇后"]))
-        # 只复测 Cookie 有变化的站点。
-        self.assertEqual([call.args[0]["id"] for call in retest.await_args_list], [changed])
-        status = await system_routes.cookiecloud_status()
-        self.assertEqual(status["last_sync"]["origin"], "pull")
-
-    async def test_manual_cookie_edit_marks_source(self) -> None:
-        from app.main import app
-
-        site_id = self._site("春天", "https://springsunday.net")
-        body = {"name": "春天", "base_url": "https://springsunday.net", "cookie": "typed-by-user"}
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.put(f"/api/sites/{site_id}", json=body)
-        self.assertEqual(response.status_code, 200, response.text)
-        with connect() as conn:
-            row = conn.execute("SELECT cookie_source,cookie_updated_at FROM pt_sites WHERE id=?", (site_id,)).fetchone()
-        self.assertEqual(row["cookie_source"], "manual")
-        self.assertIsNotNone(row["cookie_updated_at"])
+        EmbyClient.poster = fake_poster
+        try:
+            response = await playlist_item_poster(to_int(item_id), "tag1")
+        finally:
+            EmbyClient.poster = original
+        self.assertEqual(response.media_type, "image/png")
+        self.assertEqual(response.body, b"\x89PNG\r\n\x1a\nposter")

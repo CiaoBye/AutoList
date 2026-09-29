@@ -3,17 +3,16 @@ import asyncio
 import html
 import json
 import re
-from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
-from datetime import datetime, timedelta
 from defusedxml import ElementTree
 
 from .config import APP_VERSION, public_endpoint_url, settings
-from .parsers import AccountTableParser, NexusTableParser, human_size_bytes, numeric_value, site_proxy
-from .util import safe_request, to_float, to_int
+from .parsers import AccountTableParser, human_size_bytes, numeric_value, site_proxy
+from .util import to_float, to_int
+from .outbound import safe_request
 
 
 
@@ -697,29 +696,8 @@ class MTeamClient:
 
 
 # Some sites use different search page endpoints (module-level constant, never mutated).
-NEXUSPHP_SEARCH_PATHS: dict[str, str] = {
-    "totheglory.im": "browse.php",
-}
-# 与标准 NexusPHP 不同的搜索参数：听听歌的搜索框是 search_field，且不支持按 IMDb 编号搜索。
-NEXUSPHP_QUERY_PARAMS: dict[str, str] = {
-    "totheglory.im": "search_field",
-}
-NEXUSPHP_NO_IMDB_SEARCH = {"totheglory.im"}
-# 种子详情与下载链接：标准 NexusPHP 为 details.php / download.php；听听歌为 /t/<id>/ 与 /dl/<id>/。
-# 前面不能紧跟字母，避免把 userdetails.php?id= 当成种子详情。
-TORRENT_DETAIL_LINK = re.compile(r"(?:(?<![a-z])details\.php\?[^#]*\bid=\d+|(?:^|/)t/\d+/?$)", re.I)
-TORRENT_DOWNLOAD_LINK = re.compile(r"(?:(?<![a-z])download\.php\?|(?:^|/)dl/\d+/)", re.I)
-# 搜索被重定向到这些页面时，Cookie 虽然有效，但站点要求额外操作，不能当作“没有结果”。
-SITE_INTERRUPT_PAGES = (
-    (re.compile(r"2fa|twofactor|two_factor", re.I), "站点要求二次验证（2FA），请在浏览器完成验证后重新同步 Cookie"),
-    (re.compile(r"claim|maintain|maintenance|upgrade", re.I), "站点跳转到维护或公告页面，暂时无法搜索"),
-)
-# 连接检测用一部各站普遍收录的电影做真实搜索，确认能解析出结果，而不只是 Cookie 能登录。
-SITE_PROBE_QUERY = ("The Godfather", "tt0068646")
-
-
 class NexusPHPClient:
-    """Conservative cookie-based adapter for common NexusPHP torrent tables."""
+    """Cookie 登录的 PT 站点：搜索与检测交给 ``app.sites`` 按站点档案处理，这里保留账户统计。"""
 
     # Some sites (e.g. hdarea.club) aggressively rate-limit automated User-Agents.
     _BROWSER_UA = (
@@ -728,126 +706,15 @@ class NexusPHPClient:
         "Chrome/126.0.0.0 Safari/537.36"
     )
 
-    @staticmethod
-    def _text(fragment: str) -> str:
-        plain = re.sub(r"<[^>]+>", " ", fragment)
-        return re.sub(r"\s+", " ", html.unescape(plain)).strip()
-
-    @staticmethod
-    def _size(cells: list[str]) -> int:
-        units = {
-            "b": 1, "kb": 1024, "kib": 1024, "mb": 1024**2, "mib": 1024**2,
-            "gb": 1024**3, "gib": 1024**3, "tb": 1024**4, "tib": 1024**4,
-        }
-        for value in cells:
-            match = re.search(r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(B|Ki?B|Mi?B|Gi?B|Ti?B)\b", value, re.I)
-            if match:
-                number = to_float(match.group(1).replace(",", "."))
-                return to_int(number * units[match.group(2).lower()])
-        return 0
-
-    @staticmethod
-    def _parse_publish_time(cells: list[str]) -> str | None:
-        """从 NexusPHP 列表行解析发布时间：支持绝对日期与相对时间（如“2月 2天”“昨天”）。"""
-        for cell in cells:
-            match = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", cell)
-            if match:
-                return f"{match.group(1)}-{to_int(match.group(2)):02d}-{to_int(match.group(3)):02d}"
-            match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", cell)
-            if match:
-                return f"{match.group(1)}-{to_int(match.group(2)):02d}-{to_int(match.group(3)):02d}"
-            relative = NexusPHPClient._relative_publish_date(cell)
-            if relative:
-                return relative
-        return None
-
-    @staticmethod
-    def _relative_publish_date(cell: str) -> str | None:
-        """把“X年/X月/X周/X天/X小时/分钟/刚刚/昨天”换算为绝对日期。"""
-        now = datetime.now()
-        if "分钟" in cell or "小时" in cell or "刚刚" in cell or "今天" in cell:
-            return now.strftime("%Y-%m-%d")
-        if "昨天" in cell:
-            return (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        days = 0
-        for unit, factor in (("年", 365), ("月", 30), ("周", 7), ("天", 1)):
-            match = re.search(rf"(\d+)\s*{unit}", cell)
-            if match:
-                days += to_int(match.group(1)) * factor
-        return (now - timedelta(days=days)).strftime("%Y-%m-%d") if days else None
-
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
-        base = str(site.get("base_url") or "").rstrip("/") + "/"
-        host = (urlparse(base).hostname or "").lower()
-        search_page = "torrents.php"
-        for domain, path in NEXUSPHP_SEARCH_PATHS.items():
-            if domain in host:
-                search_page = path
-                break
-        query_param = next((param for domain, param in NEXUSPHP_QUERY_PARAMS.items() if domain in host), "search")
-        use_imdb = bool(imdb_id) and not any(domain in host for domain in NEXUSPHP_NO_IMDB_SEARCH)
-        # NexusPHP 的 search_area：0 = 标题，4 = IMDb 链接。按 IMDb 编号搜索必须用 4，否则几乎搜不到。
-        params = {query_param: imdb_id if use_imdb else title, "search_area": 4 if use_imdb else 0}
-        headers = {"Cookie": str(site.get("cookie") or ""), "User-Agent": str(site.get("user_agent") or f"AutoList/{APP_VERSION}")}
-        proxy = site_proxy(site)
-        client = _search_client(timeout=to_int(site.get("timeout_seconds") or 30), proxy=proxy)
-        response = await safe_request(
-            client, "GET", urljoin(base, search_page), params=params, headers=headers,
-            label=f"站点 {site.get('name', '')} 地址", proxy_mode=bool(proxy),
-        )
-        response.raise_for_status()
-        if self._looks_like_login_page(response):
-            raise RuntimeError("Cookie 已失效，站点返回登录页面")
-        final_path = (response.url.path or "").lower()
-        if not final_path.endswith(search_page.split("?", 1)[0].lower()):
-            reason = next((message for pattern, message in SITE_INTERRUPT_PAGES if pattern.search(final_path)), None)
-            if reason:
-                raise RuntimeError(reason)
-        results: list[dict[str, Any]] = []
-        parser = NexusTableParser()
-        parser.feed(response.text)
-        for row in parser.rows:
-            detail = next((link for link in row["links"] if TORRENT_DETAIL_LINK.search(link["href"])), None)
-            if not detail:
-                continue
-            download = next((link for link in row["links"] if TORRENT_DOWNLOAD_LINK.search(link["href"])), None)
-            if not download:
-                continue
-            title_text = self._text(detail["title"] or " ".join(detail["text"]))
-            cells = [self._text(" ".join(cell)) for cell in row["cells"]]
-            numeric = [to_int(value.replace(",", "")) for value in cells[-5:] if re.fullmatch(r"[\d,]+", value)]
-            seeders = numeric[-3] if len(numeric) >= 3 else 0
-            if len(numeric) < 3:
-                # 听听歌等站点把做种 / 下载合在一格：“306 / 6”。
-                paired = next((re.fullmatch(r"([\d,]+)\s*/\s*[\d,]+", value) for value in cells[-5:] if re.fullmatch(r"[\d,]+\s*/\s*[\d,]+", value)), None)
-                seeders = to_int(paired.group(1).replace(",", "")) if paired else 0
-            results.append({
-                "title": title_text, "site_name": site["name"], "size": self._size(cells),
-                "seeders": seeders,
-                "enclosure": urljoin(base, download["href"]), "labels": ["FREE"] if row["free"] else [],
-                "volume_factor": 0 if row["free"] else 1, "site_cookie": site.get("cookie") or "", "site_ua": headers["User-Agent"],
-                "publish_time": self._parse_publish_time(cells), "detail_url": urljoin(base, detail["href"]),
-            })
-        unique: dict[str, dict[str, Any]] = {}
-        for item in results:
-            key = str(item.get("enclosure") or item.get("title") or "")
-            current = unique.get(key)
-            if current is None or to_int(item.get("size") or 0) > to_int(current.get("size") or 0):
-                unique[key] = item
-        return list(unique.values())
+        from .sites import search
+
+        return await search(site, title, imdb_id)
 
     async def check(self, site: dict[str, Any]) -> dict[str, Any]:
-        title, imdb_id = SITE_PROBE_QUERY
-        results = await self.search(site, title, imdb_id)
-        if not results:
-            # 部分站点不支持按 IMDb 搜索（如学校），寻片时也会再按片名搜，检测同样回退到片名。
-            results = await self.search(site, f"{title} 1972")
-        if not results:
-            return {
-                "ok": True, "empty": True,
-                "message": f"登录正常，但搜索《{title}》没有解析到结果：站点可能不收录电影，或页面结构暂不兼容",
-            }
-        return {"ok": True, "message": f"可以搜索：《{title}》解析到 {len(results)} 条结果"}
+        from .sites import check
+
+        return await check(site)
 
     @staticmethod
     def _banner_stats(text: str) -> dict[str, Any] | None:

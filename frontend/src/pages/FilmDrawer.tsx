@@ -192,7 +192,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const [failedBackdrop, setFailedBackdrop] = useState<string | null>(null);
   const search = () => act(() => api(`/api/films/${id}/search`, { method: "POST" }), "已开始寻片");
   const toggle = (candidateId: string) =>
-    act(() => api(`/api/cart/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
+    act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
 
   return (
     <>
@@ -329,7 +329,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 <h3>{data.status === "selected" ? "已选定的资源" : "合格资源"}</h3>
                 {data.issues.includes("context_expired") ? (
                   <div class="notice notice-bad">
-                    候选的下载信息已过期（服务重启或超过 2 小时），需要重新寻片后才能提交。
+                    候选的下载信息已过期（超过 7 天），需要重新寻片后才能提交。
                     <button class="btn btn-small" type="button" disabled={busy} onClick={() => void search()}>
                       重新寻片
                     </button>

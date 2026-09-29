@@ -7,7 +7,7 @@ import { IssueBadges, StatusBadge } from "../components/StatusBadge";
 import { useLoad, useToast } from "../hooks";
 import { href, navigate, type Route } from "../router";
 import { ISSUE_LABELS, STATUS_LABELS } from "../status";
-import type { FilmIssue, FilmPage, FilmStatus } from "../types";
+import type { FilmIssue, FilmPage, FilmStatus, SearchTaskStarted } from "../types";
 import { FilmDrawer } from "./FilmDrawer";
 import { startBatchSearch } from "./Home";
 
@@ -93,7 +93,7 @@ export function Films({ route }: { route: Route }) {
     }
     setBusy(true);
     try {
-      const result = await api<{ total: number }>("/api/search-tasks", {
+      const result = await api<SearchTaskStarted>("/api/search-tasks", {
         method: "POST",
         body: { playlist_id: playlistId, scope: "range", range_start: start, range_end: end },
       });

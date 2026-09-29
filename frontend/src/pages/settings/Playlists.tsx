@@ -4,7 +4,7 @@ import { ImportDialog } from "../../components/ImportDialog";
 import { formatTime } from "../../format";
 import { useLoad, useToast } from "../../hooks";
 import { href, navigate } from "../../router";
-import type { PlaylistRow } from "../../types";
+import type { AutomationStarted, PlaylistRow, PlaylistSynced } from "../../types";
 import { SectionHead, useAction } from "./shared";
 
 const INTERVALS = [6, 12, 24, 48, 72, 168];
@@ -21,8 +21,8 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(playlist.name);
   const [batch, setBatch] = useState(String(playlist.automation_batch_size ?? 50));
-  const post = (path: string, success: string | ((result: unknown) => string)) =>
-    void run(() => api(path, { method: "POST", timeoutMs: 120000 }), success, reload);
+  const post = <T,>(path: string, success: string | ((result: T) => string)) =>
+    void run(() => api<T>(path, { method: "POST", timeoutMs: 120000 }), success, reload);
 
   return (
     <article class="card playlist-admin">
@@ -148,7 +148,7 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
               </label>
               {playlist.sync_enabled && playlist.next_sync_at ? <span class="muted" style={{ fontSize: "13px" }}>下次同步：{formatTime(playlist.next_sync_at)}</span> : null}
               <div class="actions">
-                <button class="btn btn-small" type="button" disabled={busy} onClick={() => post(`/api/playlists/${playlist.id}/sync-now`, (result) => (result as { message?: string }).message || "已同步")}>
+                <button class="btn btn-small" type="button" disabled={busy} onClick={() => post<PlaylistSynced>(`/api/playlists/${playlist.id}/sync-now`, (result) => result.message || "已同步")}>
                   立即同步新片
                 </button>
                 <button
@@ -178,7 +178,7 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
               disabled={busy}
               onChange={(event) =>
                 void run(
-                  () => api(`/api/playlists/${playlist.id}/automation`, { method: "PUT", body: { enabled: (event.target as HTMLInputElement).checked, auto_cart: false, batch_size: Number(batch) || 50 } }),
+                  () => api(`/api/playlists/${playlist.id}/automation`, { method: "PUT", body: { enabled: (event.target as HTMLInputElement).checked, auto_select: false, batch_size: Number(batch) || 50 } }),
                   "自动补全设置已保存",
                   reload,
                 )
@@ -195,7 +195,7 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
               onBlur={() =>
                 Number(batch) !== playlist.automation_batch_size &&
                 void run(
-                  () => api(`/api/playlists/${playlist.id}/automation`, { method: "PUT", body: { enabled: Boolean(playlist.automation_enabled), auto_cart: false, batch_size: Math.min(200, Math.max(1, Number(batch) || 50)) } }),
+                  () => api(`/api/playlists/${playlist.id}/automation`, { method: "PUT", body: { enabled: Boolean(playlist.automation_enabled), auto_select: false, batch_size: Math.min(200, Math.max(1, Number(batch) || 50)) } }),
                   "每批数量已保存",
                   reload,
                 )
@@ -204,7 +204,7 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
           </label>
           <span class="muted" style={{ fontSize: "13px" }}>结果进入挑选台，由你确认后才会下载。</span>
           <div class="actions">
-            <button class="btn btn-small" type="button" disabled={busy} onClick={() => post(`/api/playlists/${playlist.id}/automation/run`, (result) => (result as { message?: string }).message || "已开始后台补全")}>
+            <button class="btn btn-small" type="button" disabled={busy} onClick={() => post<AutomationStarted>(`/api/playlists/${playlist.id}/automation/run`, (result) => result.message || "已开始后台补全")}>
               立即后台补全
             </button>
           </div>

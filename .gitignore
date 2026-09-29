@@ -33,3 +33,6 @@ venv/
 
 # Pi subagent session artifacts (tool output, never committed)
 .pi-subagents/
+
+# 由 frontend/openapi.json 生成（npm run gen:api），不入库
+frontend/src/api-schema.d.ts

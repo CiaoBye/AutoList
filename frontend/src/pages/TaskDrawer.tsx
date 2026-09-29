@@ -3,7 +3,7 @@ import { api } from "../api";
 import { formatTime } from "../format";
 import { useLoad } from "../hooks";
 import { useAction } from "./settings/shared";
-import type { SearchTaskDetail, TaskAttempts, TaskLog } from "../types";
+import type { SearchAttempts, SearchTask, SearchTaskLog, SearchTaskStarted } from "../types";
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "排队中", running: "进行中", completed: "已完成", partial: "部分完成", failed: "失败",
@@ -11,9 +11,9 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 interface TaskBundle {
-  task: SearchTaskDetail;
-  attempts: TaskAttempts;
-  logs: TaskLog[];
+  task: SearchTask;
+  attempts: SearchAttempts;
+  logs: SearchTaskLog[];
 }
 
 /** 寻片任务详情：逐站点结果、任务日志，以及取消 / 重试失败站点 / 重新开始。 */
@@ -22,9 +22,9 @@ export function TaskDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const bundle = useLoad<TaskBundle>(
     async (signal) => {
       const [task, attempts, logs] = await Promise.all([
-        api<SearchTaskDetail>(`/api/search-tasks/${id}`, { signal }),
-        api<TaskAttempts>(`/api/search-tasks/${id}/attempts?limit=300`, { signal }),
-        api<TaskLog[]>(`/api/search-tasks/${id}/logs?limit=120`, { signal }),
+        api<SearchTask>(`/api/search-tasks/${id}`, { signal }),
+        api<SearchAttempts>(`/api/search-tasks/${id}/attempts?limit=300`, { signal }),
+        api<SearchTaskLog[]>(`/api/search-tasks/${id}/logs?limit=120`, { signal }),
       ]);
       return { task, attempts, logs };
     },
@@ -49,7 +49,7 @@ export function TaskDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
 
   const followup = (action: "retry" | "restart", success: string) =>
     void run(
-      () => api<{ id: number }>(`/api/search-tasks/${id}/${action}`, { method: "POST" }),
+      () => api<SearchTaskStarted>(`/api/search-tasks/${id}/${action}`, { method: "POST" }),
       success,
       () => {
         onChanged();

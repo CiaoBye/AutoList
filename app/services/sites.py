@@ -13,10 +13,12 @@ import httpx
 
 from ..clients import MTeamClient, NexusPHPClient, RSSClient, TorznabClient
 from ..cookiecloud import cookie_for_host
+from .cookiecloud import with_cookie_refresh
 from .. import state
 from ..database import connect
 from ..security import safe_error, sanitize_sensitive_text
-from ..util import utc_now, validate_outbound_url
+from ..util import utc_now
+from ..outbound import validate_outbound_url
 
 SITE_STATS_SUCCESS_TTL = timedelta(hours=6)
 SITE_STATS_FAILURE_TTL = timedelta(hours=1)
@@ -63,7 +65,7 @@ async def test_site_config(site: dict[str, Any]) -> dict[str, Any]:
         if site["adapter"] == "mteam":
             result = await MTeamClient().check(site)
         elif site["adapter"] == "nexusphp":
-            result = await NexusPHPClient().check(site)
+            result = await with_cookie_refresh(site, NexusPHPClient().check)
         elif site["adapter"] == "rss":
             result = await RSSClient().check(site)
         else:
@@ -102,8 +104,8 @@ def apply_cookie_groups(groups: dict[str, str], site_id: int | None = None, orig
     """Apply decrypted CookieCloud groups to local sites without changing their User-Agent.
 
     Cookie 与现有值完全相同的站点记入 ``unchanged``，不写库也不重置账户统计缓存：
-    定时同步每小时运行一次，否则会让所有站点每小时重新读取账户统计并刷屏日志。
-    ``origin``（pull / push / manual）只用于记录最近一次整体同步；Cookie 有变化的站点会在后台重新检测。
+    定时拉取每 10 分钟一次，否则会让所有站点反复重新读取账户统计并刷屏日志。
+    ``origin``（schedule / expired / manual）只用于记录最近一次整体同步；Cookie 有变化的站点会在后台重新检测。
     """
     updated_ids: list[int] = []
     updated: list[str] = []
@@ -238,7 +240,7 @@ async def refresh_stale_site_account_stats(limit: int = 2) -> list[dict[str, Any
 async def fetch_moviepilot_sites() -> list[dict[str, Any]]:
     """Fetch raw configured site records from MoviePilot."""
     from ..config import settings
-    from ..util import safe_request
+    from ..outbound import safe_request
     import httpx
 
     if not settings.mp_base_url or not settings.mp_api_key:
@@ -257,10 +259,9 @@ async def fetch_moviepilot_sites() -> list[dict[str, Any]]:
 
 async def sync_sites_from_moviepilot() -> dict[str, Any]:
     """Import and synchronize configured PT sites from MoviePilot."""
-    from ..config import APP_VERSION, settings
-    from ..cookiecloud import cookie_groups
+    from ..config import APP_VERSION
     from ..logs import event_logger
-    from ..services.cookiecloud_store import fetch_remote_cookiecloud, stored_cookiecloud_payload
+    from .cookiecloud import cookiecloud_configured, pull_cookiecloud
     from ..util import to_int
 
     raw_sites = await fetch_moviepilot_sites()
@@ -300,7 +301,8 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
             api_key = str(s.get("apikey") or "").strip()
             ua = str(s.get("ua") or "").strip()
             priority = max(1, min(to_int(s.get("pri") or 100), 999))
-            timeout = max(3, min(to_int(s.get("timeout") or 30), 60))
+            # MoviePilot 默认 15 秒，AutoList 按 IMDb 与片名各搜一次，慢站（学校、聆音）不够用，新站点至少 30 秒。
+            timeout = max(30, min(to_int(s.get("timeout") or 30), 60))
             proxy = 1 if s.get("proxy") else 0
             render = 1 if s.get("render") else 0
             is_active = 1 if s.get("is_active", True) else 0
@@ -311,13 +313,13 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
 
             existing = by_host.get(host) or by_name.get(site_name) or by_name.get(raw_name)
             if existing:
-                # 已存在的站点只同步连接信息；名称、优先级、启用与参与搜索、UA 等本地选择保持不变。
+                # 已存在的站点只同步连接信息；名称、优先级、超时、启用与参与搜索、UA 等本地选择保持不变。
                 effective_cookie = cookie or str(existing["cookie"] or "")
                 effective_rss = rss_url or str(existing["rss_url"] or "")
                 adapter = resolve_site_adapter(raw_url, effective_rss, cookie=effective_cookie, from_moviepilot=True)
                 conn.execute(
                     """UPDATE pt_sites
-                       SET adapter=?, base_url=?, timeout_seconds=?, proxy=?, render=?,
+                       SET adapter=?, base_url=?, proxy=?, render=?,
                            rss_url=CASE WHEN ? != '' THEN ? ELSE rss_url END,
                            cookie_updated_at=CASE WHEN ? != '' AND ? != COALESCE(cookie, '') THEN ? ELSE cookie_updated_at END,
                            cookie_source=CASE WHEN ? != '' AND ? != COALESCE(cookie, '') THEN 'moviepilot' ELSE cookie_source END,
@@ -325,7 +327,7 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
                            api_key=CASE WHEN ? != '' AND COALESCE(api_key, '') = '' THEN ? ELSE api_key END,
                            user_agent=CASE WHEN COALESCE(user_agent, '') = '' THEN ? ELSE user_agent END
                        WHERE id=?""",
-                    (adapter, raw_url, timeout, proxy, render, rss_url, rss_url,
+                    (adapter, raw_url, proxy, render, rss_url, rss_url,
                      cookie, cookie, utc_now(), cookie, cookie, cookie, cookie,
                      api_key, api_key, ua, existing["id"]),
                 )
@@ -353,15 +355,9 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
 
     cc_updated = 0
     cc_note = ""
-    if settings.cookiecloud_key and settings.cookiecloud_password:
+    if cookiecloud_configured():
         try:
-            if settings.cookiecloud_url:
-                cc_payload = await fetch_remote_cookiecloud(
-                    settings.cookiecloud_url, settings.cookiecloud_key, settings.cookiecloud_password
-                )
-            else:
-                cc_payload = stored_cookiecloud_payload()
-            applied = apply_cookie_groups(cookie_groups(cc_payload))
+            applied = await pull_cookiecloud("manual")
             cc_updated = len(applied["updated"])
         except Exception as exc:
             # CookieCloud 是可选补充：站点同步本身已经完成，只把原因返回给界面。

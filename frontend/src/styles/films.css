@@ -1,0 +1,69 @@
+/* 片单页：筛选工具栏、查找与按序号寻片。 */
+
+/* 片单页第二行：左侧状态筛选，右侧查找、按序号寻片与显示方式。 */
+.films-toolbar {
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.films-toolbar .chips {
+  flex: 1 1 auto;
+  margin-bottom: 0;
+}
+
+.films-toolbar .range-search {
+  align-self: center;
+}
+
+.films-search {
+  width: clamp(200px, 22vw, 340px);
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.range-search {
+  position: relative;
+  align-self: flex-end;
+}
+
+.range-search > summary {
+  list-style: none;
+}
+
+.range-search > summary::-webkit-details-marker {
+  display: none;
+}
+
+.range-form {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(340px, calc(100vw - 32px));
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+@media (max-width: 900px) {
+  .films-search {
+    flex: 1 1 100%;
+    width: auto;
+  }
+
+  .range-search {
+    position: static;
+  }
+
+  .range-form {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}

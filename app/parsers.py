@@ -2,61 +2,12 @@
 
 from __future__ import annotations
 
-import html
 import re
 from html.parser import HTMLParser
 from typing import Any
 
 from .config import settings
 from .util import to_float, to_int
-
-
-class NexusTableParser(HTMLParser):
-    """Collect torrent rows while preserving outer cells across nested tables."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.rows: list[dict[str, Any]] = []
-        self.stack: list[dict[str, Any]] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = {key.lower(): value or "" for key, value in attrs}
-        if tag.lower() == "tr":
-            self.stack.append({"cells": [], "td_depth": 0, "links": [], "anchors": [], "free": False})
-            return
-        for row in self.stack:
-            if tag.lower() == "td":
-                row["td_depth"] += 1
-                if row["td_depth"] == 1:
-                    row["cells"].append([])
-            elif tag.lower() == "a":
-                link = {"href": html.unescape(attributes.get("href", "")), "title": attributes.get("title", ""), "text": []}
-                row["links"].append(link)
-                row["anchors"].append(link)
-            elif tag.lower() == "form" and attributes.get("action"):
-                # 部分站点（如天空）的下载按钮是表单，下载地址在 action 里。
-                row["links"].append({"href": html.unescape(attributes["action"]), "title": "", "text": []})
-            marker = " ".join((attributes.get("class", ""), attributes.get("src", "")))
-            if re.search(r"(?:^|[\s_/.-])(pro_free|free2up|freeleech|free|2up)(?:[\s_/.-]|$)", marker, re.I):
-                row["free"] = True
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() == "tr":
-            if self.stack:
-                self.rows.append(self.stack.pop())
-            return
-        for row in self.stack:
-            if tag.lower() == "td" and row["td_depth"]:
-                row["td_depth"] -= 1
-            elif tag.lower() == "a" and row["anchors"]:
-                row["anchors"].pop()
-
-    def handle_data(self, data: str) -> None:
-        for row in self.stack:
-            if row["td_depth"] and row["cells"]:
-                row["cells"][-1].append(data)
-            if row["anchors"]:
-                row["anchors"][-1]["text"].append(data)
 
 
 class AccountTableParser(HTMLParser):

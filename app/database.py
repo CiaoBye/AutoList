@@ -6,8 +6,8 @@ from typing import Any, Iterator
 
 from .config import settings
 from .candidate_policy import DEFAULT_POLICY
-from .security import sanitize_sensitive_text
-from .util import resource_fingerprint
+from . import migrations
+from .migrations import SCHEMA_VERSION
 
 
 SCHEMA = """
@@ -143,7 +143,14 @@ CREATE TABLE IF NOT EXISTS candidates (
   metadata_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS cart_items (
+CREATE TABLE IF NOT EXISTS candidate_contexts (
+  candidate_id TEXT PRIMARY KEY,
+  payload BLOB NOT NULL,
+  key_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS selection_items (
   candidate_id TEXT PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
   selected_at TEXT NOT NULL
 );
@@ -223,11 +230,40 @@ CREATE TABLE IF NOT EXISTS pt_sites (
 """
 
 
-SCHEMA_VERSION = 11
+# 普通索引与“同一片单同类任务只能有一个在进行”的唯一部分索引；每次启动幂等创建。
+INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_search_attempts_task ON search_attempts(task_id);
+CREATE INDEX IF NOT EXISTS idx_download_history_candidate ON download_history(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_download_history_item ON download_history(playlist_item_id);
+CREATE INDEX IF NOT EXISTS idx_download_history_resource_key ON download_history(resource_key);
+CREATE INDEX IF NOT EXISTS idx_search_attempts_site ON search_attempts(site_id);
+CREATE INDEX IF NOT EXISTS idx_search_task_logs_task ON search_task_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_candidates_task ON candidates(task_id);
+CREATE INDEX IF NOT EXISTS idx_candidates_item ON candidates(playlist_item_id);
+CREATE INDEX IF NOT EXISTS idx_search_tasks_status_updated ON search_tasks(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_search_tasks_updated_dt ON search_tasks(datetime(updated_at));
+CREATE INDEX IF NOT EXISTS idx_search_tasks_playlist ON search_tasks(playlist_id);
+CREATE INDEX IF NOT EXISTS idx_library_scan_tasks_playlist ON library_scan_tasks(playlist_id);
+CREATE INDEX IF NOT EXISTS idx_recognition_tasks_playlist ON recognition_tasks(playlist_id);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_playlist ON automation_runs(playlist_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read_created ON notifications(read, created_at);
+CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_rank ON playlist_items(playlist_id, rank_no);
+-- datetime() 函数索引：cleanup_old_data 的保留窗口比较可走索引。
+CREATE INDEX IF NOT EXISTS idx_candidates_created_dt ON candidates(datetime(created_at));
+CREATE INDEX IF NOT EXISTS idx_search_attempts_finished_dt ON search_attempts(datetime(finished_at));
+CREATE INDEX IF NOT EXISTS idx_search_task_logs_created_dt ON search_task_logs(datetime(created_at));
+CREATE INDEX IF NOT EXISTS idx_notifications_created_dt ON notifications(datetime(created_at));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_active_playlist
+  ON automation_runs(playlist_id) WHERE status IN ('queued','running');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recognition_active_playlist
+  ON recognition_tasks(playlist_id) WHERE status IN ('queued','running');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_library_scan_active_playlist
+  ON library_scan_tasks(playlist_id) WHERE status IN ('queued','running');
+"""
 
 
 def initialize() -> None:
-    """建表与迁移入口（审计 2-10）：schema_version 用于未来按版本分派迁移。"""
+    """建表与迁移入口：建表前的迁移 → 建表 → 补齐新增列 → 按编号迁移 → 索引 → 默认配置。"""
     Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         previous_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
@@ -236,268 +272,20 @@ def initialize() -> None:
                 f"数据库版本 {previous_version} 高于当前程序支持的版本 {SCHEMA_VERSION}，已停止启动以避免降级覆盖"
             )
         conn.execute("PRAGMA journal_mode = WAL")
+        for migration in migrations.pending(previous_version, before_schema=True):
+            migration.apply(conn)
         conn.executescript(SCHEMA)
-        # 迁移 1→2：candidates.submitted_at 由下方列补齐逻辑处理（幂等）。
-        # 幂等二级索引：随 search_attempts / search_task_logs / candidates 增长，
-        # 避免每分钟清理与聚合查询退化为全表扫描。
-        conn.executescript(
-            """
-            CREATE INDEX IF NOT EXISTS idx_search_attempts_task ON search_attempts(task_id);
-            CREATE INDEX IF NOT EXISTS idx_download_history_candidate ON download_history(candidate_id);
-            CREATE INDEX IF NOT EXISTS idx_download_history_item ON download_history(playlist_item_id);
-            CREATE INDEX IF NOT EXISTS idx_search_attempts_site ON search_attempts(site_id);
-            CREATE INDEX IF NOT EXISTS idx_search_task_logs_task ON search_task_logs(task_id);
-            CREATE INDEX IF NOT EXISTS idx_candidates_task ON candidates(task_id);
-            CREATE INDEX IF NOT EXISTS idx_candidates_item ON candidates(playlist_item_id);
-            CREATE INDEX IF NOT EXISTS idx_search_tasks_status_updated ON search_tasks(status, updated_at);
-            CREATE INDEX IF NOT EXISTS idx_search_tasks_updated_dt ON search_tasks(datetime(updated_at));
-            CREATE INDEX IF NOT EXISTS idx_search_tasks_playlist ON search_tasks(playlist_id);
-            CREATE INDEX IF NOT EXISTS idx_library_scan_tasks_playlist ON library_scan_tasks(playlist_id);
-            CREATE INDEX IF NOT EXISTS idx_recognition_tasks_playlist ON recognition_tasks(playlist_id);
-            CREATE INDEX IF NOT EXISTS idx_automation_runs_playlist ON automation_runs(playlist_id);
-            CREATE INDEX IF NOT EXISTS idx_notifications_read_created ON notifications(read, created_at);
-            CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_rank ON playlist_items(playlist_id, rank_no);
-            -- datetime() 函数索引：cleanup_old_data 的保留窗口比较可走索引（审计 2-15）。
-            CREATE INDEX IF NOT EXISTS idx_candidates_created_dt ON candidates(datetime(created_at));
-            CREATE INDEX IF NOT EXISTS idx_search_attempts_finished_dt ON search_attempts(datetime(finished_at));
-            CREATE INDEX IF NOT EXISTS idx_search_task_logs_created_dt ON search_task_logs(datetime(created_at));
-            CREATE INDEX IF NOT EXISTS idx_notifications_created_dt ON notifications(datetime(created_at));
-            """
-        )
-        # A playlist may have at most one active background task of each kind.
-        # Older versions only checked this in Python, so two requests could
-        # both pass the SELECT-then-INSERT window.  Preserve any duplicate
-        # history while retiring older active rows before creating the unique
-        # partial indexes used by current writers.
-        for table, message_column, message in (
-            ("automation_runs", "message", "重复的自动化任务已被中断"),
-            ("recognition_tasks", "error_message", "重复的识别任务已被中断"),
-            ("library_scan_tasks", "error_message", "重复的入库检查任务已被中断"),
-        ):
-            duplicate_rows = conn.execute(
-                f"""SELECT older.id FROM {table} AS older
-                    WHERE older.status IN ('queued','running')
-                      AND EXISTS (
-                        SELECT 1 FROM {table} AS newer
-                        WHERE newer.playlist_id=older.playlist_id
-                          AND newer.status IN ('queued','running')
-                          AND newer.id > older.id
-                      )"""  # nosec B608 - table names are fixed above
-            ).fetchall()
-            for row in duplicate_rows:
-                conn.execute(
-                    f"""UPDATE {table}
-                        SET status='interrupted',
-                            {message_column}=COALESCE(NULLIF({message_column},''),?),
-                            updated_at=datetime('now')
-                        WHERE id=?""",  # nosec B608 - column names are fixed above
-                    (message, row["id"]),
-                )
-        conn.executescript(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_active_playlist
-              ON automation_runs(playlist_id) WHERE status IN ('queued','running');
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_recognition_active_playlist
-              ON recognition_tasks(playlist_id) WHERE status IN ('queued','running');
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_library_scan_active_playlist
-              ON library_scan_tasks(playlist_id) WHERE status IN ('queued','running');
-            """
-        )
-        candidate_columns = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)")}
-        _ = previous_version  # 保留版本号用于后续迁移分派
-        for column, definition in {
-            "codec": "TEXT",
-            "score": "INTEGER NOT NULL DEFAULT 0",
-            "score_breakdown": "TEXT",
-            "recommendation": "TEXT NOT NULL DEFAULT 'manual'",
-            "recommendation_reason": "TEXT",
-            "resource_key": "TEXT",
-            "eligibility": "TEXT NOT NULL DEFAULT 'eligible'",
-            "exclusion_reason": "TEXT",
-            "profile_id": "TEXT",
-            "detail_url": "TEXT",
-            "submitted_at": "TEXT",
-        }.items():
-            if column not in candidate_columns:
-                conn.execute(f"ALTER TABLE candidates ADD COLUMN {column} {definition}")
-        playlist_columns = {row["name"] for row in conn.execute("PRAGMA table_info(playlists)")}
-        for column, definition in {
-            "position": "INTEGER NOT NULL DEFAULT 0", "source_type": "TEXT", "source_url": "TEXT",
-            "source_name": "TEXT", "last_synced_at": "TEXT",
-            "automation_enabled": "INTEGER NOT NULL DEFAULT 0", "automation_auto_cart": "INTEGER NOT NULL DEFAULT 0",
-            "automation_batch_size": "INTEGER NOT NULL DEFAULT 50", "sync_enabled": "INTEGER NOT NULL DEFAULT 0",
-            "sync_interval_hours": "INTEGER NOT NULL DEFAULT 24", "next_sync_at": "TEXT",
-            "last_sync_status": "TEXT", "last_sync_message": "TEXT",
-        }.items():
-            if column not in playlist_columns:
-                conn.execute(f"ALTER TABLE playlists ADD COLUMN {column} {definition}")
-        playlist_item_columns = {row["name"] for row in conn.execute("PRAGMA table_info(playlist_items)")}
-        for column, definition in {
-            "library_state": "TEXT NOT NULL DEFAULT 'unknown'",
-            "library_checked_at": "TEXT",
-            "emby_item_id": "TEXT",
-            "emby_image_tag": "TEXT",
-            "tmdb_title": "TEXT",
-            "tmdb_original_title": "TEXT",
-            "tmdb_year": "INTEGER",
-            "tmdb_imdb_id": "TEXT",
-            "tmdb_checked_at": "TEXT",
-            # v5：TMDB 海报路径（如 /abc.jpg）。NULL = 未取过，'' = TMDB 没有海报。
-            "tmdb_poster_path": "TEXT",
-            # 1.48：fanart.tv 海报地址。NULL = 未查过，'' = fanart.tv 没有海报。
-            "fanart_poster_url": "TEXT",
-            # 1.50：TMDB 原语言（ISO 639-1），fanart 海报按原语言挑选。NULL = 尚未取得。
-            "tmdb_original_language": "TEXT",
-            # 1.52：来源提供的身份。source_tmdb_id 为来源自带的 TMDB 编号（与识别结果 tmdb_id 分开保存），
-            # source_ref 为来源内的影片标识（如 letterboxd:cure），识别时据此向来源补取编号。
-            "source_tmdb_id": "INTEGER",
-            "source_ref": "TEXT",
-            # 1.56：影片详情横幅剧照。NULL = 未查过，'' = 没有。
-            "fanart_backdrop_url": "TEXT",
-            "tmdb_backdrop_path": "TEXT",
-        }.items():
-            if column not in playlist_item_columns:
-                conn.execute(f"ALTER TABLE playlist_items ADD COLUMN {column} {definition}")
-        site_columns = {row["name"] for row in conn.execute("PRAGMA table_info(pt_sites)")}
-        for column, definition in {
-            "user_agent": "TEXT NOT NULL DEFAULT ''", "priority": "INTEGER NOT NULL DEFAULT 100",
-            "timeout_seconds": "INTEGER NOT NULL DEFAULT 30", "rss_url": "TEXT NOT NULL DEFAULT ''",
-            "icon_url": "TEXT NOT NULL DEFAULT ''", "proxy": "INTEGER NOT NULL DEFAULT 0",
-            "render": "INTEGER NOT NULL DEFAULT 0", "limit_interval": "INTEGER", "limit_count": "INTEGER",
-            "last_status": "TEXT NOT NULL DEFAULT 'untested'",
-            "last_message": "TEXT", "last_tested_at": "TEXT",
-            "search_enabled": "INTEGER NOT NULL DEFAULT 1", "migration_note": "TEXT",
-            "account_uploaded": "INTEGER", "account_downloaded": "INTEGER",
-            "account_ratio": "REAL", "account_bonus": "REAL", "account_seeding": "INTEGER",
-            "account_stats_checked_at": "TEXT", "account_stats_error": "TEXT",
-            # 1.59：Cookie 最近一次变化的时间与来源（cookiecloud / manual / moviepilot）。
-            "cookie_updated_at": "TEXT", "cookie_source": "TEXT",
-        }.items():
-            if column not in site_columns:
-                conn.execute(f"ALTER TABLE pt_sites ADD COLUMN {column} {definition}")
-        task_columns = {row["name"] for row in conn.execute("PRAGMA table_info(search_tasks)")}
-        for column, definition in {
-            "parent_task_id": "INTEGER", "trigger": "TEXT NOT NULL DEFAULT 'manual'",
-            "site_ids_json": "TEXT", "item_ids_json": "TEXT", "pair_scope_json": "TEXT",
-        }.items():
-            if column not in task_columns:
-                conn.execute(f"ALTER TABLE search_tasks ADD COLUMN {column} {definition}")
-        attempt_columns = {row["name"] for row in conn.execute("PRAGMA table_info(search_attempts)")}
-        if "query_count" not in attempt_columns:
-            conn.execute("ALTER TABLE search_attempts ADD COLUMN query_count INTEGER NOT NULL DEFAULT 1")
-        download_columns = {row["name"] for row in conn.execute("PRAGMA table_info(download_history)")}
-        for column, definition in {
-            "playlist_item_id": "INTEGER",
-            "submission_hash": "TEXT",
-            "playlist_item_snapshot_json": "TEXT",
-            "resource_key": "TEXT",
-        }.items():
-            if column not in download_columns:
-                conn.execute(f"ALTER TABLE download_history ADD COLUMN {column} {definition}")
-        if "last_duration_ms" not in site_columns:
-            conn.execute("ALTER TABLE pt_sites ADD COLUMN last_duration_ms INTEGER")
-        recognition_columns = {row["name"] for row in conn.execute("PRAGMA table_info(recognition_tasks)")}
-        for column, definition in {
-            # 1.57：missing = 只识别未识别的影片；verify = 按 IMDb / 来源编号校准整份片单。
-            "mode": "TEXT NOT NULL DEFAULT 'missing'",
-            "corrected": "INTEGER NOT NULL DEFAULT 0",
-        }.items():
-            if column not in recognition_columns:
-                conn.execute(f"ALTER TABLE recognition_tasks ADD COLUMN {column} {definition}")
-        if previous_version < 7:
-            # 迁移 →7（一次性）：海报改为按原语言挑选，已选的 fanart 海报全部重新挑选；
-            # 同时清掉 1.48 因地址校验漏掉新格式而误记的“没有海报”。
-            conn.execute("UPDATE playlist_items SET fanart_poster_url=NULL")
-        if previous_version < 4:
-            # 迁移 3→4（一次性）：按 resolve_site_adapter 的规则重算 RSS/NexusPHP 适配器。
-            # 有 Cookie 的站点走 NexusPHP；只有 RSS 地址、没有 Cookie 的站点保持 RSS。
-            # 同时修复曾在每次启动时把纯 RSS 站点误改为 nexusphp 的旧迁移结果。
-            conn.execute(
-                """UPDATE pt_sites
-                   SET adapter = CASE
-                       WHEN lower(base_url) LIKE '%m-team%' OR lower(base_url) LIKE '%mteam%' THEN 'mteam'
-                       WHEN lower(base_url) LIKE '%torznab%' OR lower(base_url) LIKE '%api?t=%'
-                            OR lower(base_url) LIKE '%t=caps%' THEN 'torznab'
-                       WHEN trim(COALESCE(cookie, '')) = '' AND trim(COALESCE(rss_url, '')) != '' THEN 'rss'
-                       ELSE 'nexusphp'
-                   END
-                   WHERE adapter IN ('rss', 'nexusphp')""",
-            )
-            # 旧版本直接保存了 httpx 原始英文错误；清空后由调度器按新的中文诊断重新读取。
-            conn.execute(
-                "UPDATE pt_sites SET account_stats_error=NULL, account_stats_checked_at=NULL "
-                "WHERE account_stats_error IS NOT NULL"
-            )
-        conn.execute(
-            """UPDATE download_history
-               SET playlist_item_id=(SELECT playlist_item_id FROM candidates WHERE candidates.id=download_history.candidate_id)
-               WHERE playlist_item_id IS NULL AND candidate_id IS NOT NULL""",
-        )
-        # resource_key 必须独立保存在历史表中：候选会按保留策略清理，不能让长期去重
-        # 依赖已经不存在的 candidates 行。已有候选的历史可以精确回填；候选已经清理的
-        # 旧历史只能用标题生成兼容指纹，后续新写入的历史都会保存精确 key。
-        legacy_history = conn.execute(
-            """SELECT h.rowid AS _rowid_, h.title, h.torrent_name,
-                      c.resource_key AS candidate_resource_key, c.title AS candidate_title, c.size AS candidate_size
-                 FROM download_history h
-                 LEFT JOIN candidates c ON c.id=h.candidate_id
-                WHERE h.resource_key IS NULL OR h.resource_key=''""",
-        ).fetchall()
-        for row in legacy_history:
-            resource_key = row["candidate_resource_key"] or resource_fingerprint(
-                row["candidate_title"] or row["torrent_name"] or row["title"] or "", row["candidate_size"]
-            )
-            if resource_key:
-                conn.execute(
-                    "UPDATE download_history SET resource_key=? WHERE rowid=?",
-                    (resource_key, row["_rowid_"]),
-                )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_download_history_resource_key ON download_history(resource_key)")
-        # 历史版本曾允许自动把推荐候选加入下载列表；升级后统一恢复为人工确认。
-        conn.execute("UPDATE playlists SET automation_auto_cart=0 WHERE automation_auto_cart!=0")
+        migrations.add_missing_columns(conn)
+        for migration in migrations.pending(previous_version, before_schema=False):
+            migration.apply(conn)
+        conn.executescript(INDEXES)
         defaults = {
-            # 旧版评分键已废弃（审计 2-7）：仅保留候选策略作为唯一评分配置源。
             "candidate_limit": "6",
             "candidate_policy": json.dumps(DEFAULT_POLICY, ensure_ascii=False, separators=(",", ":")),
         }
         for key, value in defaults.items():
             conn.execute("INSERT OR IGNORE INTO app_config(key, value) VALUES (?, ?)", (key, value))
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-        # 0.35 起不再经 MoviePilot 搜索。旧映射只保留为待补认证模板，绝不静默搜索。
-        conn.execute(
-            "UPDATE pt_sites SET adapter=CASE WHEN lower(base_url) LIKE '%m-team%' THEN 'mteam' ELSE 'nexusphp' END, "
-            "enabled=1, search_enabled=0, migration_note='旧站点映射已迁移，请补充独立认证后再参与搜索' "
-            "WHERE adapter IN ('moviepilot','moviepilot_site')"
-        )
-        conn.execute(
-            """INSERT INTO search_task_logs(task_id,level,stage,message,created_at)
-               SELECT id,'error','legacy',COALESCE(NULLIF(error_message,''),'旧任务异常停止，历史版本未记录详细阶段'),updated_at
-               FROM search_tasks t WHERE status='failed' AND NOT EXISTS(
-                 SELECT 1 FROM search_task_logs l WHERE l.task_id=t.id
-               )"""
-        )
-        # 旧版本仅在建表连接启用外键，普通连接的级联删除没有生效；启动时清理历史孤立行。
-        conn.execute("DELETE FROM search_task_logs WHERE task_id NOT IN (SELECT id FROM search_tasks)")
-        conn.execute("DELETE FROM search_attempts WHERE task_id NOT IN (SELECT id FROM search_tasks)")
-        conn.execute("DELETE FROM recognition_tasks WHERE playlist_id NOT IN (SELECT id FROM playlists)")
-        conn.execute("DELETE FROM library_scan_tasks WHERE playlist_id NOT IN (SELECT id FROM playlists)")
-        conn.execute("DELETE FROM playlist_items WHERE playlist_id NOT IN (SELECT id FROM playlists)")
-        # 防御性清理历史版本可能遗留的错误文本，避免接口继续暴露旧凭据。
-        for select_sql, update_sql, column in (
-            ("SELECT rowid AS _rowid_,message FROM download_history WHERE message IS NOT NULL AND message!=''", "UPDATE download_history SET message=? WHERE rowid=?", "message"),
-            ("SELECT rowid AS _rowid_,error_message FROM search_tasks WHERE error_message IS NOT NULL AND error_message!=''", "UPDATE search_tasks SET error_message=? WHERE rowid=?", "error_message"),
-            ("SELECT rowid AS _rowid_,message FROM search_task_logs WHERE message IS NOT NULL AND message!=''", "UPDATE search_task_logs SET message=? WHERE rowid=?", "message"),
-            ("SELECT rowid AS _rowid_,error_message FROM recognition_tasks WHERE error_message IS NOT NULL AND error_message!=''", "UPDATE recognition_tasks SET error_message=? WHERE rowid=?", "error_message"),
-            ("SELECT rowid AS _rowid_,error_message FROM library_scan_tasks WHERE error_message IS NOT NULL AND error_message!=''", "UPDATE library_scan_tasks SET error_message=? WHERE rowid=?", "error_message"),
-            ("SELECT rowid AS _rowid_,last_message FROM pt_sites WHERE last_message IS NOT NULL AND last_message!=''", "UPDATE pt_sites SET last_message=? WHERE rowid=?", "last_message"),
-            ("SELECT rowid AS _rowid_,error_message FROM search_attempts WHERE error_message IS NOT NULL AND error_message!=''", "UPDATE search_attempts SET error_message=? WHERE rowid=?", "error_message"),
-            ("SELECT rowid AS _rowid_,message FROM notifications WHERE message IS NOT NULL AND message!=''", "UPDATE notifications SET message=? WHERE rowid=?", "message"),
-        ):
-            rows = conn.execute(select_sql).fetchall()
-            for row in rows:
-                sanitized = sanitize_sensitive_text(row[column], 1000 if column == "message" else 500)
-                if sanitized != row[column]:
-                    conn.execute(update_sql, (sanitized, row["_rowid_"]))
     (Path(settings.data_dir) / "playlist-autodown.db").chmod(0o600)
 
 

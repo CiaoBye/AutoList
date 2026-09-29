@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 import sqlite3
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -19,21 +18,14 @@ from .. import state
 from ..logs import event_logger
 from ..list_sources import PlaylistSourceFetcher
 from ..security import safe_error, sanitize_sensitive_text
-from ..state import (
-    MAX_RUNNING_AUTOMATION_TASKS,
-    MAX_RUNNING_LIBRARY_TASKS,
-    enforce_background_task_capacity,
-    running_automation_tasks,
-    running_library_tasks,
-    running_recognition_tasks,
-    running_tasks,
-)
+from ..tasks import AUTOMATION, LIBRARY, SEARCH
 from ..util import to_int, utc_now
 from .films import reidentify_item
 from .library import library_details, run_library_scan
 from .recognition import persist_tmdb_item, recognize_item
 from .imports import normalize_import_items
 from .search import begin_search_task_slot, run_search, searchable_playlist_items
+from .cookiecloud import cookiecloud_configured, pull_cookiecloud, pull_due
 from .sites import refresh_stale_site_account_stats
 
 
@@ -41,7 +33,7 @@ def _trigger_post_recognition_library_scan(playlist_id: int) -> None:
     """识别完成后自动刷新 Emby 状态；未配置 Emby 时不写入无法确认的入库状态。"""
     if not settings.emby_base_url or not settings.emby_api_key:
         return
-    if enforce_background_task_capacity(running_library_tasks, MAX_RUNNING_LIBRARY_TASKS, "Emby 状态刷新") is not None:
+    if LIBRARY.capacity_error() is not None:
         return
     try:
         lib_task_id: int | None = None
@@ -62,7 +54,7 @@ def _trigger_post_recognition_library_scan(playlist_id: int) -> None:
             )
             lib_task_id = cursor.lastrowid
         if lib_task_id is not None:
-            running_library_tasks[lib_task_id] = asyncio.create_task(run_library_scan(lib_task_id))
+            LIBRARY.start(lib_task_id, run_library_scan(lib_task_id))
     except Exception as exc:
         # 自动扫描只是识别后的附加步骤，失败不能改写已经完成的识别任务状态。
         event_logger().warning("library_scan_auto_trigger_failed", extra={"error": safe_error(exc)})
@@ -146,8 +138,6 @@ async def run_recognition(task_id: int) -> None:
         raise
     except Exception as exc:
         update_recognition_task(task_id, status="failed", error_message=safe_error(exc))
-    finally:
-        running_recognition_tasks.pop(task_id, None)
 
 
 def update_automation_run(run_id: int, **values: Any) -> None:
@@ -243,11 +233,8 @@ async def run_playlist_automation(run_id: int) -> None:
             update_automation_run(run_id, stage="search")
             # 独立搜索任务句柄（审计 3-9）：取消搜索任务时，CancelledError 会从
             # await 传播到本协程，run 被标记 cancelled 并终止——这是有意的传播
-            # 语义（用户取消搜索即取消该批自动化处理），run_search 的 finally
-            # 负责清理登记表。
-            search_task = asyncio.create_task(run_search(task_id))
-            running_tasks[task_id] = search_task
-            await search_task
+            # 语义（用户取消搜索即取消该批自动化处理）；任务结束后由任务框架清理登记。
+            await SEARCH.start(task_id, run_search(task_id))
             # searched 以搜索任务实际完成数为准，而非计划数（任务可能 failed/partial）。
             # cancelled 不会到达这里（CancelledError 已由上层 except 处理）。
             with connect() as conn:
@@ -302,8 +289,6 @@ async def run_playlist_automation(run_id: int) -> None:
         reason = safe_error(exc)
         update_automation_run(run_id, status="failed", message=reason)
         add_notification("新增影片处理失败", reason, "error")
-    finally:
-        running_automation_tasks.pop(run_id, None)
 
 
 _playlist_sync_locks: dict[int, asyncio.Lock] = {}
@@ -413,9 +398,7 @@ async def _sync_playlist_incremental(playlist_id: int, trigger: str = "manual") 
 
 
 def _automation_capacity_full() -> bool:
-    """Process-wide automation concurrency check (see MAX_RUNNING_AUTOMATION_TASKS)."""
-    active = sum(1 for task in running_automation_tasks.values() if task and not task.done())
-    return active >= MAX_RUNNING_AUTOMATION_TASKS
+    return AUTOMATION.capacity_error() is not None
 
 
 def _claim_automation_run(run_id: int) -> bool:
@@ -486,14 +469,14 @@ async def start_playlist_automation(playlist_id: int, trigger: str = "manual") -
         # 容量满时不报错：任务保持 queued，由调度器在容量释放后自动启动。
         return {"id": run_id, "status": "queued", "message": "自动化任务已排队，容量释放后自动执行"}
     if _claim_automation_run(run_id):
-        running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
+        AUTOMATION.start(run_id, run_playlist_automation(run_id))
     # claim 成功后数据库状态已是 running，返回值必须与真实状态一致。
     return {"id": run_id, "status": "running", "message": "已开始识别并搜索未入库影片；不会自动下载"}
 
 
 async def consume_queued_automation_runs() -> int:
     """Start queued automation runs once capacity frees up; called by the scheduler.
-    Runs already tracked in running_automation_tasks are skipped so a freshly
+    Runs already tracked in AUTOMATION.running are skipped so a freshly
     inserted-but-not-yet-running run is never started twice.
     """
     started = 0
@@ -507,11 +490,11 @@ async def consume_queued_automation_runs() -> int:
         except (TypeError, ValueError) as exc:
             event_logger().error("automation_run_invalid_id", extra={"error": safe_error(exc)})
             continue
-        if run_id in running_automation_tasks or _automation_capacity_full():
+        if run_id in AUTOMATION.running or _automation_capacity_full():
             continue
         if not _claim_automation_run(run_id):
             continue
-        running_automation_tasks[run_id] = asyncio.create_task(run_playlist_automation(run_id))
+        AUTOMATION.start(run_id, run_playlist_automation(run_id))
         started += 1
     return started
 
@@ -532,11 +515,7 @@ async def _scheduler_heartbeat_loop() -> None:
         await asyncio.sleep(SCHEDULER_HEARTBEAT_INTERVAL_SECONDS)
 
 
-_last_remote_cookiecloud_sync_time: float = 0.0
-
-
 async def sync_scheduler() -> None:
-    global _last_remote_cookiecloud_sync_time
     state.mark_scheduler_started(utc_now())
     heartbeat_task = asyncio.create_task(_scheduler_heartbeat_loop())
     try:
@@ -548,25 +527,15 @@ async def sync_scheduler() -> None:
                 # starve the independent heartbeat during a slow SQLite pass.
                 await asyncio.to_thread(cleanup_old_data)
                 await refresh_stale_site_account_stats()
-                # 若配置了远程 CookieCloud 服务地址，每小时定期拉取并刷新站点 Cookie
-                if (
-                    settings.cookiecloud_url
-                    and settings.cookiecloud_key
-                    and settings.cookiecloud_password
-                    and (time.monotonic() - _last_remote_cookiecloud_sync_time > 3600 or _last_remote_cookiecloud_sync_time == 0.0)
-                ):
+                # 定时从 CookieCloud 拉取站点 Cookie（间隔见 cookiecloud.PULL_INTERVAL_SECONDS）。
+                if cookiecloud_configured() and pull_due():
                     try:
-                        from .cookiecloud_store import fetch_remote_cookiecloud
-                        from .sites import apply_cookie_groups
-                        from ..cookiecloud import cookie_groups
-                        cc_payload = await fetch_remote_cookiecloud(settings.cookiecloud_url, settings.cookiecloud_key, settings.cookiecloud_password)
-                        applied = apply_cookie_groups(cookie_groups(cc_payload), origin="pull")
-                        _last_remote_cookiecloud_sync_time = time.monotonic()
+                        applied = await pull_cookiecloud("schedule")
                         if applied["updated"]:
                             event_logger().info(
                                 "scheduler_cookiecloud_synced",
                                 extra={
-                                    "detail": f"定时自动同步 Cookie 成功，已更新 {len(applied['updated'])} 个站点",
+                                    "detail": f"定时拉取 CookieCloud，已更新 {len(applied['updated'])} 个站点 Cookie",
                                     "total": len(applied["updated"]),
                                 },
                             )

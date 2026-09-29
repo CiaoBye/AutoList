@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from ..config import settings
+from ..responses import LogEvent
 
 router = APIRouter()
 
@@ -19,7 +20,7 @@ def _log_path() -> Path:
     return Path(settings.data_dir) / "logs" / "autolist.log"
 
 
-@router.get("/api/logs/events")
+@router.get("/api/logs/events", response_model=list[LogEvent])
 async def log_events(limit: int = 200, level: str = "", query: str = "") -> list[dict[str, Any]]:
     """Return the most recent structured event lines, newest first.
 

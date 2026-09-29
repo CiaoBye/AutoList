@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api } from "../../api";
 import { useLoad } from "../../hooks";
 import { href } from "../../router";
+import type { CandidateAnalysis, ReleaseGroupCatalog } from "../../types";
 import { SectionHead, TextField, useAction } from "./shared";
 
 interface Profile {
@@ -21,25 +22,6 @@ interface Policy {
   candidate_limit: number;
 }
 
-interface Catalog {
-  builtin_count: number;
-  custom_count: number;
-  merged_count: number;
-  builtin_names: string[];
-}
-
-interface Preview {
-  score: number;
-  eligible: boolean;
-  recommendation: string;
-  resolution: string;
-  codec: string;
-  group: string | null;
-  exclusion_reason: string | null;
-  profile_label: string | null;
-  breakdown: { label: string; score: number }[];
-}
-
 const RESOLUTIONS = ["2160p", "1080p", "720p"];
 
 const splitGroups = (value: string): string[] => [
@@ -48,12 +30,12 @@ const splitGroups = (value: string): string[] => [
 
 export function Rules() {
   const config = useLoad<{ candidate_policy?: string; candidate_limit?: string }>((signal) => api("/api/config", { signal }), []);
-  const catalog = useLoad<Catalog>((signal) => api<Catalog>("/api/config/release-groups", { signal }), []);
+  const catalog = useLoad<ReleaseGroupCatalog>((signal) => api<ReleaseGroupCatalog>("/api/config/release-groups", { signal }), []);
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [groupText, setGroupText] = useState<Record<string, string>>({});
   const [customText, setCustomText] = useState("");
   const [trial, setTrial] = useState({ title: "", seeders: "10", free: false });
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<CandidateAnalysis | null>(null);
   const { busy, run } = useAction();
 
   useEffect(() => {
@@ -104,7 +86,7 @@ export function Rules() {
     if (!trial.title.trim()) return;
     void run(
       async () => {
-        const result = await api<Preview>("/api/config/score-preview", {
+        const result = await api<CandidateAnalysis>("/api/config/score-preview", {
           method: "POST",
           body: { title: trial.title.trim(), seeders: Number(trial.seeders) || 0, volume_factor: trial.free ? 0 : 1, candidate_policy: collect() },
         });

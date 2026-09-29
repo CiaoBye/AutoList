@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -15,6 +14,7 @@ from fastapi.responses import Response
 from ..clients import EmbyClient
 from ..config import settings
 from ..database import connect, json_value
+from ..queries import playlists as queries
 from ..list_sources import PlaylistSourceFetcher
 from ..logs import event_logger
 from ..schemas import (
@@ -30,18 +30,10 @@ from ..domain.titles import item_identity_keys
 from ..services.history import playlist_item_snapshot
 from ..services.imports import normalize_import_items, resolve_import
 from ..services.library import run_library_scan
-from ..state import (
-    MAX_RUNNING_LIBRARY_TASKS,
-    MAX_RUNNING_RECOGNITION_TASKS,
-    enforce_background_task_capacity,
-    poster_cache,
-    remember_poster,
-    running_automation_tasks,
-    running_library_tasks,
-    running_recognition_tasks,
-    running_tasks,
-)
-from ..util import raster_image_media_type, rows_to_dicts, to_int, utc_now
+from ..state import poster_cache, remember_poster
+from ..tasks import LIBRARY, RECOGNITION, active_playlist_task, cancel_playlist_tasks
+from ..util import raster_image_media_type, to_int
+from ..responses import AutomationStarted, ImportPreview, PlaylistImported, PlaylistRow, PlaylistSynced
 
 router = APIRouter()
 
@@ -49,9 +41,7 @@ router = APIRouter()
 @router.get("/api/playlist-items/{playlist_item_id}/poster")
 async def playlist_item_poster(playlist_item_id: int, tag: str = "") -> Response:
     with connect() as conn:
-        row = conn.execute(
-            "SELECT emby_item_id,emby_image_tag FROM playlist_items WHERE id=?", (playlist_item_id,),
-        ).fetchone()
+        row = queries.emby_poster_ref(conn, playlist_item_id)
     if not row or not row["emby_item_id"]:
         raise HTTPException(404, "影片没有可用的 Emby 海报")
     emby_item_id = str(row["emby_item_id"])
@@ -78,7 +68,7 @@ async def playlist_item_poster(playlist_item_id: int, tag: str = "") -> Response
         headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
     )
 
-@router.post("/api/playlists/import/preview")
+@router.post("/api/playlists/import/preview", response_model=ImportPreview)
 async def preview_playlist_import(payload: ImportPayload) -> dict[str, Any]:
     try:
         source_name, items, source = await resolve_import(payload)
@@ -88,7 +78,7 @@ async def preview_playlist_import(payload: ImportPayload) -> dict[str, Any]:
         raise HTTPException(422, "没有获取到可导入的电影")
     return {"name": payload.name or source_name, "count": len(items), "source_type": source.get("source_type"), "sample": items[:8]}
 
-@router.post("/api/playlists/import")
+@router.post("/api/playlists/import", response_model=PlaylistImported)
 async def import_playlist(payload: ImportPayload) -> dict[str, Any]:
     try:
         source_name, items, source = await resolve_import(payload)
@@ -98,35 +88,19 @@ async def import_playlist(payload: ImportPayload) -> dict[str, Any]:
         raise HTTPException(422, "没有可导入的影片")
     name = payload.name or source_name or f"片单 {datetime.now().strftime('%Y-%m-%d')}"
     with connect() as conn:
-        position = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM playlists").fetchone()[0]
-        cursor = conn.execute(
-            "INSERT INTO playlists(name,position,source_type,source_url,source_name,last_synced_at,created_at) VALUES(?,?,?,?,?,?,?)",
-            (name, position, source.get("source_type"), source.get("source_url"), source.get("source_name"), utc_now(), utc_now()),
-        )
-        playlist_id = cursor.lastrowid
-        # 来源自带的 TMDB 编号只记为 source_tmdb_id，识别结果 tmdb_id 由识别任务写入。
-        conn.executemany(
-            """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,source_tmdb_id,source_ref)
-               VALUES(:playlist_id,:rank_no,:imdb_id,:original_title,:year,:chinese_title,:tmdb_id,:source_ref)""",
-            [{"playlist_id": playlist_id, "tmdb_id": None, "source_ref": None, **item} for item in items],
-        )
+        playlist_id = queries.insert_playlist(conn, name, source)
+        queries.insert_imported_items(conn, playlist_id, items)
         # 导入后自动识别只是便利步骤：未配置 TMDB 或识别容量已满时跳过，并把原因返回给界面。
         task_id = None
         recognition_note = None
         if not settings.tmdb_api_key:
             recognition_note = "未配置 TMDB API Key，已跳过自动识别"
         else:
-            recognition_note = enforce_background_task_capacity(
-                running_recognition_tasks, MAX_RUNNING_RECOGNITION_TASKS, "识别",
-            )
+            recognition_note = RECOGNITION.capacity_error()
             if recognition_note is None:
-                task_cursor = conn.execute(
-                    "INSERT INTO recognition_tasks(playlist_id,status,total,created_at,updated_at) VALUES(?,?,?,?,?)",
-                    (playlist_id, "queued", len(items), utc_now(), utc_now()),
-                )
-                task_id = task_cursor.lastrowid
+                task_id = queries.insert_recognition_task(conn, playlist_id, len(items))
     if task_id is not None:
-        running_recognition_tasks[task_id] = asyncio.create_task(run_recognition(task_id))
+        RECOGNITION.start(task_id, run_recognition(task_id))
     event_logger().info(
         "playlist_imported",
         extra={"total": len(items), "detail": f"导入片单【{name}】，共 {len(items)} 部影片"},
@@ -148,24 +122,13 @@ async def refresh_playlist_source(playlist_id: int) -> dict[str, Any]:
 
 async def _refresh_playlist_source_unlocked(playlist_id: int) -> dict[str, Any]:
     with connect() as conn:
-        playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
+        playlist = queries.get_playlist(conn, playlist_id)
         if not playlist:
             raise HTTPException(404, "片单不存在")
         if not playlist["source_url"]:
             raise HTTPException(422, "该片单不是通过网址导入的")
-        active_tables = (
-            ("search_tasks", "搜索"),
-            ("recognition_tasks", "识别"),
-            ("library_scan_tasks", "入库检查"),
-        )
-        for table, label in active_tables:
-            if conn.execute(f"SELECT 1 FROM {table} WHERE playlist_id=? AND status IN ('queued','running')", (playlist_id,)).fetchone():  # nosec B608
-                raise HTTPException(409, f"片单仍有{label}任务运行，请完成后再刷新")
-        if conn.execute(
-            "SELECT 1 FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running')",
-            (playlist_id,),
-        ).fetchone():
-            raise HTTPException(409, "片单仍有自动化任务运行，请完成后再刷新")
+        if active := active_playlist_task(conn, playlist_id):
+            raise HTTPException(409, f"片单仍有{active.label}任务运行，请完成后再刷新")
     try:
         source = await PlaylistSourceFetcher().fetch(str(playlist["source_url"]), 10000)
     except (ValueError, httpx.HTTPError) as exc:
@@ -175,23 +138,11 @@ async def _refresh_playlist_source_unlocked(playlist_id: int) -> dict[str, Any]:
         raise HTTPException(422, "来源没有返回可用电影，已保留现有片单")
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        playlist = conn.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-        if not playlist:
+        if not queries.playlist_exists(conn, playlist_id):
             raise HTTPException(404, "片单不存在")
-        active_tables = (
-            ("search_tasks", "搜索"),
-            ("recognition_tasks", "识别"),
-            ("library_scan_tasks", "入库检查"),
-        )
-        for table, label in active_tables:
-            if conn.execute(f"SELECT 1 FROM {table} WHERE playlist_id=? AND status IN ('queued','running')", (playlist_id,)).fetchone():  # nosec B608
-                raise HTTPException(409, f"片单刷新期间启动了{label}任务，已保留现有片单")
-        if conn.execute(
-            "SELECT 1 FROM automation_runs WHERE playlist_id=? AND status IN ('queued','running')",
-            (playlist_id,),
-        ).fetchone():
-            raise HTTPException(409, "片单刷新期间启动了自动化任务，已保留现有片单")
-        existing_rows = list(conn.execute("SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,)).fetchall())
+        if active := active_playlist_task(conn, playlist_id):
+            raise HTTPException(409, f"片单刷新期间启动了{active.label}任务，已保留现有片单")
+        existing_rows = queries.playlist_items_by_rank(conn, playlist_id)
 
         indexed: dict[tuple[str, str], list[Any]] = {}
         for old in existing_rows:
@@ -200,7 +151,7 @@ async def _refresh_playlist_source_unlocked(playlist_id: int) -> dict[str, Any]:
         used_ids: set[int] = set()
         matched_ids: set[int] = set()
         rank_offset = max([to_int(row["rank_no"]) for row in existing_rows] + [len(items), 1]) + len(existing_rows) + 1
-        conn.execute("UPDATE playlist_items SET rank_no=rank_no+? WHERE playlist_id=?", (rank_offset, playlist_id))
+        queries.shift_ranks(conn, playlist_id, rank_offset)
         for item in items:
             matches = [
                 old for key in item_identity_keys(item)
@@ -216,76 +167,39 @@ async def _refresh_playlist_source_unlocked(playlist_id: int) -> dict[str, Any]:
                 source_tmdb_id = incoming_tmdb_id if incoming_tmdb_id is not None else old["source_tmdb_id"]
                 source_ref = item.get("source_ref") or old["source_ref"]
                 # 来源给出的 TMDB 编号与已识别结果不一致：以来源为准，清空识别结果交给识别任务重做。
-                tmdb_changed = incoming_tmdb_id is not None and old["tmdb_id"] not in (None, incoming_tmdb_id)
-                if tmdb_changed:
-                    conn.execute(
-                        """UPDATE playlist_items SET rank_no=?,imdb_id=?,original_title=?,year=?,chinese_title=?,
-                                  source_tmdb_id=?,source_ref=?,tmdb_id=NULL,
-                                  tmdb_title=NULL,tmdb_original_title=NULL,tmdb_year=NULL,tmdb_imdb_id=NULL,tmdb_checked_at=NULL,
-                                  tmdb_poster_path=NULL,tmdb_original_language=NULL,fanart_poster_url=NULL,
-                                  fanart_backdrop_url=NULL,tmdb_backdrop_path=NULL,
-                                  library_state='unknown',library_checked_at=NULL,emby_item_id=NULL,emby_image_tag=NULL WHERE id=?""",
-                        (item["rank_no"], item.get("imdb_id") or old["imdb_id"], item["original_title"], item.get("year"),
-                         item.get("chinese_title"), source_tmdb_id, source_ref, old_id),
-                    )
-                else:
-                    conn.execute(
-                        """UPDATE playlist_items SET rank_no=?,imdb_id=?,original_title=?,year=?,chinese_title=?,
-                                  source_tmdb_id=?,source_ref=? WHERE id=?""",
-                        (item["rank_no"], item.get("imdb_id") or old["imdb_id"], item["original_title"], item.get("year"),
-                         item.get("chinese_title"), source_tmdb_id, source_ref, old_id),
-                    )
-            else:
-                new_cursor = conn.execute(
-                    """INSERT INTO playlist_items(playlist_id,rank_no,imdb_id,original_title,year,chinese_title,source_tmdb_id,source_ref)
-                       VALUES(?,?,?,?,?,?,?,?)""",
-                    (playlist_id, item["rank_no"], item.get("imdb_id"), item["original_title"], item.get("year"),
-                     item.get("chinese_title"), item.get("tmdb_id"), item.get("source_ref")),
+                queries.update_item_from_source(
+                    conn, old_id, item, imdb_id=item.get("imdb_id") or old["imdb_id"],
+                    source_tmdb_id=source_tmdb_id, source_ref=source_ref,
+                    reset_identity=incoming_tmdb_id is not None and old["tmdb_id"] not in (None, incoming_tmdb_id),
                 )
-                new_id = new_cursor.lastrowid
-                if new_id is None:
-                    raise RuntimeError("片单条目写入失败")
-                matched_ids.add(new_id)
+            else:
+                matched_ids.add(queries.insert_source_item(conn, playlist_id, item))
         stale_ids = [to_int(row["id"]) for row in existing_rows if to_int(row["id"]) not in matched_ids]
         for old in existing_rows:
             old_id = to_int(old["id"])
             if old_id in matched_ids:
                 continue
-            snapshot = json_value(playlist_item_snapshot(dict(old)))
-            conn.execute(
-                """UPDATE download_history SET playlist_item_snapshot_json=COALESCE(playlist_item_snapshot_json,?)
-                   WHERE playlist_item_id=? OR candidate_id IN (SELECT id FROM candidates WHERE playlist_item_id=?)""",
-                (snapshot, old_id, old_id),
-            )
-        if stale_ids:
-            placeholders = ",".join("?" for _ in stale_ids)
-            conn.execute(f"DELETE FROM playlist_items WHERE id IN ({placeholders})", stale_ids)  # nosec B608
-        conn.execute("UPDATE playlists SET source_name=?,last_synced_at=? WHERE id=?", (source.get("source_name"), utc_now(), playlist_id))
+            queries.keep_history_snapshot(conn, old_id, json_value(playlist_item_snapshot(dict(old))))
+        queries.delete_items(conn, stale_ids)
+        queries.mark_playlist_synced(conn, playlist_id, source.get("source_name"))
     return {"id": playlist_id, "count": len(items), "message": f"已从来源刷新 {len(items)} 部电影"}
 
-@router.get("/api/playlists")
+@router.get("/api/playlists", response_model=list[PlaylistRow])
 async def playlists() -> list[dict[str, Any]]:
     with connect() as conn:
-        rows = conn.execute(
-            """SELECT p.*, COUNT(i.id) AS item_count, SUM(CASE WHEN i.tmdb_id IS NOT NULL THEN 1 ELSE 0 END) AS recognized_count FROM playlists p
-               LEFT JOIN playlist_items i ON i.playlist_id=p.id GROUP BY p.id ORDER BY p.position,p.id"""
-        ).fetchall()
-    return rows_to_dicts(rows)
+        return queries.playlists_with_counts(conn)
 
 @router.put("/api/playlists/{playlist_id}/automation")
 async def configure_playlist_automation(playlist_id: int, payload: PlaylistAutomationPayload) -> dict[str, Any]:
-    if payload.auto_cart:
-        raise HTTPException(422, "自动加入下载列表已停用；候选必须由操作者确认")
+    if payload.auto_select:
+        raise HTTPException(422, "自动加入待入馆清单已停用；候选必须由操作者确认")
     with connect() as conn:
-        if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
+        if not queries.playlist_exists(conn, playlist_id):
             raise HTTPException(404, "片单不存在")
-        conn.execute(
-            "UPDATE playlists SET automation_enabled=?,automation_auto_cart=?,automation_batch_size=? WHERE id=?",
-            (to_int(payload.enabled), 0, payload.batch_size, playlist_id),
-        )
-    return {"id": playlist_id, **payload.model_dump(), "auto_cart": False, "auto_download": False}
+        queries.set_playlist_automation(conn, playlist_id, enabled=payload.enabled, batch_size=payload.batch_size)
+    return {"id": playlist_id, **payload.model_dump(), "auto_select": False, "auto_download": False}
 
-@router.post("/api/playlists/{playlist_id}/automation/run")
+@router.post("/api/playlists/{playlist_id}/automation/run", response_model=AutomationStarted)
 async def run_playlist_automation_now(playlist_id: int) -> dict[str, Any]:
     return await start_playlist_automation(playlist_id)
 
@@ -293,19 +207,16 @@ async def run_playlist_automation_now(playlist_id: int) -> dict[str, Any]:
 @router.put("/api/playlists/{playlist_id}/sync-settings")
 async def configure_playlist_sync(playlist_id: int, payload: PlaylistSyncPayload) -> dict[str, Any]:
     with connect() as conn:
-        playlist = conn.execute("SELECT source_url FROM playlists WHERE id=?", (playlist_id,)).fetchone()
+        playlist = queries.get_playlist(conn, playlist_id)
         if not playlist:
             raise HTTPException(404, "片单不存在")
         if payload.enabled and not playlist["source_url"]:
             raise HTTPException(422, "只有网址导入的片单可以启用定时同步")
         next_sync = (datetime.now(timezone.utc) + timedelta(hours=payload.interval_hours)).isoformat() if payload.enabled else None
-        conn.execute(
-            "UPDATE playlists SET sync_enabled=?,sync_interval_hours=?,next_sync_at=? WHERE id=?",
-            (to_int(payload.enabled), payload.interval_hours, next_sync, playlist_id),
-        )
+        queries.set_playlist_sync(conn, playlist_id, enabled=payload.enabled, interval_hours=payload.interval_hours, next_sync_at=next_sync)
     return {"id": playlist_id, **payload.model_dump(), "next_sync_at": next_sync}
 
-@router.post("/api/playlists/{playlist_id}/sync-now")
+@router.post("/api/playlists/{playlist_id}/sync-now", response_model=PlaylistSynced)
 async def sync_playlist_now(playlist_id: int) -> dict[str, Any]:
     return await sync_playlist_incremental(playlist_id)
 
@@ -314,131 +225,82 @@ async def sync_playlist_now(playlist_id: int) -> dict[str, Any]:
 async def scan_playlist_library(playlist_id: int) -> dict[str, Any]:
     if not settings.emby_base_url or not settings.emby_api_key:
         raise HTTPException(422, "请先在设置中配置 Emby 地址与 API Key")
-    capacity_rejection = enforce_background_task_capacity(running_library_tasks, MAX_RUNNING_LIBRARY_TASKS, "Emby 状态刷新")
+    capacity_rejection = LIBRARY.capacity_error()
     if capacity_rejection is not None:
         raise HTTPException(429, capacity_rejection)
     try:
         with connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
+            if not queries.playlist_exists(conn, playlist_id):
                 raise HTTPException(404, "片单不存在")
-            active = conn.execute(
-                "SELECT id,status FROM library_scan_tasks WHERE playlist_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1", (playlist_id,),
-            ).fetchone()
+            active = queries.active_library_scan(conn, playlist_id)
             if active:
                 return {"id": active["id"], "status": active["status"], "message": "Emby 状态刷新正在进行"}
-            total = conn.execute("SELECT COUNT(*) FROM playlist_items WHERE playlist_id=?", (playlist_id,)).fetchone()[0]
-            task_cursor = conn.execute(
-                """INSERT INTO library_scan_tasks(playlist_id,status,total,created_at,updated_at)
-                   VALUES(?,?,?,?,?)""", (playlist_id, "queued", total, utc_now(), utc_now()),
-            )
-            task_id = task_cursor.lastrowid
-            if task_id is None:
-                raise RuntimeError("Emby 状态刷新任务写入失败")
+            total = queries.count_playlist_items(conn, playlist_id)
+            task_id = queries.insert_library_scan_task(conn, playlist_id, total)
     except sqlite3.IntegrityError as _integrity:
         with connect() as conn:
-            active = conn.execute(
-                "SELECT id,status FROM library_scan_tasks WHERE playlist_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1", (playlist_id,),
-            ).fetchone()
+            active = queries.active_library_scan(conn, playlist_id)
         if not active:
             raise
         return {"id": active["id"], "status": active["status"], "message": "Emby 状态刷新正在进行"}
-    running_library_tasks[task_id] = asyncio.create_task(run_library_scan(task_id))
+    LIBRARY.start(task_id, run_library_scan(task_id))
     return {"id": task_id, "message": f"开始刷新 {total} 部影片的 Emby 状态"}
 
 
 @router.put("/api/playlists/{playlist_id}")
 async def update_playlist(playlist_id: int, payload: PlaylistUpdatePayload) -> dict[str, Any]:
     with connect() as conn:
-        if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
+        if not queries.playlist_exists(conn, playlist_id):
             raise HTTPException(404, "片单不存在")
-        conn.execute("UPDATE playlists SET name=? WHERE id=?", (payload.name.strip(), playlist_id))
+        queries.rename_playlist(conn, playlist_id, payload.name.strip())
     return {"id": playlist_id, "name": payload.name.strip()}
 
 @router.post("/api/playlists/reorder")
 async def reorder_playlists(payload: PlaylistOrderPayload) -> dict[str, Any]:
     with connect() as conn:
-        existing = {row[0] for row in conn.execute("SELECT id FROM playlists")}
+        existing = queries.playlist_ids(conn)
         if len(payload.ids) != len(existing) or len(set(payload.ids)) != len(payload.ids) or set(payload.ids) != existing:
             raise HTTPException(422, "排序列表必须包含全部片单")
-        conn.executemany("UPDATE playlists SET position=? WHERE id=?", [(index, site_id) for index, site_id in enumerate(payload.ids, start=1)])
+        queries.set_playlist_positions(conn, payload.ids)
     return {"ids": payload.ids}
 
 @router.post("/api/playlists/{playlist_id}/recognize")
 async def recognize_playlist(playlist_id: int, mode: Literal["missing", "verify"] = "missing") -> dict[str, Any]:
     """missing：识别还没识别的影片；verify：补齐来源编号并按 IMDb 校准整份片单。"""
-    capacity_rejection = enforce_background_task_capacity(running_recognition_tasks, MAX_RUNNING_RECOGNITION_TASKS, "识别")
+    capacity_rejection = RECOGNITION.capacity_error()
     if capacity_rejection is not None:
         raise HTTPException(429, capacity_rejection)
     try:
         with connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
+            if not queries.playlist_exists(conn, playlist_id):
                 raise HTTPException(404, "片单不存在")
-            total = conn.execute(
-                """SELECT COUNT(*) FROM playlist_items
-                   WHERE playlist_id=? AND (? OR tmdb_id IS NULL OR tmdb_title IS NULL OR tmdb_original_title IS NULL)""",
-                (playlist_id, int(mode == "verify")),
-            ).fetchone()[0]
+            total = queries.count_playlist_items(conn, playlist_id, unrecognized_only=mode == "missing")
             if not total:
                 return {"id": None, "status": "completed", "total": 0, "message": "片单已全部识别"}
-            active = conn.execute(
-                "SELECT id,status,total FROM recognition_tasks WHERE playlist_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1", (playlist_id,),
-            ).fetchone()
+            active = queries.active_recognition_task(conn, playlist_id)
             if active:
                 return {"id": active["id"], "status": active["status"], "total": active["total"]}
-            task_cursor = conn.execute(
-                "INSERT INTO recognition_tasks(playlist_id,status,total,created_at,updated_at,mode) VALUES(?,?,?,?,?,?)",
-                (playlist_id, "queued", total, utc_now(), utc_now(), mode),
-            )
-            task_id = task_cursor.lastrowid
-            if task_id is None:
-                raise RuntimeError("识别任务写入失败")
+            task_id = queries.insert_recognition_task(conn, playlist_id, total, mode)
     except sqlite3.IntegrityError as _integrity:
         with connect() as conn:
-            active = conn.execute(
-                "SELECT id,status,total FROM recognition_tasks WHERE playlist_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1", (playlist_id,),
-            ).fetchone()
+            active = queries.active_recognition_task(conn, playlist_id)
         if not active:
             raise
         return {"id": active["id"], "status": active["status"], "total": active["total"]}
-    running_recognition_tasks[task_id] = asyncio.create_task(run_recognition(task_id))
+    RECOGNITION.start(task_id, run_recognition(task_id))
     return {"id": task_id, "status": "queued", "total": total}
 
 
 @router.delete("/api/playlists/{playlist_id}")
 async def delete_playlist(playlist_id: int) -> dict[str, Any]:
-    tasks_to_cancel: list[asyncio.Task[None]] = []
     with connect() as conn:
-        exists = conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-        if not exists:
+        if not queries.playlist_exists(conn, playlist_id):
             raise HTTPException(404, "片单不存在")
-        for table, registry in (
-            ("search_tasks", running_tasks),
-            ("recognition_tasks", running_recognition_tasks),
-            ("library_scan_tasks", running_library_tasks),
-            ("automation_runs", running_automation_tasks),
-        ):
-            ids = conn.execute(
-                f"SELECT id FROM {table} WHERE playlist_id=? AND status IN ('queued','running')", (playlist_id,),  # nosec B608
-            ).fetchall()
-            for row in ids:
-                task = registry.get(to_int(row["id"]))
-                if task and not task.done():
-                    task.cancel()
-                    tasks_to_cancel.append(task)
-    if tasks_to_cancel:
-        await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+        await cancel_playlist_tasks(conn, playlist_id)
     with connect() as conn:
-        history_items = conn.execute(
-            "SELECT * FROM playlist_items WHERE playlist_id=? ORDER BY rank_no", (playlist_id,)
-        ).fetchall()
-        for item in history_items:
-            snapshot = json_value(playlist_item_snapshot(dict(item)))
-            conn.execute(
-                """UPDATE download_history SET playlist_item_snapshot_json=COALESCE(playlist_item_snapshot_json,?)
-                   WHERE playlist_item_id=? OR candidate_id IN (SELECT id FROM candidates WHERE playlist_item_id=?)""",
-                (snapshot, item["id"], item["id"]),
-            )
-        conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
+        for item in queries.playlist_items_by_rank(conn, playlist_id):
+            queries.keep_history_snapshot(conn, to_int(item["id"]), json_value(playlist_item_snapshot(dict(item))))
+        queries.delete_playlist(conn, playlist_id)
     return {"deleted": playlist_id}

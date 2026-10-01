@@ -12,6 +12,7 @@ from ..candidate_policy import analyze as analyze_policy_candidate
 from ..clients import AIRecognitionClient, TMDBClient
 from ..config import settings
 from ..database import connect
+from ..domain.titles import normalized_title_text
 from ..util import to_int, utc_now
 
 
@@ -266,12 +267,49 @@ def persist_tmdb_item(item_id: int, media: dict[str, Any], fallback_imdb: str | 
         conn.execute(
             """UPDATE playlist_items
                SET fanart_poster_url=CASE WHEN tmdb_id IS ? THEN fanart_poster_url ELSE NULL END,
+                   tmdb_alt_titles_json=CASE WHEN tmdb_id IS ? THEN tmdb_alt_titles_json ELSE NULL END,
                    fanart_backdrop_url=CASE WHEN tmdb_id IS ? THEN fanart_backdrop_url ELSE NULL END,
                    tmdb_backdrop_path=CASE WHEN tmdb_id IS ? THEN tmdb_backdrop_path ELSE NULL END,
                    tmdb_id=?,tmdb_title=?,tmdb_original_title=?,tmdb_year=?,tmdb_imdb_id=?,tmdb_checked_at=?,
                    tmdb_poster_path=COALESCE(?, tmdb_poster_path),
                    tmdb_original_language=COALESCE(?, tmdb_original_language)
                WHERE id=?""",
-            (values[0], values[0], values[0], *values, tmdb_poster_path(media), tmdb_original_language(media), item_id),
+            (values[0], values[0], values[0], values[0], *values, tmdb_poster_path(media), tmdb_original_language(media), item_id),
         )
 
+
+
+MAX_ALT_TITLES = 20
+
+
+def usable_alt_titles(titles: list[str], known: list[Any]) -> list[str]:
+    """只留能与种子标题比对的其他片名：含拉丁字母、数字或汉字，去掉与已有片名重复的，最多 20 个。"""
+    seen = {normalized_title_text(value) for value in known if value}
+    kept: list[str] = []
+    for title in titles:
+        key = normalized_title_text(title)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        kept.append(title)
+        if len(kept) >= MAX_ALT_TITLES:
+            break
+    return kept
+
+
+async def ensure_alt_titles(item: Any) -> Any:
+    """寻片前补取 TMDB 其他片名并缓存；取不到不影响寻片，下次再试。返回最新的片单条目。"""
+    row = dict(item)
+    if not settings.tmdb_api_key or not row.get("tmdb_id") or row.get("tmdb_alt_titles_json") is not None:
+        return item
+    try:
+        titles = await TMDBClient().movie_alternative_titles(to_int(row["tmdb_id"]))
+    except Exception:
+        return item
+    known = [row.get(key) for key in ("tmdb_title", "tmdb_original_title", "original_title", "chinese_title")]
+    with connect() as conn:
+        conn.execute(
+            "UPDATE playlist_items SET tmdb_alt_titles_json=? WHERE id=? AND tmdb_id IS ?",
+            (json.dumps(usable_alt_titles(titles, known), ensure_ascii=False), row["id"], row["tmdb_id"]),
+        )
+        return conn.execute("SELECT * FROM playlist_items WHERE id=?", (row["id"],)).fetchone() or item

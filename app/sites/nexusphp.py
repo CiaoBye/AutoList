@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 import lxml.html
 
-from .errors import CloudflareChallenge, CookieExpired, SiteMaintenance, TwoFactorRequired
+from .errors import CloudflareChallenge, CookieExpired, SearchCaptcha, SiteMaintenance, TwoFactorRequired
 from .models import Torrent
 from .profiles import SiteProfile
 
@@ -43,6 +43,7 @@ SIZE_UNITS = {"b": 1, "kb": 1024, "kib": 1024, "mb": 1024**2, "mib": 1024**2,
 LOGIN_MARKERS = ("未登录", "登录 / 注册", "必须在登录后才能访问", "你需要启用cookies才能登录")
 # 详情页上“种子不存在或已被删除”的提示：NexusPHP 简繁英语言包与常见改版（听听歌写作“没有此 ID 的种子”）。
 # “你没有该权限”既可能是种子不存在也可能是权限不足，不算删除。
+SEARCH_CAPTCHA = re.compile(r"人机验证未通过|人機驗證未通過")
 DELETED_MARKERS = re.compile(
     r"[没沒]有[该該此]\s*ID\s*的[种種]子|[种種]子不存在|[种種]子已被[删刪]除|No torrent with ID|Invalid ID|[无無]效的\s*ID",
     re.I,
@@ -86,6 +87,9 @@ def detect_interruption(final_path: str, html: str) -> None:
         raise CookieExpired()
     if any(marker in head for marker in LOGIN_MARKERS) and "logout.php" not in head:
         raise CookieExpired()
+    # 改版站点（如观众）对搜索单独做人机验证，未通过时只返回一条错误提示，不能当作“没有结果”。
+    if SEARCH_CAPTCHA.search(head):
+        raise SearchCaptcha()
     # 登录表单里嵌的 Turnstile 验证码也来自 challenges.cloudflare.com，所以放在登录页判断之后。
     if "challenges.cloudflare.com" in head[:5000] and "logout.php" not in head:
         raise CloudflareChallenge()

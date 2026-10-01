@@ -1,5 +1,10 @@
 /* 挑选台与待入馆清单托盘。 */
 
+.pick-searching {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
 .pick-list {
   display: flex;
   flex-direction: column;

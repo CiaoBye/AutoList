@@ -162,6 +162,12 @@ class TMDBClient:
         _, params = self._auth()
         return (await self._get(f"/movie/{tmdb_id}/external_ids", params)).json()
 
+    async def movie_alternative_titles(self, tmdb_id: int) -> list[str]:
+        """TMDB 记录的其他片名（各地区译名、罗马拼音等），站点种子常用其中某个。"""
+        _, params = self._auth()
+        data = (await self._get(f"/movie/{int(tmdb_id)}/alternative_titles", params)).json()
+        return [str(item.get("title") or "").strip() for item in data.get("titles", []) if str(item.get("title") or "").strip()]
+
     async def movie_details(self, tmdb_id: int) -> dict[str, Any]:
         if not settings.tmdb_api_key:
             raise RuntimeError("请先在设置中填写 TMDB API Key")

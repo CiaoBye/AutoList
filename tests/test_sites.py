@@ -122,6 +122,8 @@ class ProfileTests(unittest.TestCase):
             ("/take2fa.php", "", errors.TwoFactorRequired),
             ("/claim/", "", errors.SiteMaintenance),
             ("/torrents.php", "<title>Just a moment...</title>", errors.CloudflareChallenge),
+            # 观众：搜索人机验证未通过时页面只有一条错误提示，不能当作“没有结果”。
+            ("/torrents.php", (FIXTURES / "interruptions" / "audiences.me-search-captcha.html").read_text(encoding="utf-8"), errors.SearchCaptcha),
         )
         for path, html, expected in cases:
             with self.subTest(path=path, html=html[:30]):
@@ -1151,7 +1153,7 @@ class CookieCloudPullTests(IsolatedAppTestCase):
 
         with patch.object(cookiecloud, "fetch_cookiecloud", new=self._cloud("new")), \
              patch("app.services.sites.test_site_config", new=AsyncMock()):
-            _, torrents, reason, _ = await search_one_site(
+            _, torrents, reason, _, _ = await search_one_site(
                 task_id, item, site, {"nexusphp": Client()}, asyncio.Semaphore(1), [("Cure", None, "片名")],
             )
         self.assertIsNone(reason)

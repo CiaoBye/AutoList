@@ -1,37 +1,54 @@
+import { useState } from "preact/hooks";
 import { api } from "../../api";
 import { formatTime } from "../../format";
-import { useLoad } from "../../hooks";
-import type { CookieCloudStatus, CookieCloudSynced } from "../../types";
-import { ProviderBadge, SecretField, TextField, useAction, useProviderTest } from "./shared";
-import { useSettingsForm } from "./useSettingsForm";
+import type { CookieCloudSynced } from "../../types";
+import type { SettingsHealth } from "./health";
+import { DirtyNote, ProviderBadge, SecretField, TextField, useAction, useProviderTest } from "./shared";
+import { useSettingsDraft } from "./useSettingsForm";
 
 const FIELDS = ["cookiecloud_url", "cookiecloud_key", "cookiecloud_password"];
 const ORIGIN_LABELS: Record<string, string> = { schedule: "定时拉取", expired: "Cookie 失效后重新拉取", manual: "手动同步" };
 
-/** 站点 Cookie 的来源：从 CookieCloud 服务器（与 MoviePilot 共用）拉取的方式、最近一次同步的结果，以及可展开的连接配置。 */
-export function CookieCloudPanel({ onSynced }: { onSynced: () => void }) {
-  const { form, set, cleared, toggleClear, configured, dirty, save } = useSettingsForm(FIELDS);
-  const status = useLoad<CookieCloudStatus>((signal) => api<CookieCloudStatus>("/api/cookiecloud/status", { signal }), []);
+/** 站点页顶部的 Cookie 来源：一条状态（拉取方式、最近一次同步、未覆盖的站点），连接设置按需展开。 */
+export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth; onSynced: () => void }) {
+  const { form, set, cleared, toggleClear, configured, dirty, save, reset } = useSettingsDraft(FIELDS, health.settings);
   const { results, testing, test } = useProviderTest();
   const { busy, run } = useAction();
+  const cc = health.cookiecloud.data;
+  const [open, setOpen] = useState(false);
+  const expanded = open || (cc !== null && !cc.configured);
   const text = (name: string) => String(form[name] ?? "");
-  const cc = status.data;
-  const interval = cc?.pull_interval_minutes ?? 10;
   const last = cc?.last_sync;
-  const summary = last
-    ? `${formatTime(last.at)} ${ORIGIN_LABELS[last.origin] || "同步"}：更新 ${last.updated.length} 个站点${last.updated.length ? `（${last.updated.join("、")}）` : ""}，${last.unchanged} 个已是最新`
-    : `服务重启后还没有同步过，每 ${interval} 分钟拉取一次`;
+  const missing = last?.missing || [];
+
+  const facts = !cc
+    ? "正在读取 CookieCloud 状态……"
+    : !cc.configured
+      ? "尚未配置：站点 Cookie 只能手动填写。填写与 Chrome CookieCloud 插件相同的服务器地址、用户 KEY 与端对端加密密码后自动拉取。"
+      : [
+          `每 ${cc.pull_interval_minutes} 分钟从 ${cc.url || "CookieCloud 服务器"} 拉取，Cookie 失效时立即重新拉取`,
+          last
+            ? `最近 ${formatTime(last.at)} ${ORIGIN_LABELS[last.origin] || "同步"}，更新 ${last.updated.length} 个、${last.unchanged} 个已是最新`
+            : "服务重启后还没有同步过",
+          missing.length ? `${missing.join("、")} 不在 CookieCloud 中` : "",
+        ].filter(Boolean).join(" · ");
 
   return (
-    <section class="card settings-group cookiecloud-panel" aria-labelledby="cookiecloud-title">
-      <div class="settings-legend" id="cookiecloud-title">
-        <img src="/assets/service-cookiecloud.svg" alt="" width="22" height="22" />
-        Cookie 来源 · CookieCloud
-        <span class="service-status">
+    <section class="card cc-strip" aria-labelledby="cookiecloud-title">
+      <div class="cc-strip-main">
+        <img class="cc-strip-icon" src="/assets/service-cookiecloud.svg" alt="" width="22" height="22" />
+        <div class="cc-strip-facts">
+          <strong id="cookiecloud-title">Cookie 来源 · CookieCloud</strong>
+          <span>{facts}</span>
+        </div>
+        {results.cookiecloud ? (
           <ProviderBadge status={results.cookiecloud} />
-          <button class="btn btn-small" type="button" disabled={testing !== null} onClick={() => void test("cookiecloud")}>
-            {testing === "cookiecloud" ? "检测中…" : "检测"}
-          </button>
+        ) : cc ? (
+          <span class={`badge ${cc.configured ? (last ? "st-in_library" : "st-unchecked") : "st-missing"}`}>
+            {cc.configured ? (last ? "同步正常" : "等待首次同步") : "未配置"}
+          </span>
+        ) : null}
+        <span class="cc-strip-actions">
           <button
             class="btn btn-small"
             type="button"
@@ -41,7 +58,7 @@ export function CookieCloudPanel({ onSynced }: { onSynced: () => void }) {
                 () => api<CookieCloudSynced>("/api/sites/sync-cookiecloud", { method: "POST", timeoutMs: 60000 }),
                 (result) => result.message || "已同步站点 Cookie",
                 () => {
-                  void status.reload();
+                  void health.cookiecloud.reload();
                   onSynced();
                 },
               )
@@ -49,43 +66,22 @@ export function CookieCloudPanel({ onSynced }: { onSynced: () => void }) {
           >
             立即同步
           </button>
+          <button class="btn btn-small" type="button" aria-expanded={expanded} onClick={() => setOpen(!open)} disabled={cc !== null && !cc.configured}>
+            连接设置
+          </button>
         </span>
       </div>
-      {!cc ? (
-        <p class="muted settings-note">正在读取 CookieCloud 状态……</p>
-      ) : !cc.configured ? (
-        <p class="notice">尚未配置服务器地址、用户 KEY 与端对端加密密码，站点 Cookie 只能手动填写。</p>
-      ) : (
-        <ul class="cookiecloud-facts">
-          <li>
-            <span class="muted">同步方式</span>
-            每 {interval} 分钟从 {cc.url || "CookieCloud 服务器"} 拉取；站点提示“Cookie 已失效”时立即重新拉取一次并重试
-          </li>
-          <li>
-            <span class="muted">最近同步</span>
-            {summary}
-          </li>
-          {last?.missing.length ? (
-            <li>
-              <span class="muted">不在 CookieCloud 中</span>
-              {last.missing.join("、")} —— 这些站点的 Cookie 只能在站点里手动更新，过期后不会自动恢复
-            </li>
-          ) : null}
-          <li class="muted">Cookie 有变化的站点会自动重新检测。重新拉取后仍提示“Cookie 已失效”时，说明浏览器里的登录也已过期，需要在 Chrome 重新登录该站点，等插件同步到 CookieCloud 后即可恢复。</li>
-        </ul>
-      )}
-
-      <details class="cookiecloud-config">
-        <summary>连接设置</summary>
-        <p class="muted settings-note">
-          填写与 Chrome CookieCloud 插件相同的服务器地址（例如 MoviePilot 自带的 CookieCloud：{"http://<MoviePilot 主机>:3000/cookiecloud"}）、用户 KEY 与端对端加密密码，AutoList 定时拉取并解密。
-        </p>
+      {expanded ? (
         <form
+          class="cc-config"
           onSubmit={(event) => {
             event.preventDefault();
-            void run(save, "CookieCloud 设置已保存", () => status.reload());
+            void run(save, "CookieCloud 设置已保存", () => health.cookiecloud.reload());
           }}
         >
+          <p class="muted settings-note">
+            填写与 Chrome CookieCloud 插件相同的服务器地址（例如 MoviePilot 自带的 CookieCloud：{"http://<MoviePilot 主机>:3000/cookiecloud"}）、用户 KEY 与端对端加密密码。
+          </p>
           <div class="field-grid">
             <TextField
               label="服务器地址"
@@ -93,14 +89,13 @@ export function CookieCloudPanel({ onSynced }: { onSynced: () => void }) {
               onInput={(value) => set("cookiecloud_url", value)}
               placeholder="http://192.168.x.x:3000/cookiecloud"
               inputMode="url"
-              hint="留空保存即保留当前地址"
+              hint={cleared.includes("cookiecloud_url") ? "保存后删除已保存的地址" : "留空保存即保留当前地址"}
             />
             {configured("cookiecloud_url") ? (
               <span class="field clear-action">
                 <button class="btn btn-small" type="button" aria-pressed={cleared.includes("cookiecloud_url")} onClick={() => toggleClear("cookiecloud_url")}>
                   {cleared.includes("cookiecloud_url") ? "撤销清除" : "清除服务器地址"}
                 </button>
-                {cleared.includes("cookiecloud_url") ? <small class="field-hint">保存后删除已保存的地址</small> : null}
               </span>
             ) : null}
             <SecretField
@@ -121,14 +116,17 @@ export function CookieCloudPanel({ onSynced }: { onSynced: () => void }) {
               onToggleClear={() => toggleClear("cookiecloud_password")}
             />
           </div>
-          <div class="settings-actions">
+          <div class="service-row-actions">
+            <DirtyNote dirty={dirty} onReset={reset} />
+            <button class="btn" type="button" disabled={testing !== null} title={dirty ? "检测使用已保存的配置" : undefined} onClick={() => void test("cookiecloud")}>
+              {testing === "cookiecloud" ? "检测中…" : "检测"}
+            </button>
             <button class="btn btn-primary" type="submit" disabled={busy || !dirty}>
               {busy ? "保存中…" : "保存 CookieCloud 设置"}
             </button>
-            {dirty ? <span class="muted">有未保存的修改</span> : null}
           </div>
         </form>
-      </details>
+      ) : null}
     </section>
   );
 }

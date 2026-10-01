@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..database import connect
 from ..queries.films import playlist_items, playlist_summaries
+from ..queries.search import active_search_progress
 from ..queries.sites import site_display_rows
 from ..services.candidates import candidate_view, latest_candidate_rows
 from ..services.films import (
@@ -39,6 +40,7 @@ async def picks(playlist_id: int | None = None, status: str = "all") -> dict[str
         if playlist_id is not None and not any(item["id"] == playlist_id for item in playlists):
             raise HTTPException(404, "片单不存在")
         items = playlist_items(conn, playlist_id)
+        searching = active_search_progress(conn, playlist_id)
     projected = await project_films(items)
     pickable = [film for film in projected if _pick_bucket(film)]
     counts = {"all": len(pickable), **{bucket: sum(1 for film in pickable if _pick_bucket(film) == bucket) for bucket in PICK_BUCKETS}}
@@ -53,4 +55,5 @@ async def picks(playlist_id: int | None = None, status: str = "all") -> dict[str
         ],
         "counts": counts,
         "playlists": playlists,
+        "searching": searching,
     }

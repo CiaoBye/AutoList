@@ -25,6 +25,7 @@ from app.domain.titles import (
 )
 from app.main import app
 from app.schemas import ConfigPayload, TaskPayload
+from app.sites.errors import SearchCaptcha
 from app.services.recognition import analyze_candidate, persist_tmdb_item
 from app.services.search import (
     build_search_queries,
@@ -297,7 +298,24 @@ class SearchWorkflowTests(IsolatedAppTestCase):
         queries = build_search_queries(dict(item), query_media)
         self.assertEqual(queries[0][1], "tt7654321")
         self.assertLessEqual(len(queries), 4)
-        self.assertTrue(any("Canonical Original 2001" in query[0] for query in queries))
+        # 检索词优先用片单来源年份（种子多按首映年份命名），TMDB 年份只在来源缺年份时使用。
+        self.assertTrue(any("Canonical Original 2011" in query[0] for query in queries))
+        no_year = build_search_queries({**item, "year": None}, query_media)
+        self.assertTrue(any("Canonical Original 2001" in query[0] for query in no_year))
+
+    async def test_candidate_identity_allows_one_year_difference(self) -> None:
+        # 卡萨布兰卡：片单 1942，TMDB 1943；种子标题写 1942，不能因此排除。
+        item = {
+            "tmdb_title": "卡萨布兰卡", "tmdb_original_title": "Casablanca", "original_title": "Casablanca",
+            "chinese_title": "卡萨布兰卡", "year": 1942, "tmdb_year": 1943,
+        }
+        media = {"year": "1943"}
+        self.assertEqual(candidate_identity(item, media, "Casablanca 1942 2160p UHD BluRay x265-FRDS"), (True, None))
+        self.assertEqual(candidate_identity(item, {}, "Casablanca 1944 1080p BluRay x265-CHD"), (True, None))
+        accepted, reason = candidate_identity(item, media, "Casablanca 2012 1080p BluRay x265-CHD")
+        self.assertFalse(accepted)
+        self.assertEqual(reason, "年份不匹配：目标 1942 / 1943，资源包含 2012")
+        self.assertIn("Casablanca 1942", [query[0] for query in build_search_queries(item, media)])
 
     async def test_search_errors_have_actionable_chinese_summaries(self) -> None:
         code, message = classify_search_error(RuntimeError("[Errno -2] Name or service not known"))
@@ -307,6 +325,11 @@ class SearchWorkflowTests(IsolatedAppTestCase):
         code, message = classify_search_error(RuntimeError("read timed out"))
         self.assertEqual(code, "timeout")
         self.assertIn("超时", message)
+
+        # 站点拦截直接沿用站点给出的说明，不再统一成“请查看日志”。
+        code, message = classify_search_error(SearchCaptcha())
+        self.assertEqual(code, "site_blocked")
+        self.assertIn("人机验证", message)
 
     async def test_release_group_catalog_merges_and_deduplicates_custom_rules(self) -> None:
         custom = merge_custom_rules(["MyStudio", "mystudio", "Studio-[A-Z]+"])
@@ -359,9 +382,9 @@ class SearchWorkflowTests(IsolatedAppTestCase):
         )
         seen: list[tuple[int, int]] = []
 
-        async def fake_search_site(_task_id: int, item: object, site: dict, *_args: object) -> tuple[dict, list, None, int]:
+        async def fake_search_site(_task_id: int, item: object, site: dict, *_args: object, **_kwargs: object) -> tuple:
             seen.append((to_int(item["id"]), to_int(site["id"])))  # type: ignore[index]
-            return site, [], None, 1
+            return site, [], None, 1, None
 
         media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
         with patch("app.services.search.recognize_item", AsyncMock(return_value=media)), \
@@ -401,7 +424,7 @@ class SearchWorkflowTests(IsolatedAppTestCase):
             create_followup_search_task(task_id, True)
         self.assertEqual(raised.exception.status_code, 409)
 
-    async def test_restart_copies_original_item_and_site_snapshots(self) -> None:
+    async def test_restart_keeps_items_but_uses_current_searchable_sites(self) -> None:
         playlist_id, item_id = self.create_playlist_item()
         with connect() as conn:
             site_id = to_int(conn.execute(
@@ -416,11 +439,13 @@ class SearchWorkflowTests(IsolatedAppTestCase):
                 (playlist_id, 1, 1, "completed", 1, json.dumps([site_id]), json.dumps([item_id]),
                  utc_now(), utc_now()),
             ).lastrowid)
-            conn.execute(
+            # 原任务之后：原站点停用搜索，新增一个参与搜索的站点，片单也新增一部。
+            conn.execute("UPDATE pt_sites SET search_enabled=0 WHERE id=?", (site_id,))
+            new_site_id = to_int(conn.execute(
                 """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
                    VALUES(?,?,?,1,1,?)""",
                 ("New Site", "rss", "https://new.example/feed", utc_now()),
-            )
+            ).lastrowid)
             conn.execute(
                 """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year)
                    VALUES(?,?,?,?)""",
@@ -432,8 +457,312 @@ class SearchWorkflowTests(IsolatedAppTestCase):
                 "SELECT site_ids_json,item_ids_json FROM search_tasks WHERE id=?", (restart_id,),
             ).fetchone()
         self.assertEqual(restart_total, 1)
-        self.assertEqual(json.loads(restart["site_ids_json"]), [site_id])
+        self.assertIsNone(restart["site_ids_json"])
         self.assertEqual(json.loads(restart["item_ids_json"]), [item_id])
+        seen: list[int] = []
+
+        async def fake_search_site(_task_id: int, _item: object, site: dict, *_args: object, **_kwargs: object) -> tuple:
+            seen.append(to_int(site["id"]))
+            return site, [], None, 1, None
+
+        media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
+        with patch("app.services.search.recognize_item", AsyncMock(return_value=media)), \
+             patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.services.search.search_one_site", new=fake_search_site):
+            await run_search(restart_id)
+        self.assertEqual(seen, [new_site_id])
+
+    async def test_retry_skips_sites_no_longer_searchable(self) -> None:
+        playlist_id, item_id = self.create_playlist_item()
+        with connect() as conn:
+            kept, disabled = (to_int(conn.execute(
+                """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
+                   VALUES(?,?,?,1,1,?)""",
+                (name, "rss", f"https://{name}.example/feed", utc_now()),
+            ).lastrowid) for name in ("kept", "disabled"))
+            source_id = to_int(conn.execute(
+                """INSERT INTO search_tasks(
+                     playlist_id,range_start,range_end,status,total,site_ids_json,item_ids_json,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (playlist_id, 1, 1, "partial", 1, json.dumps([kept, disabled]), json.dumps([item_id]), utc_now(), utc_now()),
+            ).lastrowid)
+            now = utc_now()
+            for site_id in (kept, disabled):
+                conn.execute(
+                    """INSERT INTO search_attempts(task_id,playlist_item_id,site_id,site_name,status,result_count,duration_ms,created_at,finished_at)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (source_id, item_id, site_id, "site", "failed", 0, 1, now, now),
+                )
+            conn.execute("UPDATE pt_sites SET search_enabled=0 WHERE id=?", (disabled,))
+        retry_id, _ = create_followup_search_task(source_id, True)
+        with connect() as conn:
+            retry = conn.execute("SELECT site_ids_json,pair_scope_json FROM search_tasks WHERE id=?", (retry_id,)).fetchone()
+        self.assertEqual(json.loads(retry["site_ids_json"]), [kept])
+        self.assertEqual(json.loads(retry["pair_scope_json"]), [[item_id, kept]])
+        with connect() as conn:
+            conn.execute("UPDATE pt_sites SET search_enabled=0 WHERE id=?", (kept,))
+        with self.assertRaises(HTTPException) as raised:
+            create_followup_search_task(source_id, True)
+        self.assertEqual(raised.exception.status_code, 422)
+
+    async def test_blocked_site_is_skipped_for_remaining_films(self) -> None:
+        playlist_id, first_id = self.create_playlist_item()
+        with connect() as conn:
+            second_id = to_int(conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year) VALUES(?,?,?,?)",
+                (playlist_id, 2, "Second", 2021),
+            ).lastrowid)
+            blocked, healthy = (to_int(conn.execute(
+                """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at)
+                   VALUES(?,?,?,1,1,?)""",
+                (name, "nexusphp", f"https://{name}.example", utc_now()),
+            ).lastrowid) for name in ("captcha", "healthy"))
+            task_id = to_int(conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,item_ids_json,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (playlist_id, 1, 2, "queued", 2, json.dumps([first_id, second_id]), utc_now(), utc_now()),
+            ).lastrowid)
+        calls: list[tuple[str, str]] = []
+
+        class Client:
+            async def search(self, site: dict, title: str, imdb_id: str | None) -> list[dict]:
+                calls.append((site["name"], title))
+                if site["name"] == "captcha":
+                    raise SearchCaptcha()
+                return []
+
+        media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
+        with patch("app.services.search.recognize_item", AsyncMock(return_value=media)), \
+             patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.services.search.NexusPHPClient", return_value=Client()), \
+             patch("app.services.search.SEARCH_FILM_CONCURRENCY", 1):
+            await run_search(task_id)
+        # 逐部搜索时，被拦截的站点只请求一次（第一部片的第一个检索词），之后不再请求。
+        self.assertEqual(sum(1 for name, _ in calls if name == "captcha"), 1)
+        with connect() as conn:
+            attempts = conn.execute(
+                "SELECT playlist_item_id,status,error_code,error_message FROM search_attempts WHERE task_id=? AND site_id=? ORDER BY id",
+                (task_id, blocked),
+            ).fetchall()
+            task = conn.execute("SELECT status,error_message FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+        self.assertEqual([(row["playlist_item_id"], row["status"], row["error_code"]) for row in attempts],
+                         [(first_id, "failed", "site_blocked"), (second_id, "failed", "site_blocked")])
+        self.assertIn("本次任务已跳过", attempts[1]["error_message"])
+        self.assertEqual(task["status"], "partial")
+        self.assertIn("人机验证", task["error_message"])
+        retry_id, retry_total = create_followup_search_task(task_id, True)
+        self.assertEqual(retry_total, 2)
+
+
+class TitleIdentityRegressionTests(IsolatedAppTestCase):
+    """任务 #2 里被误排除的真实标题。"""
+
+    def test_single_film_editions_are_not_collections(self) -> None:
+        from app.domain.titles import is_collection_title
+
+        single = [
+            "Double Indemnity 1944 2160p Criterion Collection UHD BluRay x265 10bit HDR DTS-HD MA 1.0-ADE",
+            "Harakiri 1962 CC Repack 1080p BluRay x265 10bit FLAC-ADE",
+            "Memories of Murder REPACK 2003 4K REMASTERED FRA BluRay 1080p x264 DTS 2Audios-CMCT",
+            "Raise the Red Lantern 1991 BluRay 1080p x264 FLAC-CMCT 大红灯笼高高挂 / Épouses et concubines 张艺谋作品系列 内封简繁字幕",
+            "Chungking Express 1994 JPN 1080p BluRay x264 DTS-2Audios-CMCT 重庆森林 国粤双语日本修复版 王家卫作品系列之（三）",
+        ]
+        collections = [
+            "The Godfather Trilogy 1972-1990 BluRay 1080p x265 10bit MNHD-FRDS",
+            "[教父I II III合集] The Godfather 1972-1990 BluRay 720p x264 AC3 2Audios-CMCT",
+            "Kar-Wai Wong Film Collection 1988-2013 BluRay 1080p x265 10bit MNHD-FRDS",
+            "Alien Quadrilogy Box Set 1979-1997 BluRay 1080p x264-CMCT",
+            "教父三部曲 The Godfather BluRay 1080p x265-FRDS",
+        ]
+        for title in single:
+            with self.subTest(title=title[:40]):
+                self.assertFalse(is_collection_title(title))
+        for title in collections:
+            with self.subTest(title=title[:40]):
+                self.assertTrue(is_collection_title(title))
+        item = {
+            "tmdb_title": "双重赔偿", "tmdb_original_title": "Double Indemnity", "original_title": "Double Indemnity",
+            "chinese_title": None, "year": 1944, "tmdb_year": 1944,
+        }
+        self.assertEqual(candidate_identity(item, {"year": "1944"}, single[0]), (True, None))
+        # 种子带的 IMDb 编号与目标一致时，CC 版不再被当成合集。
+        item["tmdb_imdb_id"] = "tt0036775"
+        self.assertEqual(candidate_identity(item, {"year": "1944", "imdb_id": "tt0036775"}, single[0], "tt0036775"), (True, None))
+
+    def test_accents_and_alternative_titles_match(self) -> None:
+        cleo = {
+            "tmdb_title": "五至七时的克莱奥", "tmdb_original_title": "Cléo de 5 à 7", "original_title": "Cléo from 5 to 7",
+            "chinese_title": None, "year": 1962, "tmdb_year": 1962,
+        }
+        self.assertEqual(candidate_identity(cleo, {"year": "1962"}, "Cleo from 5 to 7 1962 Bluray 1080p x265 10bit FLAC MNHD-FRDS"), (True, None))
+        eight = {
+            "tmdb_title": "八部半", "tmdb_original_title": "8½", "original_title": "8½",
+            "chinese_title": None, "year": 1963, "tmdb_year": 1963,
+        }
+        title = "Eight and a Half 1963 CC 1080p BluRay x265 10bit FLAC 1.0-ADE"
+        self.assertFalse(candidate_identity(eight, {"year": "1963"}, title)[0])
+        with_alt = {**eight, "tmdb_alt_titles_json": json.dumps(["Eight and a Half", "Otto e mezzo"])}
+        self.assertEqual(candidate_identity(with_alt, {"year": "1963"}, title), (True, None))
+        # 其他片名仍受年份约束。
+        self.assertFalse(candidate_identity(with_alt, {"year": "1963"}, "Eight and a Half 2019 1080p WEB x265-ADE")[0])
+
+    async def test_alternative_titles_are_fetched_once_and_filtered(self) -> None:
+        from app.services.recognition import ensure_alt_titles
+
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            item_id = to_int(conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,tmdb_title,tmdb_original_title)
+                   VALUES(?,1,'Tropical Malady',2004,9999,'热带疾病','สัตว์ประหลาด')""",
+                (playlist_id,),
+            ).lastrowid)
+            item = conn.execute("SELECT * FROM playlist_items WHERE id=?", (item_id,)).fetchone()
+        fetch = AsyncMock(return_value=["Sud Pralad", "สัตว์ประหลาด!", "Tropical Malady", "Mal du tropique"])
+        with patch.object(settings, "tmdb_api_key", "test-key"), \
+             patch("app.services.recognition.TMDBClient.movie_alternative_titles", new=fetch):
+            item = await ensure_alt_titles(item)
+            item = await ensure_alt_titles(item)
+        fetch.assert_awaited_once()
+        # 泰文与已有片名去掉，只留能与种子标题比对的其他片名。
+        self.assertEqual(json.loads(item["tmdb_alt_titles_json"]), ["Sud Pralad", "Mal du tropique"])
+
+
+class ReleaseGroupingTests(IsolatedAppTestCase):
+    def test_same_release_across_sites_folds_into_one_candidate(self) -> None:
+        from app.services.candidates import present_candidates
+
+        gb = 1024**3
+        # 卡萨布兰卡线上数据：同一个 13.22 GB 的 mUHD-FRDS 在各站标题写法不同（附中文介绍、加前缀、词序不同）。
+        variants = [
+            ("听听歌", "Casablanca 1942 2160p UHD BluRay x265 10bit HDR 6Audio mUHD-FRDS 【卡萨布兰卡/北非谍影】国语配音", 38),
+            ("家园", "Casablanca 1942 UHD BluRay 2160p x265 10bit HDR 6Audio mUHD-FRDS", 39),
+            ("葡萄", "[卡萨布兰卡] Casablanca 1942 2160p UHD BluRay x265 10bit HDR 6Audio mUHD-FRDS", 10),
+            ("铂金家", "Casablanca 1942 2160p UHD BluRay x265 10bit HDR 6Audio mUHD-FRDS", 12),
+        ]
+        rows = [{
+            "id": f"c{index}", "playlist_item_id": 1, "rank_no": 11, "title": title, "site_name": site,
+            "size": int(13.22 * gb) + index * 1024, "seeders": seeders, "group_name": "FRDS", "resolution": "2160p",
+            "ranking": index, "eligibility": "eligible", "metadata_json": "{}", "score_breakdown": "[]",
+            "detail_url": f"https://{index}.example/details.php?id={index}&passkey=secret", "in_selection": 0,
+        } for index, (site, title, seeders) in enumerate(variants)]
+        rows.append({**rows[0], "id": "other", "title": "Casablanca.1942.BluRay.1080p.x265.10bit.5Audio.MNHD-FRDS",
+                     "size": int(4.52 * gb), "resolution": "1080p", "seeders": 122, "ranking": 9})
+        grouped = present_candidates(rows, [])
+        self.assertEqual(len(grouped), 2)
+        uhd = next(item for item in grouped if item["resolution"] == "2160p")
+        # 展示做种最多的一条，其余站点折叠；详情页地址去掉了 passkey。
+        self.assertEqual((uhd["site_name"], uhd["seeders"], uhd["site_count"]), ("家园", 39, 4))
+        self.assertEqual(uhd["detail_url"], "https://1.example/details.php?id=1")
+        self.assertEqual([option["site_name"] for option in uhd["site_options"]], ["家园", "听听歌", "铂金家", "葡萄"])
+        self.assertTrue(all(option["title"] for option in uhd["site_options"]))
+
+
+class ConcurrentSearchTests(IsolatedAppTestCase):
+    async def test_imdb_hit_skips_title_queries(self) -> None:
+        from app.services.search import search_one_site
+
+        site = {"id": 1, "name": "Site", "adapter": "nexusphp", "limit_interval": 0}
+        client = AsyncMock()
+        client.search = AsyncMock(return_value=[{"title": "Movie.2020.1080p", "imdbid": "tt1"}])
+        queries = [("Movie", "tt1", "IMDb tt1"), ("Movie 2020", None, "Movie 2020"), ("电影 2020", None, "电影 2020")]
+        item = {"id": 1, "rank_no": 1, "original_title": "Movie"}
+        with patch("app.services.search.record_search_attempt"):
+            _, torrents, reason, query_count, _ = await search_one_site(
+                1, item, site, {"nexusphp": client}, asyncio.Semaphore(1), queries,
+                is_target=lambda torrent: torrent.get("imdbid") == "tt1",
+            )
+        self.assertIsNone(reason)
+        self.assertEqual((query_count, len(torrents)), (1, 1))
+        # IMDb 只搜到别的影片（站点模糊匹配编号）时，继续按片名检索。
+        client.search = AsyncMock(return_value=[{"title": "Other.2012.1080p", "imdbid": "tt9"}])
+        with patch("app.services.search.record_search_attempt"):
+            _, _, _, query_count, _ = await search_one_site(
+                1, item, site, {"nexusphp": client}, asyncio.Semaphore(1), queries,
+                is_target=lambda torrent: torrent.get("imdbid") == "tt1",
+            )
+        self.assertEqual(query_count, 3)
+
+    async def test_transient_site_errors_are_retried(self) -> None:
+        import httpx
+
+        from app.services.search import search_one_site
+
+        def http_error(status: int) -> httpx.HTTPStatusError:
+            request = httpx.Request("GET", "https://ttg.example/browse.php")
+            return httpx.HTTPStatusError("error", request=request, response=httpx.Response(status, request=request))
+
+        site = {"id": 1, "name": "听听歌", "adapter": "nexusphp", "limit_interval": 0}
+        item = {"id": 1, "rank_no": 1, "original_title": "Movie"}
+        queries = [("Movie", None, "Movie")]
+        cases = (
+            ([http_error(500), [{"title": "Movie.2020.1080p"}]], None, 2),  # 一次 500 后恢复
+            ([http_error(500)] * 3, "http_error", 3),  # 重试两次仍失败
+            ([http_error(404)], "http_error", 1),  # 404 不是临时错误，不重试
+        )
+        for effects, expected_code, calls in cases:
+            with self.subTest(expected=expected_code, calls=calls):
+                client = AsyncMock()
+                client.search = AsyncMock(side_effect=effects)
+                with patch("app.services.search.record_search_attempt"), \
+                     patch("app.services.search.TRANSIENT_RETRY_DELAYS", (0, 0)):
+                    _, _, _, _, code = await search_one_site(1, item, site, {"nexusphp": client}, asyncio.Semaphore(1), queries)
+                self.assertEqual(code, expected_code)
+                self.assertEqual(client.search.await_count, calls)
+
+    async def test_films_search_in_parallel_and_finished_films_leave_searching(self) -> None:
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            item_ids = [to_int(conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,library_state) VALUES(?,?,?,?,'not_found')",
+                (playlist_id, rank, f"Movie {rank}", 2020),
+            ).lastrowid) for rank in (1, 2, 3, 4)]
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at) VALUES('S','nexusphp','https://s.example',1,1,?)",
+                (utc_now(),),
+            )
+            task_id = to_int(conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,item_ids_json,created_at,updated_at)
+                   VALUES(?,1,4,'queued',4,?,?,?)""",
+                (playlist_id, json.dumps(item_ids), utc_now(), utc_now()),
+            ).lastrowid)
+        running = 0
+        peak = 0
+        release = asyncio.Event()
+        first_done = asyncio.Event()
+        searching_while_running: list[set[int]] = []
+
+        async def fake_search_site(_task_id: int, item: object, site: dict, *_args: object, **_kwargs: object) -> tuple:
+            nonlocal running, peak
+            running += 1
+            peak = max(peak, running)
+            if to_int(item["rank_no"]) == 1:  # type: ignore[index]
+                running -= 1
+                first_done.set()
+                return site, [], None, 1, None
+            await release.wait()
+            running -= 1
+            return site, [], None, 1, None
+
+        async def observe() -> None:
+            await first_done.wait()
+            await asyncio.sleep(0.05)
+            from app.services.films import _active_search_items
+            with connect() as conn:
+                searching_while_running.append(_active_search_items(conn, set(item_ids)))
+            release.set()
+
+        media = {"id": 91, "title": "Movie", "original_title": "Movie", "release_date": "2020-01-01"}
+        with patch("app.services.search.recognize_item", AsyncMock(return_value=media)), \
+             patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.services.search.search_one_site", new=fake_search_site):
+            await asyncio.gather(run_search(task_id), observe())
+        self.assertEqual(peak, 3)  # 同时最多 3 部：第一部搜完后第四部补上
+        # 第一部已搜完不再算“寻片中”；仍在搜和排队的影片仍是。
+        self.assertEqual(searching_while_running, [set(item_ids[1:])])
+        with connect() as conn:
+            task = conn.execute("SELECT status,completed,done_item_ids_json FROM search_tasks WHERE id=?", (task_id,)).fetchone()
+        self.assertEqual((task["status"], task["completed"]), ("completed", 4))
+        self.assertEqual(sorted(json.loads(task["done_item_ids_json"])), sorted(item_ids))
 
 
 class SearchQueueGuardTests(IsolatedAppTestCase):
@@ -590,9 +919,9 @@ class RecognizedTitleSearchTests(IsolatedAppTestCase):
                    VALUES(?,1,1,'queued',1,'2026-09-13','2026-09-13')""", (playlist_id,),
             ).lastrowid
 
-        async def search_site(task, item, site, clients, semaphore, queries):
+        async def search_site(task, item, site, clients, semaphore, queries, **_kwargs):
             return site, [{"title": "Interstellar.2014.1080p.BluRay.x265-ADE",
-                           "site_name": "Audit", "size": 1000000000, "seeders": 10}], None, 1
+                           "site_name": "Audit", "size": 1000000000, "seeders": 10}], None, 1, None
 
         media = {"id": 157336, "title": "星际穿越", "original_title": "Interstellar", "release_date": "2014-11-07"}
         with patch("app.services.search.recognize_item", new=AsyncMock(return_value=media)), \

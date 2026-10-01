@@ -11,6 +11,7 @@ import json
 from typing import Any
 
 from ..state import raw_candidates
+from ..domain.releases import ReleaseClusters
 from ..util import resource_fingerprint, rows_to_dicts, to_int, volume_factor_value
 from ..outbound import safe_detail_url
 from .films import current_candidate_tasks
@@ -42,9 +43,16 @@ def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any
         labels = [str(label).lower() for label in item["metadata"].get("labels", [])]
         item["volume_factor"] = factor
         item["is_free"] = factor == 0 or any(label in ("free", "免费", "freeleech") for label in labels)
-    groups: dict[tuple[int, str], list[dict[str, Any]]] = {}
-    for item in result:
-        groups.setdefault((to_int(item["playlist_item_id"]), item["resource_key"]), []).append(item)
+    # 同一发布跨站点折叠：标题写法不同（附中文介绍、词序不同）但制作组、分辨率与体积一致的视为同一个种子。
+    # 可选与已排除的分开归类，排除的副本不会盖住可选的那条。
+    groups: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
+    clusters: dict[tuple[int, str], ReleaseClusters] = {}
+    for item in sorted(result, key=lambda row: to_int(row.get("ranking") or 0)):
+        scope = (to_int(item["playlist_item_id"]), str(item.get("eligibility") or "eligible"))
+        release = clusters.setdefault(scope, ReleaseClusters()).key(
+            item["title"], item.get("size"), item.get("group_name"), item.get("resolution"),
+        )
+        groups.setdefault((*scope, release), []).append(item)
     grouped: list[dict[str, Any]] = []
     for options in groups.values():
         # 同资源跨站点折叠：优先展示做种人数最多的发布（用户可实际下载），
@@ -61,6 +69,7 @@ def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any
             "volume_factor": option["volume_factor"], "labels": option["metadata"].get("labels", []),
             "in_selection": option.get("in_selection", 0), "context_available": option["context_available"],
             "detail_url": safe_detail_url(option.get("detail_url")), "publish_time": option["metadata"].get("publish_time"),
+            "title": option["title"],
         } for option in options]
         factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {to_int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
         primary["site_selection_reason"] = (

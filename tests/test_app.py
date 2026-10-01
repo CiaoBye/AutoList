@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 import httpx
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.config import settings
@@ -56,6 +57,30 @@ class LoggingTests(SeededPlaylistTestCase):
         # 清空日志后读取为空。
         await log_routes.clear_log_events()
         self.assertEqual(await log_routes.log_events(), [])
+
+    async def test_log_events_page_backwards_and_accept_several_levels(self) -> None:
+        logs_dir = Path(self.temp.name) / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        lines = [
+            {"ts": "2026-08-01T10:00:00+00:00", "level": "INFO", "event": "a"},
+            {"ts": "2026-08-01T10:01:00+00:00", "level": "WARNING", "event": "b"},
+            {"ts": "2026-08-01T10:02:00+00:00", "level": "ERROR", "event": "c"},
+            {"ts": "2026-08-01T10:02:00+00:00", "level": "INFO", "event": "d"},
+            {"ts": "2026-08-01T10:03:00.500000+00:00", "level": "INFO", "event": "e"},
+        ]
+        (logs_dir / "autolist.log").write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+        from app.api import logs as log_routes
+
+        first = await log_routes.log_events(limit=2)
+        # 本页最早一条（d）与 c 同一时刻，c 一并返回，下一页不会漏掉或重复。
+        self.assertEqual([event["event"] for event in first], ["e", "d", "c"])
+        rest = await log_routes.log_events(limit=2, before=first[-1]["ts"])
+        self.assertEqual([event["event"] for event in rest], ["b", "a"])
+        self.assertEqual(await log_routes.log_events(before="2026-08-01T10:00:00+00:00"), [])
+        problems = await log_routes.log_events(level="warning,ERROR")
+        self.assertEqual([event["event"] for event in problems], ["c", "b"])
+        with self.assertRaises(HTTPException):
+            await log_routes.log_events(before="not-a-time")
 
     async def test_configure_logging_writes_rotating_json_file(self) -> None:
         """configure_logging 在数据目录创建 JSON 行日志，事件字段进入文件。"""

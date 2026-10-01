@@ -8,6 +8,7 @@ import { useLoad, useToast } from "../hooks";
 import { TRANSFER_LABELS } from "../status";
 import { CandidateRow } from "../components/CandidateRow";
 import type { FilmDetail, TmdbMatch } from "../types";
+import { DrawerLayer } from "../components/DrawerLayer";
 
 interface Step {
   title: string;
@@ -195,7 +196,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
 
   return (
-    <>
+    <DrawerLayer>
       <button class="drawer-backdrop" type="button" aria-label="关闭影片详情" tabIndex={-1} onClick={onClose} />
       <aside class="drawer drawer-film" role="dialog" aria-modal="true" aria-labelledby="film-title">
         <div class="drawer-head">
@@ -377,6 +378,6 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           </>
         ) : null}
       </aside>
-    </>
+    </DrawerLayer>
   );
 }

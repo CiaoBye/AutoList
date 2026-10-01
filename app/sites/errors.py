@@ -25,5 +25,10 @@ class CloudflareChallenge(SiteError):
         super().__init__("站点开启了 Cloudflare 人机验证，暂时无法自动搜索")
 
 
+class SearchCaptcha(SiteError):
+    def __init__(self) -> None:
+        super().__init__("站点要求搜索人机验证，请在浏览器打开该站的种子列表页完成验证后再搜索")
+
+
 class ApiError(SiteError):
     """站点 API 返回的业务错误。"""

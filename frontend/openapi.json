@@ -149,6 +149,17 @@
             "title": "Context Available",
             "type": "boolean"
           },
+          "detail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Url"
+          },
           "eligibility": {
             "title": "Eligibility",
             "type": "string"
@@ -273,6 +284,7 @@
           "id",
           "title",
           "site_name",
+          "detail_url",
           "size",
           "seeders",
           "resolution",
@@ -1833,6 +1845,16 @@
             },
             "title": "Playlists",
             "type": "array"
+          },
+          "searching": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PickSearchProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1841,6 +1863,30 @@
           "playlists"
         ],
         "title": "PickPage",
+        "type": "object"
+      },
+      "PickSearchProgress": {
+        "description": "进行中的寻片：搜完的影片会陆续出现在挑选台。",
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_id",
+          "completed",
+          "total"
+        ],
+        "title": "PickSearchProgress",
         "type": "object"
       },
       "PlaylistAutomationPayload": {
@@ -3747,6 +3793,17 @@
             "title": "Context Available",
             "type": "boolean"
           },
+          "detail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Url"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -3794,11 +3851,17 @@
               }
             ],
             "title": "Size"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
           }
         },
         "required": [
           "id",
+          "title",
           "site_name",
+          "detail_url",
           "seeders",
           "size",
           "is_free",
@@ -5013,7 +5076,7 @@
         "summary": "Clear Log Events"
       },
       "get": {
-        "description": "Return the most recent structured event lines, newest first.\n\nlevel: exact match on INFO/WARNING/ERROR; query: substring match on the\nwhole line (event name, movie, site, error text ...).",
+        "description": "Return the most recent structured event lines, newest first.\n\nlevel: INFO/WARNING/ERROR, several separated by commas; query: substring match on the\nwhole line (event name, movie, site, error text ...); before: only events older than this\ntimestamp (the oldest ``ts`` of the previous page), for loading earlier pages.",
         "operationId": "log_events_api_logs_events_get",
         "parameters": [
           {
@@ -5043,6 +5106,16 @@
             "schema": {
               "default": "",
               "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Before",
               "type": "string"
             }
           }

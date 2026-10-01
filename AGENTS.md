@@ -16,7 +16,7 @@
 ## 架构与界面
 
 - 界面源码在 `frontend/`（Preact + Vite + TypeScript），构建到 `app/static/ui/`，不入库。
-- 页面：藏馆 `#/`（只做总览）、片单 `#/films[/:id]`、挑选 `#/pick`、动态 `#/timeline`、设置 `#/settings/:section`，均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
+- 页面：藏馆 `#/`（只做总览）、片单 `#/films[/:id]`、挑选 `#/pick`、动态 `#/timeline`、设置 `#/settings[/:section]`（不带分区是概览），均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
 - 影片状态只在服务端计算（`app/services/films.py`），前端不自行推断。
 - 前端读取的接口在 `app/responses.py` 声明返回格式（路由写 `response_model`）；前端接口类型只在 `frontend/src/types.ts` 引用生成的类型，不手写字段。改动返回格式后运行 `.venv/bin/python scripts/export_openapi.py` 更新 `frontend/openapi.json`，前端构建会据此重新生成类型。
 - PT 站点接入集中在 `app/sites/`：新增或修正站点优先改站点档案；修改解析逻辑必须用 `tests/fixtures/sites/` 的真实页面回归，新增样本前清除 passkey、签名、用户编号与用户名等账号信息。

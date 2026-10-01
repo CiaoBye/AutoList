@@ -63,7 +63,9 @@ class FilmPage(Model):
 
 class SiteOption(Model):
     id: str
+    title: str
     site_name: str | None
+    detail_url: str | None
     seeders: int | None
     size: Number | None
     is_free: bool
@@ -75,6 +77,7 @@ class Candidate(Model):
     id: str
     title: str
     site_name: str | None
+    detail_url: str | None
     size: Number | None
     seeders: int | None
     resolution: str | None
@@ -188,10 +191,18 @@ class PickItem(Film):
     excluded_count: int
 
 
+class PickSearchProgress(Model):
+    """进行中的寻片：搜完的影片会陆续出现在挑选台。"""
+    task_id: int
+    completed: int
+    total: int
+
+
 class PickPage(Model):
     items: list[PickItem]
     counts: dict[str, int]
     playlists: list[PlaylistSummary]
+    searching: PickSearchProgress | None = None
 
 
 # ---------- 动态 ----------

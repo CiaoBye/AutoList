@@ -61,6 +61,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         # 影片详情横幅剧照。NULL = 未查过，'' = 没有。
         "fanart_backdrop_url": "TEXT",
         "tmdb_backdrop_path": "TEXT",
+        # TMDB 其他片名（JSON 数组），寻片比对种子标题时也认这些名字。NULL = 未取过。
+        "tmdb_alt_titles_json": "TEXT",
     },
     "pt_sites": {
         "user_agent": "TEXT NOT NULL DEFAULT ''", "priority": "INTEGER NOT NULL DEFAULT 100",
@@ -79,6 +81,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "search_tasks": {
         "parent_task_id": "INTEGER", "trigger": "TEXT NOT NULL DEFAULT 'manual'",
         "site_ids_json": "TEXT", "item_ids_json": "TEXT", "pair_scope_json": "TEXT",
+        # 已搜完的影片：任务进行中这些影片不再算“寻片中”，候选立即出现在挑选台。
+        "done_item_ids_json": "TEXT",
     },
     "search_attempts": {"query_count": "INTEGER NOT NULL DEFAULT 1"},
     "download_history": {

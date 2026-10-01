@@ -86,14 +86,55 @@ export function SecretField({
   );
 }
 
-export function Toggle({ label, checked, onChange, hint }: { label: string; checked: boolean; onChange: (value: boolean) => void; hint?: string }) {
+/** 行式设置卡片的标题栏：可带序号或图标，右侧放说明或操作；下面接若干 setting-row。 */
+export function CardHead({ id, title, step, icon, note, children }: {
+  id: string;
+  title: string;
+  step?: number;
+  icon?: string;
+  note?: ComponentChildren;
+  children?: ComponentChildren;
+}) {
   return (
-    <label class="toggle">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange((event.target as HTMLInputElement).checked)} />
-      <span class="toggle-text">
+    <header class="setting-card-head">
+      {step ? <span class="setting-card-step" aria-hidden="true">{step}</span> : null}
+      {icon ? <img src={icon} alt="" width="20" height="20" /> : null}
+      <h3 id={id}>{title}</h3>
+      {note ? <span class="muted setting-card-note">{note}</span> : null}
+      {children ? <span class="setting-card-actions">{children}</span> : null}
+    </header>
+  );
+}
+
+/** 未保存修改的提示与“放弃修改”，放在保存按钮前。 */
+export function DirtyNote({ dirty, onReset }: { dirty: boolean; onReset: () => void }) {
+  return (
+    <>
+      {dirty ? (
+        <span class="service-row-dirty">
+          <span class="dot dot-warn" aria-hidden="true" />
+          有未保存的修改
+        </span>
+      ) : null}
+      <span class="grow" />
+      {dirty ? (
+        <button class="btn" type="button" onClick={onReset}>
+          放弃修改
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/** 行式设置：左边名称与说明，右边开关。 */
+export function SwitchRow({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label class="setting-row">
+      <span class="setting-row-text">
         <strong>{label}</strong>
         {hint ? <small>{hint}</small> : null}
       </span>
+      <input class="switch" type="checkbox" role="switch" checked={checked} onChange={(event) => onChange((event.target as HTMLInputElement).checked)} />
     </label>
   );
 }

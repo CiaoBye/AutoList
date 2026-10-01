@@ -80,17 +80,19 @@ def _snapshot_item_ids(raw: Any) -> list[int] | None:
 def _active_search_items(conn: Any, item_ids: set[int]) -> set[int]:
     active: set[int] = set()
     for task in conn.execute(
-        "SELECT playlist_id,range_start,range_end,item_ids_json FROM search_tasks WHERE status IN ('queued','running')"
+        "SELECT playlist_id,range_start,range_end,item_ids_json,done_item_ids_json FROM search_tasks WHERE status IN ('queued','running')"
     ).fetchall():
+        # 任务进行中已搜完的影片按搜索结果显示（待挑选 / 无合格资源），不再等整批结束。
+        done = set(_snapshot_item_ids(task["done_item_ids_json"]) or [])
         snapshot = _snapshot_item_ids(task["item_ids_json"])
         if snapshot is not None:
-            active.update(item_id for item_id in snapshot if item_id in item_ids)
+            active.update(item_id for item_id in snapshot if item_id in item_ids and item_id not in done)
             continue
         for row in conn.execute(
             "SELECT id FROM playlist_items WHERE playlist_id=? AND rank_no BETWEEN ? AND ?",
             (task["playlist_id"], task["range_start"], task["range_end"]),
         ).fetchall():
-            if to_int(row["id"]) in item_ids:
+            if to_int(row["id"]) in item_ids and to_int(row["id"]) not in done:
                 active.add(to_int(row["id"]))
     return active
 

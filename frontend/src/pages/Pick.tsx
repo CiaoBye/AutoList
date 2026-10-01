@@ -106,6 +106,8 @@ export function Pick({ route }: { route: Route }) {
       return api<PickPage>(`/api/picks?${search.toString()}`, { signal });
     },
     [status, playlist],
+    // 寻片进行中时定时刷新：每部片搜完就会出现在这里，不必等整批结束。
+    (data) => (data?.searching ? 8000 : null),
   );
   const selection = useLoad<SelectionItem[]>((signal) => api<SelectionItem[]>("/api/selection", { signal }), []);
 
@@ -193,6 +195,17 @@ export function Pick({ route }: { route: Route }) {
         </div>
       ) : null}
 
+      {data?.searching ? (
+        <div class="notice pick-searching" role="status">
+          <span>
+            寻片进行中 <span class="num">{data.searching.completed} / {data.searching.total}</span>，搜完的影片会陆续出现在这里
+          </span>
+          <a class="btn btn-small" href={href("/timeline", { task: data.searching.task_id })}>
+            查看进度
+          </a>
+        </div>
+      ) : null}
+
       {picks.error && !data ? (
         <div class="notice notice-bad" role="alert">
           挑选台读取失败：{picks.error.message}
@@ -203,7 +216,7 @@ export function Pick({ route }: { route: Route }) {
       ) : null}
       {!data && !picks.error ? <p class="muted">正在读取挑选台……</p> : null}
 
-      {data && !data.items.length ? (
+      {data && !data.items.length && !data.searching ? (
         <div class="card empty">
           <strong>{status === "all" ? "挑选台暂无待选资源" : `没有“${BUCKET_LABELS[status]}”的影片`}</strong>
           <span>为缺片寻片后，合格资源会按电影出现在这里。</span>

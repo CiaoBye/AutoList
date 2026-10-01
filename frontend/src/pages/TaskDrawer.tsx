@@ -4,6 +4,7 @@ import { formatTime } from "../format";
 import { useLoad } from "../hooks";
 import { useAction } from "./settings/shared";
 import type { SearchAttempts, SearchTask, SearchTaskLog, SearchTaskStarted } from "../types";
+import { DrawerLayer } from "../components/DrawerLayer";
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "排队中", running: "进行中", completed: "已完成", partial: "部分完成", failed: "失败",
@@ -57,7 +58,7 @@ export function TaskDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     );
 
   return (
-    <>
+    <DrawerLayer>
       <button class="drawer-backdrop" type="button" aria-label="关闭任务详情" tabIndex={-1} onClick={onClose} />
       <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="task-title">
         <div class="drawer-head">
@@ -159,6 +160,6 @@ export function TaskDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           </>
         ) : null}
       </aside>
-    </>
+    </DrawerLayer>
   );
 }

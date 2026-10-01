@@ -263,6 +263,11 @@
     display: none;
   }
 
+  /* 手机上寻片进度占位时收起副标题，避免把主题按钮挤出屏幕。 */
+  .topnav:has(.nav-status.is-busy) .brand span {
+    display: none;
+  }
+
   .tabbar {
     position: fixed;
     right: 0;

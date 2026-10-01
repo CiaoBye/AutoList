@@ -47,6 +47,23 @@ def insert_search_task(
     ).lastrowid)
 
 
+def active_search_progress(conn: sqlite3.Connection, playlist_id: int | None) -> dict[str, int] | None:
+    """排队或进行中的寻片任务合计进度（可按片单），没有时返回 None。"""
+    sql = "SELECT id,completed,total FROM search_tasks WHERE status IN ('queued','running')"
+    params: tuple[Any, ...] = ()
+    if playlist_id is not None:
+        sql += " AND playlist_id=?"
+        params = (playlist_id,)
+    rows = conn.execute(sql + " ORDER BY id", params).fetchall()
+    if not rows:
+        return None
+    return {
+        "task_id": to_int(rows[0]["id"]),
+        "completed": sum(to_int(row["completed"]) for row in rows),
+        "total": sum(to_int(row["total"]) for row in rows),
+    }
+
+
 def recent_search_tasks(conn: sqlite3.Connection, playlist_id: int | None, limit: int) -> list[dict[str, Any]]:
     """最近的寻片任务（不含已归档），每项附 ``attempt_summary``。"""
     if playlist_id is None:

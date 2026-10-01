@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS playlist_items (
   source_ref TEXT,
   fanart_backdrop_url TEXT,
   tmdb_backdrop_path TEXT,
+  tmdb_alt_titles_json TEXT,
   emby_item_id TEXT,
   emby_image_tag TEXT,
   library_state TEXT NOT NULL DEFAULT 'unknown',
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS search_tasks (
   site_ids_json TEXT,
   item_ids_json TEXT,
   pair_scope_json TEXT,
+  done_item_ids_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

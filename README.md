@@ -4,7 +4,7 @@
 
 AutoList 是独立运行的片单识别、PT 寻片与下载决策服务。片单、站点、规则、候选与下载历史保存在本地 SQLite；TMDB 负责影片识别，Emby 负责确认实体入馆，MoviePilot 负责分类并提交 Transmission 下载。
 
-当前版本：`2.33`。
+当前版本：`2.35`。
 
 ## 工作方式
 
@@ -60,7 +60,7 @@ docker compose ps
 
 - 数据持久化到命名卷 `autolist_data`，挂载为容器内 `/data`；容器默认以 UID `10001` 运行。
 - `.env` 不是必需文件。需要时可在同目录 `.env` 设置 `APP_PORT=8585` 与 `AUTOLIST_ACCESS_TOKEN=<长随机令牌>`；其余连接信息也可用环境变量预填，见 `.env.example`。
-- 升级：`docker compose pull && docker compose up -d`，升级前先按下文备份数据库。
+- 升级：`docker compose pull && docker compose up -d`，升级前先按下文备份数据库（`scripts/deploy-fnos.sh` 会自动备份）。
 
 ### 飞牛（fnOS）局域网部署
 

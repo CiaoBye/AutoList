@@ -105,6 +105,18 @@ class SyncEventParseTests(unittest.TestCase):
         self.assertIsNone(sync_events.parse("emby", json.dumps({"Event": "playback.start", "Item": {}}).encode(), {}))
 
 
+class EmbyEventBurstTests(IsolatedAppTestCase):
+    async def test_a_burst_of_emby_events_runs_one_merged_recheck(self) -> None:
+        recheck = AsyncMock(return_value=0)
+        with patch.object(sync_events, "EVENT_DEBOUNCE_SECONDS", 0.05), patch.object(sync_events, "recheck_library_states", recheck):
+            for _ in range(25):
+                sync_events.handle(sync_events.Hint("emby", "library_new", None, 7))
+            sync_events.handle(sync_events.Hint("emby", "library_new", None, 8))
+            self.assertEqual(len([task for task in sync._background if not task.done()]), 1)
+            await asyncio.sleep(0.3)
+        self.assertEqual(recheck.await_count, 1)
+
+
 class SyncEventEndpointTests(IsolatedAppTestCase):
     def setUp(self) -> None:
         super().setUp()

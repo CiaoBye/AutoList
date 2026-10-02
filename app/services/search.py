@@ -648,11 +648,16 @@ async def run_search(task_id: int) -> None:
         item, label, state, tmdb_id = film["item"], film["label"], film["state"], film["tmdb_id"]
         media, site_failures = film["media"], film["site_failures"]
         with connect() as conn:
-            stale = [row["id"] for row in conn.execute(
-                "SELECT id FROM candidates WHERE task_id=? AND playlist_item_id=?", (task_id, item["id"]),
-            ).fetchall()]
+            # 用户已选进待入馆清单的资源整行保留（选择表随候选级联删除），重写时只替换其余候选。
+            rows = conn.execute(
+                """SELECT c.id, c.site_name, c.resource_key, s.candidate_id IS NOT NULL AS picked FROM candidates c
+                   LEFT JOIN selection_items s ON s.candidate_id=c.id WHERE c.task_id=? AND c.playlist_item_id=?""",
+                (task_id, item["id"]),
+            ).fetchall()
+            stale = [row["id"] for row in rows if not row["picked"]]
+            picked_keys = {(row["site_name"], row["resource_key"]) for row in rows if row["picked"]}
             if stale:
-                conn.execute("DELETE FROM candidates WHERE task_id=? AND playlist_item_id=?", (task_id, item["id"]))
+                conn.executemany("DELETE FROM candidates WHERE id=?", [(candidate_id,) for candidate_id in stale])
         for candidate_id in stale:
             forget_raw_candidate(candidate_id)
         pairs = sorted(film["pairs"], key=lambda pair: analyze_candidate(str(first_value(pair[1], ("title", "torrent_name", "name"), "")), 0, config, pair[1], policy)["ranking"])
@@ -730,6 +735,8 @@ async def run_search(task_id: int) -> None:
                 "source": analyzed["source"], "profile_label": analyzed.get("profile_label"),
             })
             fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))
+            if (first_value(torrent, ("site_name", "site")), fingerprint) in picked_keys:
+                continue
             candidate_rows.append((
                 candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
                 first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],

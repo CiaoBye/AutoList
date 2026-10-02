@@ -1,7 +1,7 @@
 {
   "name": "autolist-next",
   "private": true,
-  "version": "2.3.3",
+  "version": "2.35.0",
   "description": "AutoList “电影藏馆”界面",
   "type": "module",
   "engines": {

@@ -39,6 +39,27 @@ rsync -az --delete \
   --exclude='data' \
   ./ "${FNOS_HOST}:${REMOTE_SRC}/"
 
+# 2.5 部署前备份数据库：用 SQLite 在线备份接口备份到数据目录，权限 600；备份失败则中止部署。
+CONTAINER="${AUTOLIST_CONTAINER:-Autolist}"
+if ssh "${FNOS_HOST}" "docker inspect -f '{{.State.Running}}' ${CONTAINER} 2>/dev/null | grep -q true"; then
+  echo "💾 部署前备份数据库..."
+  BACKUP_NAME=$(ssh "${FNOS_HOST}" "docker exec ${CONTAINER} python -c \"
+import sqlite3, time
+from app.config import APP_VERSION
+name = '/data/playlist-autodown.db.bak-%s-%s' % (APP_VERSION, time.strftime('%Y%m%d'))
+source = sqlite3.connect('/data/playlist-autodown.db')
+target = sqlite3.connect(name)
+source.backup(target)
+target.close()
+source.close()
+print(name)
+\"") || { echo "❌ 数据库备份失败，已中止部署。"; exit 1; }
+  ssh "${FNOS_HOST}" "docker exec ${CONTAINER} chmod 600 ${BACKUP_NAME}" || { echo "❌ 备份文件权限设置失败，已中止部署。"; exit 1; }
+  echo "   已备份：${BACKUP_NAME}"
+else
+  echo "⚠️  未找到运行中的 ${CONTAINER} 容器，跳过备份。"
+fi
+
 # 3. 飞牛本地 Docker 原生构建
 echo "🔨 [3/4] 在飞牛 NAS 上执行 Docker 原生构建 (利用本地缓存)..."
 ssh "${FNOS_HOST}" "docker build --build-arg NODE_IMAGE=${NODE_IMAGE} -t autolist:local -t ayuanaa/autolist:latest ${REMOTE_SRC}"

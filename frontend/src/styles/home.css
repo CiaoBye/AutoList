@@ -163,11 +163,11 @@
   }
 
   .score-num {
-    font-size: 40px;
+    font-size: var(--fs-display);
   }
 
   .score-main .score-num {
-    font-size: 52px;
+    font-size: var(--fs-hero);
   }
 }
 
@@ -212,11 +212,11 @@
   }
 
   .score-num {
-    font-size: 30px;
+    font-size: var(--fs-2xl);
   }
 
   .score-main .score-num {
-    font-size: 40px;
+    font-size: var(--fs-display);
   }
 
   .score-label {
@@ -350,6 +350,11 @@
 }
 
 /* 间距与 hooks.ts 的 useShelfCardWidth 一致：卡片与海报架之间、海报架与海报架之间 32px（--home-gap）。 */
+/* 第一次量好海报宽度之前不显示，避免先出现偏大的海报再缩小。 */
+.shelves:not(.is-ready) {
+  visibility: hidden;
+}
+
 .shelf {
   margin-top: var(--home-gap);
 }

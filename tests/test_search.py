@@ -867,6 +867,55 @@ class CaptchaResumeTests(IsolatedAppTestCase):
         self.assertEqual(site["last_status"], "ok")
 
 
+class RewriteKeepsSelectionTests(IsolatedAppTestCase):
+    async def test_rewriting_candidates_keeps_resources_already_selected(self) -> None:
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            film_id = to_int(conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,library_state) VALUES(?,1,'Alpha',2020,'not_found')",
+                (playlist_id,),
+            ).lastrowid)
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at) VALUES('站点J','nexusphp','https://aud.example/',1,1,?)",
+                (utc_now(),),
+            )
+            task_id = to_int(conn.execute(
+                """INSERT INTO search_tasks(playlist_id,range_start,range_end,status,total,item_ids_json,created_at,updated_at)
+                   VALUES(?,1,1,'queued',1,?,?,?)""",
+                (playlist_id, json.dumps([film_id]), utc_now(), utc_now()),
+            ).lastrowid)
+        results: list[list[dict]] = [[{"title": "Alpha 2020 1080p BluRay x265 10bit-FRDS", "size": 8 * 1024**3, "seeders": 5, "site_name": "站点J"}], []]
+
+        class Client:
+            async def search(self, site: dict, title: str, imdb_id: str | None) -> list[dict]:
+                return results[0]
+
+        async def recognize(item: object) -> dict:
+            return {"id": 1, "title": "Alpha", "original_title": "Alpha", "release_date": "2020-01-01"}
+
+        async def search_again() -> None:
+            with patch("app.services.search.recognize_item", new=recognize), \
+                 patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
+                 patch("app.services.search.NexusPHPClient", return_value=Client()):
+                with connect() as conn:
+                    conn.execute("UPDATE search_tasks SET status='queued' WHERE id=?", (task_id,))
+                await run_search(task_id)
+
+        await search_again()
+        with connect() as conn:
+            candidate_id = conn.execute("SELECT id FROM candidates WHERE task_id=?", (task_id,)).fetchone()["id"]
+            conn.execute("INSERT INTO selection_items(candidate_id,selected_at) VALUES(?,?)", (candidate_id, utc_now()))
+        # 再搜一次：站点返回同一资源（换了 ID 也要还在），以及站点这次什么都没返回，选定的都不能丢。
+        await search_again()
+        results[0] = []
+        await search_again()
+        with connect() as conn:
+            picked = conn.execute("SELECT candidate_id FROM selection_items").fetchall()
+            total = conn.execute("SELECT COUNT(*) FROM candidates WHERE task_id=?", (task_id,)).fetchone()[0]
+        self.assertEqual([row["candidate_id"] for row in picked], [candidate_id])
+        self.assertEqual(total, 1)
+
+
 class SiteSafetyAndSupplementTests(IsolatedAppTestCase):
     async def test_same_site_requests_are_spaced_and_never_concurrent(self) -> None:
         from app.services import search as search_service

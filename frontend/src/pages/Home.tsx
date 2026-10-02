@@ -243,15 +243,7 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
   const segments = BAR_ORDER.filter((status) => counts[status] > 0);
   const others = segments.filter((status) => status !== "in_library");
 
-  const realDecisions = data.todos.filter((todo): todo is DecisionTodo => todo.key !== "search_missing");
-  // 临时预览：地址里加 ?demo=todos 会在藏馆里放几条示例待办，用来检查有待办时的版式（定稿后去掉）。
-  const demoDecisions: DecisionTodo[] = [
-    { key: "submit", count: 2 },
-    { key: "no_eligible", count: 1 },
-    { key: "download_stalled", count: 3 },
-    { key: "failing_sites", count: 1, names: ["站点J"] },
-  ];
-  const decisions = /[?&]demo=todos/.test(window.location.hash) ? demoDecisions : realDecisions;
+  const decisions = data.todos.filter((todo): todo is DecisionTodo => todo.key !== "search_missing");
   const shownTodos = todosExpanded ? decisions : decisions.slice(0, TODO_VISIBLE);
 
   return (
@@ -411,7 +403,7 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
         </section>
       ) : null}
 
-      <div ref={shelves.ref} class="shelves">
+      <div ref={shelves.ref} class={`shelves${shelves.ready ? " is-ready" : ""}`}>
       {data.up_next.length
         ? (
             <Shelf

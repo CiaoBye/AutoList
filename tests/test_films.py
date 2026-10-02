@@ -1006,3 +1006,47 @@ class SwappedResourceTests(IsolatedAppTestCase):
         self.assertEqual([(entry["hash"], entry["keep_data"]) for entry in found], [("e" * 40, True)])
         # 比新资源更晚加入的停滞种子不算被取代。
         self.assertEqual(await replaced([{**stalled, "addedDate": now + 10}, healthy]), [])
+
+
+class ExternalDuplicateTests(IsolatedAppTestCase):
+    async def test_every_external_torrent_of_a_film_counts_not_just_one(self) -> None:
+        now = int(time.time())
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,library_state)
+                   VALUES(?,1,'Dup Film',2020,300,'not_found')""", (playlist_id,),
+            )
+            for torrent_hash in ("a" * 40, "b" * 40):
+                conn.execute(
+                    "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at) VALUES(?,?,?,?,?,?)",
+                    (torrent_hash, "Dup Film", 2020, 300, "moviepilot", utc_now()),
+                )
+        stalled = {"hashString": "a" * 40, "name": "Dup.Film.2020.OLD", "status": 4, "percentDone": 0.0, "rateDownload": 0,
+                   "peersSendingToUs": 0, "activityDate": 0, "addedDate": now - 30 * 3600}
+        healthy = {"hashString": "b" * 40, "name": "Dup.Film.2020.NEW", "status": 4, "percentDone": 0.2, "rateDownload": 900000,
+                   "peersSendingToUs": 5, "activityDate": now, "addedDate": now - 600}
+
+        async def issues(torrents: list[dict[str, object]]) -> list[str]:
+            with patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=(torrents, "known_present"))), \
+                 patch("app.services.films.organize_failures", new=AsyncMock(return_value={})):
+                page = await film_routes.films(playlist_id=playlist_id, status="all", q="", page=1, page_size=60)
+            return page["items"][0]["issues"]
+
+        async def replaced(torrents: list[dict[str, object]]) -> list[str]:
+            with connect() as conn:
+                items = [dict(row) for row in conn.execute("SELECT * FROM playlist_items").fetchall()]
+            with patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=(torrents, "known_present"))), \
+                 patch("app.services.films.organize_failures", new=AsyncMock(return_value={})):
+                return [entry["hash"] for entry in await film_service.replaced_stalled_torrents(items)]
+
+        # 较旧的健康、较新的停滞：有一个没停滞，就不算“下载停滞”；较新的不算被取代。
+        newer_stalled = {**stalled, "addedDate": now}
+        older_healthy = {**healthy, "addedDate": now - 30 * 3600}
+        self.assertEqual(await issues([older_healthy, newer_stalled]), [])
+        self.assertEqual(await replaced([older_healthy, newer_stalled]), [])
+        # 较旧的停滞、较新的健康：旧任务被找出来清理。
+        self.assertEqual(await issues([stalled, healthy]), [])
+        self.assertEqual(await replaced([stalled, healthy]), ["a" * 40])
+        # 只有停滞的仍然报告。
+        self.assertEqual(await issues([stalled]), ["download_stalled"])

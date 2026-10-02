@@ -95,6 +95,12 @@ RUNTIME_SETTING_CLEAR_FIELDS = {
 }
 
 
+SECRET_SETTING_FIELDS = (
+    "mp_api_key", "emby_api_key", "tmdb_api_key", "fanart_api_key", "mdblist_api_key",
+    "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_password",
+)
+
+
 def _runtime_setting_clear_values(raw_payload: dict[str, Any]) -> dict[str, str]:
     """Parse explicit clear markers without weakening partial-update semantics.
 
@@ -171,7 +177,12 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request
         raise HTTPException(422, "设置请求体无效") from exc
     if not isinstance(raw_payload, dict):
         raise HTTPException(422, "设置请求体必须是对象")
-    values.update(_runtime_setting_clear_values(raw_payload))
+    cleared = _runtime_setting_clear_values(raw_payload)
+    # 密钥类字段留空（null 或空字符串）都表示保留原值，清除只认显式的 clear_<字段>: true。
+    for key in SECRET_SETTING_FIELDS:
+        if key not in cleared and not str(values.get(key) or "").strip():
+            values.pop(key, None)
+    values.update(cleared)
     for key, label in (
         ("mp_base_url", "MoviePilot 地址"),
         ("emby_base_url", "Emby 地址"),
@@ -187,7 +198,6 @@ async def put_runtime_settings(payload: RuntimeSettingsPayload, request: Request
     for key in ("mp_api_key", "emby_api_key", "tmdb_api_key", "fanart_api_key", "mdblist_api_key", "cookiecloud_url", "cookiecloud_key", "cookiecloud_password", "ai_api_key", "tr_username", "tr_password"):
         if values.get(key) is None:
             values.pop(key, None)
-        # API 客户端显式发送空字符串时清除；设置页留空字段则发送 null 并保留原值。
         elif str(values[key]).strip() == "":
             values[key] = ""
     save_runtime_settings(values)

@@ -146,6 +146,7 @@ export function Timeline({ route }: { route: Route }) {
 
       {taskId !== null ? (
         <TaskDrawer
+          key={taskId}
           id={taskId}
           onClose={() => navigate(href("/timeline", baseQuery))}
           onChanged={() => void events.reload()}

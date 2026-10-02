@@ -1,5 +1,5 @@
 import { createContext } from "preact";
-import { useCallback, useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ApiError } from "./api";
 
 export interface Loadable<T> {
@@ -73,7 +73,7 @@ export function useLoad<T>(
       else setTick((value) => value + 1);
     }, interval);
     return () => window.clearTimeout(timer);
-  }, [data, reload, tick]);
+  }, [data, error, reload, tick]); // 请求失败时 data 不变，靠 error 变化重新排程，网络恢复后继续刷新。
 
   return { data, error, loading, reload };
 }
@@ -124,7 +124,8 @@ export function useShelfCardWidth(lines: number[], deps: unknown[]) {
   useLayoutEffect(() => {
     const measure = (): boolean => {
       const element = ref.current;
-      if (!element || rows < 1) return false;
+      if (rows < 1) return true;
+      if (!element) return false;
       const top = element.getBoundingClientRect().top + window.scrollY;
       // 窄屏底部固定的标签栏会挡住海报，按它的上沿计算可用高度。
       const tabbar = document.querySelector<HTMLElement>(".tabbar");
@@ -149,7 +150,7 @@ export function useShelfCardWidth(lines: number[], deps: unknown[]) {
         if (measure()) setReady(true);
       });
     };
-    measure();
+    if (measure()) setReady(true);
     schedule();
     window.addEventListener("resize", schedule);
     return () => {

@@ -38,7 +38,7 @@
 - 下载只经 MoviePilot 提交到 Transmission，由其写入 `MOVIEPILOT` 与站点名标签，供 MoviePilot 接管整理；AutoList 不直连 Transmission 添加任务；对 Transmission 唯一的写操作是同步时删除“已被新资源取代的停滞旧任务”（`app/services/sync.py`），其余只读。
 - 界面更新必须用浏览器在 1440、1024、768、375px 下检查全部页面，并确认控制台无错误。
 - **新版本默认部署**：每次递增版本并通过上述验证后，直接执行 `bash scripts/deploy-fnos.sh` 部署到飞牛，无需再征求同意；验证未通过时不部署。
-- 部署前先在容器内用 SQLite 备份接口备份数据库（`/data/playlist-autodown.db.bak-<当前版本>-<日期>`，权限改为 `600`）；部署后确认健康检查、版本号、设置脱敏、各服务连接与数据完整性，并用浏览器检查线上页面。
+- `scripts/deploy-fnos.sh` 部署前会在容器内用 SQLite 备份接口备份数据库（`/data/playlist-autodown.db.bak-<被替换的版本>-<日期>`，权限 `600`），备份失败即中止；部署后确认健康检查、版本号、设置脱敏、各服务连接与数据完整性，并用浏览器检查线上页面。
 - Docker 部署只运行一个 AutoList 容器；完成后只保留当前 AutoList 业务镜像（核对悬空镜像的 Cmd 含 `app.main:app` 后再删除）。
 - 数据目录和 `.env` 不进入构建上下文，不覆盖远端持久化数据；未经用户同意不修改生产数据。
 

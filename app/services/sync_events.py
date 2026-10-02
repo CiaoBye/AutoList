@@ -162,11 +162,33 @@ def _record(hint: Hint) -> None:
         )
 
 
-async def _after_emby(tmdb_id: int) -> None:
-    """Emby 报告某部影片入库：只向 Emby 复查片单里对应的影片。"""
-    with connect() as conn:
-        ids = film_queries.item_ids_by_tmdb(conn, tmdb_id)
-    await recheck_library_states(ids)
+# Emby 入库事件按 TMDB 编号合并：同一批事件攒在一起、只跑一个后台复查，查询并发由复查本身限制，
+# 事件集中到达（整库刷新、批量入库）时不会叠出一堆并行的 Emby 请求。
+_emby_pending: set[int] = set()
+_emby_drain: asyncio.Task[None] | None = None
+
+
+async def _drain_emby() -> None:
+    await asyncio.sleep(EVENT_DEBOUNCE_SECONDS)
+    while _emby_pending:
+        tmdb_ids = sorted(_emby_pending)
+        _emby_pending.clear()
+        with connect() as conn:
+            ids = sorted({item_id for tmdb_id in tmdb_ids for item_id in film_queries.item_ids_by_tmdb(conn, tmdb_id)})
+        try:
+            await recheck_library_states(ids)
+        except Exception as exc:
+            event_logger().warning("sync_event_failed", extra={"error": safe_error(exc)})
+
+
+def _after_emby(tmdb_id: int) -> None:
+    """Emby 报告某部影片入库：只向 Emby 复查片单里对应的影片（合并同批事件）。"""
+    global _emby_drain
+    _emby_pending.add(tmdb_id)
+    if _emby_drain is None or _emby_drain.done():
+        _emby_drain = asyncio.get_running_loop().create_task(_drain_emby())
+        sync._background.add(_emby_drain)
+        _emby_drain.add_done_callback(sync._background.discard)
 
 
 async def _after_delay() -> None:
@@ -201,9 +223,7 @@ def handle(hint: Hint) -> None:
                 conn, hint.hash, title=None, year=None, tmdb_id=hint.tmdb_id, poster_path=None, source="moviepilot",
             )
     if hint.source == "emby" and hint.tmdb_id:
-        task = asyncio.get_running_loop().create_task(_after_emby(hint.tmdb_id))
-        sync._background.add(task)
-        task.add_done_callback(sync._background.discard)
+        _after_emby(hint.tmdb_id)
         return
     _schedule_sync()
 

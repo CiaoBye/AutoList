@@ -290,6 +290,7 @@ async def _attach_external(
         media = download_queries.torrent_media(conn, [_torrent_hash(torrent) for torrent in unknown])
     cutoff = time.time() - EXTERNAL_FINISHED_DAYS * 86400
     best: dict[int, dict[str, Any]] = {}
+    running: dict[int, list[dict[str, Any]]] = {}  # 每部影片全部未下完的外部种子
     pending = {
         _match_key(name, item): (name, item)
         for torrent in unknown
@@ -309,6 +310,8 @@ async def _attach_external(
         if not _unfinished(torrent) and to_int(torrent.get("addedDate")) < cutoff:
             continue
         for item_id in _external_matches(torrent, media.get(_torrent_hash(torrent)), items, by_tmdb):
+            if _unfinished(torrent):
+                running.setdefault(item_id, []).append(torrent)
             current = best.get(item_id)
             # 同一部影片有多个种子时，优先未下完的，其次最近加入的。
             rank = (_unfinished(torrent), to_int(torrent.get("addedDate")))
@@ -318,8 +321,10 @@ async def _attach_external(
         failures = await organize_failures()
     for item_id, torrent in best.items():
         signals.external.add(item_id)
-        if _unfinished(torrent):
-            _note_active(signals, item_id, torrent)
+        if item_id in running:
+            # 同一部影片可能有多个下载：全部记下，才能判断“有没停滞的在进行”，也才能找出被取代的停滞旧任务。
+            for active in running[item_id]:
+                _note_active(signals, item_id, active)
         elif _torrent_hash(torrent) in failures:
             signals.organize_failed.add(item_id)
 

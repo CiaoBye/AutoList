@@ -61,6 +61,9 @@ export function Films({ route }: { route: Route }) {
 
   useEffect(() => setDraft(query), [query]);
 
+  // 路由参数变了（点了别的片单 / 筛选 / 页面）或离开本页：作废还没触发的搜索输入，免得它把刚完成的导航拉回来。
+  useEffect(() => () => window.clearTimeout(debounce.current), [playlist, status, query, page, view]);
+
   // 记住的片单已被删除：忘掉它，回到默认。
   useEffect(() => {
     if (!playlistParam && films.error?.status === 404 && readCurrentPlaylist()) {
@@ -348,7 +351,7 @@ export function Films({ route }: { route: Route }) {
         />
       ) : null}
 
-      {route.filmId !== null ? <FilmDrawer id={route.filmId} onClose={closeFilm} onChanged={() => void films.reload()} /> : null}
+      {route.filmId !== null ? <FilmDrawer key={route.filmId} id={route.filmId} onClose={closeFilm} onChanged={() => void films.reload()} /> : null}
     </main>
   );
 }

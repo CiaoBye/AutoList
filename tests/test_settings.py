@@ -135,8 +135,12 @@ class RuntimeSettingsPartialUpdateTests(IsolatedAppTestCase):
             self.assertEqual(kept.status_code, 200)
             kept_after = client.get("/api/settings").json()
             self.assertTrue(kept_after["mp_api_key_configured"])
-            # 显式空字符串清除密钥
-            cleared = client.put("/api/settings", json={"mp_api_key": "", "emby_base_url": ""})
+            # 空字符串同样保留密钥（非密钥的地址字段留空仍是清除）
+            blank = client.put("/api/settings", json={"mp_api_key": "", "emby_base_url": ""})
+            self.assertEqual(blank.status_code, 200)
+            self.assertTrue(client.get("/api/settings").json()["mp_api_key_configured"])
+            # 清除密钥只认显式标记
+            cleared = client.put("/api/settings", json={"clear_mp_api_key": True})
             self.assertEqual(cleared.status_code, 200)
             cleared_after = client.get("/api/settings").json()
             self.assertFalse(cleared_after["mp_api_key_configured"])

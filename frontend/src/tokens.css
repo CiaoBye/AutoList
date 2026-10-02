@@ -152,6 +152,7 @@
   --fs-xl: 22px;
   --fs-2xl: 30px;
   --fs-display: 40px;
+  --fs-hero: 52px;
   /* 间距：4 为基准的一组（4 / 8 / 12 / 16 / 20 / 24 / 32 / 48），gap、padding、margin 只用它们，0、1、2px 的细微调整除外。 */
   --space-1: 4px;
   --space-2: 8px;

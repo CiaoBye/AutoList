@@ -44,6 +44,6 @@
 
 ## 文档
 
-- 仓库只保留 `README.md`（当前行为与部署）、`CHANGELOG.md`（版本记录）、`AGENTS.md`（协作规范）与 `CONTEXT.md`（领域术语），不新增审计报告、路线图、截图或原型等历史文档；过时内容直接删除或改写。
+- 仓库只保留 `README.md`（项目简介、功能、快速开始，保持精简）、`CHANGELOG.md`（版本记录）、`AGENTS.md`（协作规范）与 `CONTEXT.md`（领域术语），不新增审计报告、路线图或原型等历史文档；README 用到的界面截图放在 `docs/screenshots/`（用公开影片数据，不得出现站点名、地址、账号或下载记录）；过时内容直接删除或改写。
 - 规格、票据、测试与界面文案使用 `CONTEXT.md` 中的术语；新概念先补充到 `CONTEXT.md`，不要悄悄创造同义词。
 - 需求规格与实现票据保存在本地 `.scratch/<feature-slug>/`（`spec.md` 与 `issues/<NN>-<slug>.md`，顶部保留 `Status:` 行），不入库，完成后删除。

@@ -739,7 +739,7 @@ class ConcurrentSearchTests(IsolatedAppTestCase):
         from app.services.search import search_one_site
 
         def http_error(status: int) -> httpx.HTTPStatusError:
-            request = httpx.Request("GET", "https://ttg.example/browse.php")
+            request = httpx.Request("GET", "https://alt.example/browse.php")
             return httpx.HTTPStatusError("error", request=request, response=httpx.Response(status, request=request))
 
         site = {"id": 1, "name": "站点A", "adapter": "nexusphp", "limit_interval": 0}

@@ -36,3 +36,9 @@ venv/
 
 # 由 frontend/openapi.json 生成（npm run gen:api），不入库
 frontend/src/api-schema.d.ts
+
+# Claude Code 本机配置与交接记录
+.claude/
+
+# 本机部署配置
+scripts/deploy.local.env

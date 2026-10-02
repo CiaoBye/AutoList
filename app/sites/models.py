@@ -21,7 +21,7 @@ class Torrent:
     upload_factor: float = 1.0
     imdb_id: str | None = None
     tmdb_id: int | None = None
-    # 下载地址来自表单（如站点K的 POST 下载按钮）时为 "post"。
+    # 下载地址来自表单（如某站点的 POST 下载按钮）时为 "post"。
     download_method: str = "get"
     labels: list[str] = field(default_factory=list)
 

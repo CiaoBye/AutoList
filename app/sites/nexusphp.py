@@ -13,7 +13,7 @@ from .errors import CloudflareChallenge, CookieExpired, SearchCaptcha, SiteMaint
 from .models import Torrent
 from .profiles import SiteProfile
 
-# 表头排序链接 sort=N 是 NexusPHP 的通用约定，改过主题的站点（如站点J）也保留了它。
+# 表头排序链接 sort=N 是 NexusPHP 的通用约定，改过主题的站点也保留了它。
 SORT_COLUMNS = {"3": "comments", "4": "time", "5": "size", "6": "grabs", "7": "seeders", "8": "leechers"}
 # 表头文字或图标说明；“做种/下载”合在一列时单独识别。按顺序匹配，先匹配更具体的写法。
 HEADER_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -41,7 +41,7 @@ SIZE_UNITS = {"b": 1, "kb": 1024, "kib": 1024, "mb": 1024**2, "mib": 1024**2,
               "gb": 1024**3, "gib": 1024**3, "tb": 1024**4, "tib": 1024**4}
 # 登录页与权限提示：沿用 MoviePilot 的判断词，另加密码表单特征。
 LOGIN_MARKERS = ("未登录", "登录 / 注册", "必须在登录后才能访问", "你需要启用cookies才能登录")
-# 详情页上“种子不存在或已被删除”的提示：NexusPHP 简繁英语言包与常见改版（站点A写作“没有此 ID 的种子”）。
+# 详情页上“种子不存在或已被删除”的提示：NexusPHP 简繁英语言包与常见改版（某站点写作“没有此 ID 的种子”）。
 # “你没有该权限”既可能是种子不存在也可能是权限不足，不算删除。
 SEARCH_CAPTCHA = re.compile(r"人机验证未通过|人機驗證未通過")
 DELETED_MARKERS = re.compile(
@@ -87,7 +87,7 @@ def detect_interruption(final_path: str, html: str) -> None:
         raise CookieExpired()
     if any(marker in head for marker in LOGIN_MARKERS) and "logout.php" not in head:
         raise CookieExpired()
-    # 改版站点（如站点J）对搜索单独做人机验证，未通过时只返回一条错误提示，不能当作“没有结果”。
+    # 改版站点对搜索单独做人机验证，未通过时只返回一条错误提示，不能当作“没有结果”。
     if SEARCH_CAPTCHA.search(head):
         raise SearchCaptcha()
     # 登录表单里嵌的 Turnstile 验证码也来自 challenges.cloudflare.com，所以放在登录页判断之后。
@@ -95,7 +95,7 @@ def detect_interruption(final_path: str, html: str) -> None:
         raise CloudflareChallenge()
 
 
-# 站点K等站点的下载按钮带时效签名（download.php?id=…&t=…&sign=…），约一小时后失效，提交时需要从详情页换新的。
+# 部分站点的下载按钮带时效签名（download.php?id=…&t=…&sign=…），约一小时后失效，提交时需要从详情页换新的。
 SIGNED_DOWNLOAD = re.compile(r"download\.php\?id=(\d+)(?:&amp;|&)t=([^&\"'\s<>]+)(?:&amp;|&)sign=([^&\"'\s<>]+)")
 
 
@@ -124,7 +124,7 @@ def _text(element: Any) -> str:
 
 
 def _own_rows(table: Any) -> list[Any]:
-    """列表表格自己的行：跳过单元格里嵌套的小表格，兼容行被 <form> 或 <tbody> 包住的站点（如站点H）。"""
+    """列表表格自己的行：跳过单元格里嵌套的小表格，兼容行被 <form> 或 <tbody> 包住的站点。"""
     return [row for row in table.iter("tr") if next(row.iterancestors("table"), None) is table]
 
 

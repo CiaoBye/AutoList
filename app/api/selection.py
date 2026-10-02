@@ -213,7 +213,7 @@ async def submit_selection() -> dict[str, Any]:
                     present, fresh_link = await with_cookie_refresh(
                         site, lambda current: verify_and_refresh(current, detail_url, enclosure),
                     )
-                    # 站点K等站点的下载地址带时效签名（约一小时），用详情页上当前有效的地址提交。
+                    # 部分站点的下载地址带时效签名（约一小时），用详情页上当前有效的地址提交。
                     if present and is_signed_download(enclosure):
                         if not fresh_link:
                             raise RuntimeError("下载地址已过期，详情页上没有找到新的下载地址")

@@ -4,10 +4,13 @@
 
 set -euo pipefail
 
-FNOS_HOST="${FNOS_HOST:-fnos}"
-REMOTE_SRC="/vol1/1000/Docker/Autolist-src"
-REMOTE_COMPOSE="/vol1/1000/Docker/Autolist/docker-compose.yml"
-WEB_URL="${AUTOLIST_WEB_URL:-http://192.0.2.10:8585}"
+# 个人环境（SSH 主机别名、远端路径、访问地址）放在不入库的 scripts/deploy.local.env，或用环境变量传入。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ -f "${SCRIPT_DIR}/deploy.local.env" ] && . "${SCRIPT_DIR}/deploy.local.env"
+FNOS_HOST="${FNOS_HOST:?请设置 FNOS_HOST（~/.ssh/config 里的主机别名），可写在 scripts/deploy.local.env}"
+REMOTE_SRC="${REMOTE_SRC:?请设置 REMOTE_SRC（NAS 上存放源码的目录）}"
+REMOTE_COMPOSE="${REMOTE_COMPOSE:?请设置 REMOTE_COMPOSE（NAS 上 docker-compose.yml 的路径）}"
+WEB_URL="${AUTOLIST_WEB_URL:?请设置 AUTOLIST_WEB_URL（如 http://<NAS 地址>:8585）}"
 # 飞牛的 Docker 镜像加速源拉取 node:22-* 会返回 401，默认使用 NAS 本地已有的 Node 镜像构建前端。
 NODE_IMAGE="${AUTOLIST_NODE_IMAGE:-node:22.16.0-alpine}"
 
@@ -35,6 +38,9 @@ rsync -az --delete \
   --exclude='*.pyc' \
   --exclude='.DS_Store' \
   --exclude='.scratch' \
+  --exclude='.claude' \
+  --exclude='docs' \
+  --exclude='scripts/deploy.local.env' \
   --exclude='.pytest_cache' \
   --exclude='data' \
   ./ "${FNOS_HOST}:${REMOTE_SRC}/"

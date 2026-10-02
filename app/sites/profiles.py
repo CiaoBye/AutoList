@@ -17,7 +17,7 @@ NEXUS_DOWNLOAD = r"(?<![a-z])download\.php\?"
 @dataclass(frozen=True)
 class SiteProfile:
     key: str
-    # nexusphp：通用 NexusPHP 页面；official_api：站点D官方 API。
+    # nexusphp：通用 NexusPHP 页面；official_api：某站点官方 API。
     framework: str = "nexusphp"
     domains: tuple[str, ...] = ()
     search_path: str = "torrents.php"
@@ -48,7 +48,7 @@ class SiteProfile:
 NEXUSPHP = SiteProfile(key="nexusphp")
 
 PROFILES: tuple[SiteProfile, ...] = (
-    # 站点A：搜索框是 search_field，IMDb 写成“imdb0068646”；种子链接为 /t/<id>/ 与 /dl/<id>/。
+    # 某站点：搜索框是 search_field，IMDb 写成“imdb0068646”；种子链接为 /t/<id>/ 与 /dl/<id>/。
     SiteProfile(
         key="alt_layout",
         domains=("totheglory.im",),
@@ -62,7 +62,7 @@ PROFILES: tuple[SiteProfile, ...] = (
         download_pattern=r"(?:^|/)dl/\d+/",
         header_by_sort=False,
     ),
-    # 站点D：网页有二次验证，填了 API Key 时改走官方搜索接口。
+    # 某站点：网页有二次验证，填了 API Key 时改走官方搜索接口。
     SiteProfile(key="official_api_site", framework="official_api", domains=("hddolby.com",)),
 )
 

@@ -13,8 +13,8 @@ SIZE_TOLERANCE = 0.01
 class ReleaseClusters:
     """逐条归类资源，返回所属发布的键；同一部影片用一个实例。
 
-    制作组与分辨率都识别到、且体积相差不超过 1% 时视为同一发布（如站点A的“…mUHD-FRDS 【卡萨布兰卡…】”
-    与站点I的“Casablanca 1942 UHD BluRay 2160p … mUHD-FRDS”）；缺少任何一项时按标题与体积判断。"""
+    制作组与分辨率都识别到、且体积相差不超过 1% 时视为同一发布（如某站点的“…mUHD-FRDS 【卡萨布兰卡…】”
+    与某站点的“Casablanca 1942 UHD BluRay 2160p … mUHD-FRDS”）；缺少任何一项时按标题与体积判断。"""
 
     def __init__(self) -> None:
         self._known: list[tuple[str, str, int, str]] = []

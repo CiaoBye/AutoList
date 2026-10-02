@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError } from "../api";
+import { SetupGuide } from "../components/SetupGuide";
 import { ImportDialog } from "../components/ImportDialog";
 import { Poster } from "../components/Poster";
 import { SyncButton } from "../components/SyncButton";
@@ -121,12 +122,7 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
   if (!data.playlists.length || data.playlist_id === null) {
     return (
       <main class="page">
-        <div class="card empty">
-          <strong>还没有片单</strong>
-          <button class="btn btn-primary" type="button" onClick={() => setImporting(true)}>
-            导入片单
-          </button>
-        </div>
+        <SetupGuide onImport={() => setImporting(true)} />
         {importDialog}
       </main>
     );

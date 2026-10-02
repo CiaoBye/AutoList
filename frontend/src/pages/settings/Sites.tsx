@@ -16,7 +16,7 @@ const ADAPTER_LABELS: Record<string, string> = {
 
 const PROFILE_LABELS: Record<string, string> = {
   nexusphp: "NexusPHP 页面",
-  alt_layout: "NexusPHP 页面（站点A）",
+  alt_layout: "NexusPHP 页面（专用规则）",
   official_api_site: "官方 API",
 };
 
@@ -315,7 +315,7 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 type="number"
                 value={form.limit_interval}
                 placeholder="不限"
-                hint="搜索有频率限制的站点（如站点J）填 30"
+                hint="搜索有频率限制的站点填 30"
                 onInput={(value) => set("limit_interval", value)}
               />
               <TextField

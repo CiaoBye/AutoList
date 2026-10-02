@@ -1,4 +1,4 @@
-"""站点D官方搜索接口（参考 MoviePilot 的 官方爬虫实现）：不经过网页，因此不受二次验证影响。"""
+"""某站点官方搜索接口（参考 MoviePilot 的 官方爬虫实现）：不经过网页，因此不受二次验证影响。"""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ def request_body(title: str, imdb_id: str | None) -> dict[str, Any]:
 
 def parse_results(payload: Any, base_url: str) -> list[Torrent]:
     if not isinstance(payload, dict):
-        raise ApiError("站点D接口返回格式无效")
+        raise ApiError("某站点接口返回格式无效")
     if payload.get("error"):
         message = (payload.get("error") or {}).get("message") if isinstance(payload.get("error"), dict) else payload.get("error")
-        raise ApiError(f"站点D接口返回错误：{message or '未知错误'}")
+        raise ApiError(f"某站点接口返回错误：{message or '未知错误'}")
     base = base_url.rstrip("/") + "/"
     torrents = []
     for item in payload.get("data") or []:

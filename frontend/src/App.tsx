@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { api, AUTH_EVENT, getToken, setToken } from "./api";
-import { ToastContext, useLoad } from "./hooks";
+import { ToastContext, useLoad, useStaleData } from "./hooks";
 import { Films } from "./pages/Films";
 import { Home } from "./pages/Home";
 import { Pick } from "./pages/Pick";
@@ -80,6 +80,17 @@ function ServiceStatus() {
       <span class="dot" aria-hidden="true" />
       {label}
     </a>
+  );
+}
+
+/** 页面拿着旧数据、刷新却在失败时提示一下；网络恢复、请求成功后自动消失。 */
+function StaleBanner() {
+  const stale = useStaleData();
+  if (!stale) return null;
+  return (
+    <div class="stale-banner" role="status">
+      数据刷新失败，当前显示的可能不是最新内容，正在自动重试。
+    </div>
   );
 }
 
@@ -228,6 +239,7 @@ export function App() {
             </a>
           </div>
         </header>
+        <StaleBanner />
         <div id="main-content" tabIndex={-1}>{page}</div>
         <nav class="tabbar" aria-label="主导航">
           {NAV.map((item) => (

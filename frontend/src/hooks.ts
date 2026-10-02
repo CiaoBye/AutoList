@@ -37,6 +37,7 @@ export function useLoad<T>(
   pollRef.current = pollMs;
   const controllerRef = useRef<AbortController | null>(null);
   const [tick, setTick] = useState(0);
+  const failId = useRef(Symbol("load")).current;
 
   const reload = useCallback(async () => {
     controllerRef.current?.abort();
@@ -65,6 +66,11 @@ export function useLoad<T>(
   }, deps);
 
   useEffect(() => {
+    markFailing(failId, error !== null && data !== null);
+  }, [error, data]);
+  useEffect(() => () => markFailing(failId, false), []);
+
+  useEffect(() => {
     const interval = pollRef.current?.(data) ?? null;
     if (interval === null) return;
     const timer = window.setTimeout(() => {
@@ -76,6 +82,30 @@ export function useLoad<T>(
   }, [data, error, reload, tick]); // 请求失败时 data 不变，靠 error 变化重新排程，网络恢复后继续刷新。
 
   return { data, error, loading, reload };
+}
+
+// 已有数据却刷新失败的读取：用来在顶栏下提示“数据可能不是最新的”。恢复或页面卸载后自动移除。
+const failingLoads = new Set<symbol>();
+const failingListeners = new Set<() => void>();
+const markFailing = (id: symbol, failing: boolean) => {
+  if (failingLoads.has(id) === failing) return;
+  if (failing) failingLoads.add(id);
+  else failingLoads.delete(id);
+  failingListeners.forEach((listener) => listener());
+};
+
+/** 是否有页面正拿着旧数据、刷新却一直失败（如断网、服务暂时不可用）。 */
+export function useStaleData(): boolean {
+  const [stale, setStale] = useState(failingLoads.size > 0);
+  useEffect(() => {
+    const update = () => setStale(failingLoads.size > 0);
+    failingListeners.add(update);
+    update();
+    return () => {
+      failingListeners.delete(update);
+    };
+  }, []);
+  return stale;
 }
 
 export interface Toaster {

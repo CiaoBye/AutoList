@@ -207,6 +207,14 @@
   background: currentColor;
 }
 
+.stale-banner {
+  padding: var(--space-2) var(--page-gutter);
+  background: var(--issue-bg);
+  color: var(--issue-fg);
+  font-size: var(--fs-m);
+  text-align: center;
+}
+
 .toast {
   position: fixed;
   left: 50%;

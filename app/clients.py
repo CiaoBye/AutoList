@@ -880,7 +880,7 @@ class NexusPHPClient:
 
     @staticmethod
     def _tnode_stats(data: dict[str, Any]) -> dict[str, Any] | None:
-        """TNode SPA 站点（如站点T）的 /api/user/getInfo 用户信息。"""
+        """TNode SPA 站点的 /api/user/getInfo 用户信息。"""
         uploaded = to_int(data.get("upload") or 0)
         downloaded = to_int(data.get("download") or 0)
         if not uploaded and not downloaded:
@@ -910,7 +910,7 @@ class NexusPHPClient:
         banner = self._banner_stats(home.text)
         if banner:
             return banner
-        # TNode SPA（站点T等）：首页带 x-csrf-token，账户信息走 JSON API。
+        # TNode SPA：首页带 x-csrf-token，账户信息走 JSON API。
         csrf = re.search(r'<meta name="x-csrf-token" content="([^"]+)"', home.text)
         if csrf:
             info = await safe_request(
@@ -963,7 +963,7 @@ class NexusPHPClient:
             )
             if match:
                 return match.group(1)
-            # 反向：值 标签（如站点J站“111.555 TB 上传量”，标签在数值之后、无冒号）
+            # 反向：值 标签（如部分站点站“111.555 TB 上传量”，标签在数值之后、无冒号）
             match = re.search(rf"([\d][\d.,]*(?:\s*[TGMK]i?B)?)\s+(?:{pattern})(?=\s|$)", page_text, re.I)
             if match:
                 return match.group(1)

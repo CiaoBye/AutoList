@@ -307,7 +307,7 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
             api_key = str(s.get("apikey") or "").strip()
             ua = str(s.get("ua") or "").strip()
             priority = max(1, min(to_int(s.get("pri") or 100), 999))
-            # MoviePilot 默认 15 秒，AutoList 按 IMDb 与片名各搜一次，慢站（站点F、站点G）不够用，新站点至少 30 秒。
+            # MoviePilot 默认 15 秒，AutoList 按 IMDb 与片名各搜一次，慢站不够用，新站点至少 30 秒。
             timeout = max(30, min(to_int(s.get("timeout") or 30), 60))
             proxy = 1 if s.get("proxy") else 0
             render = 1 if s.get("render") else 0

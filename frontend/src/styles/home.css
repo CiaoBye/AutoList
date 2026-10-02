@@ -448,3 +448,93 @@
     grid-auto-columns: clamp(112px, 30vw, 150px);
   }
 }
+
+/* 第一次使用的引导：按顺序列出要做的几步。 */
+.setup-guide {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 720px;
+  margin: var(--space-6) auto 0;
+  padding: var(--space-6);
+}
+
+.setup-head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.setup-head h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+}
+
+.setup-head p {
+  margin: 0;
+}
+
+.setup-progress {
+  color: var(--accent);
+  font-size: var(--fs-l);
+}
+
+.setup-steps {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+
+.setup-mark {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--control-h-s);
+  height: var(--control-h-s);
+  border-radius: 50%;
+  background: var(--wash);
+  color: var(--muted);
+  font-size: var(--fs-m);
+  font-weight: 700;
+}
+
+.setup-step.is-done .setup-mark {
+  background: var(--st-in_library-bg);
+  color: var(--st-in_library-fg);
+}
+
+.setup-body {
+  display: grid;
+  flex: 1;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--fs-m);
+}
+
+.setup-step .btn,
+.setup-step .badge {
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .setup-guide {
+    padding: var(--space-4);
+  }
+
+  .setup-step {
+    flex-wrap: wrap;
+  }
+
+  .setup-body {
+    flex-basis: calc(100% - var(--control-h-s) - var(--space-3));
+  }
+}

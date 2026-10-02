@@ -33,11 +33,15 @@ from app.services.sites import apply_cookie_groups, refresh_stale_site_account_s
 from app.services.sites import test_site_config as _test_site_config
 from app.sites import errors, profile_for
 from app.sites.engine import check, search, verify
+from app.sites.profiles import PROFILES
 from app.sites.official_api_site import parse_results, request_body, search_url
 from app.sites.nexusphp import build_params, detect_interruption, parse_page, torrent_deleted
 from app.util import raster_image_media_type, to_int, utc_now, volume_factor_value
 from tests.support import IsolatedAppTestCase, SeededPlaylistTestCase
 
+# 两个有专用规则的站点域名只在站点档案里出现，测试从档案里取。
+ALT_HOST = next(profile.domains[0] for profile in PROFILES if profile.key == "alt_layout")
+API_HOST = next(profile.domains[0] for profile in PROFILES if profile.framework == "official_api")
 FIXTURES = Path(__file__).parent / "fixtures" / "sites"
 NOW = datetime(2026, 9, 28)
 
@@ -60,6 +64,9 @@ EXPECTED = {
 }
 
 
+ALT_SAMPLE = "tracker-a.example"  # 需要专用规则的那份样本，按档案里的域名解析
+
+
 def fixture(host: str) -> str:
     return (FIXTURES / f"{host}.html").read_text(encoding="utf-8")
 
@@ -69,7 +76,7 @@ class RealPageTests(unittest.TestCase):
         self.assertEqual({path.stem for path in FIXTURES.glob("*.html")}, set(EXPECTED))
         for host, (count, title, size, seeders, imdb, method) in EXPECTED.items():
             with self.subTest(host=host):
-                base = f"https://{host}/"
+                base = f"https://{ALT_HOST if host == ALT_SAMPLE else host}/"
                 rows = parse_page(fixture(host), profile_for(base), base, now=NOW)
                 self.assertEqual(len(rows), count)
                 first = rows[0]
@@ -94,9 +101,9 @@ class RealPageTests(unittest.TestCase):
 
 class ProfileTests(unittest.TestCase):
     def test_profiles_follow_domains_and_api_keys(self) -> None:
-        self.assertEqual(profile_for("https://tracker-a.example/").key, "alt_layout")
-        self.assertEqual(profile_for("https://www.tracker-d.example/").key, "nexusphp")
-        self.assertEqual(profile_for("https://www.tracker-d.example/", has_api_key=True).key, "official_api_site")
+        self.assertEqual(profile_for(f"https://{ALT_HOST}/").key, "alt_layout")
+        self.assertEqual(profile_for(f"https://www.{API_HOST}/").key, "nexusphp")
+        self.assertEqual(profile_for(f"https://www.{API_HOST}/", has_api_key=True).key, "official_api_site")
         self.assertEqual(profile_for("https://unknown-tracker.example/").key, "nexusphp")
 
     def test_search_params(self) -> None:
@@ -106,10 +113,10 @@ class ProfileTests(unittest.TestCase):
             {"search": "tt0068646", "search_area": 4, "search_mode": 0, "notnewword": 1},
         )
         self.assertEqual(build_params(nexus, "The Godfather", None)["search_area"], 0)
-        ttg = profile_for("https://tracker-a.example/")
+        alt = profile_for(f"https://{ALT_HOST}/")
         # 站点A：search_field，IMDb 写成 imdb0068646（与 MoviePilot 的 imdbid_format 相同）。
-        self.assertEqual(build_params(ttg, "The Godfather", "tt0068646"), {"c": "M", "search_field": "imdb0068646"})
-        self.assertEqual(build_params(ttg, "The Godfather", None), {"c": "M", "search_field": "The Godfather"})
+        self.assertEqual(build_params(alt, "The Godfather", "tt0068646"), {"c": "M", "search_field": "imdb0068646"})
+        self.assertEqual(build_params(alt, "The Godfather", None), {"c": "M", "search_field": "The Godfather"})
 
     def test_interruptions_are_explained(self) -> None:
         login = '<form action="takelogin.php"><input name="username"><input type="password" name="password"></form>'
@@ -155,18 +162,18 @@ class ProfileTests(unittest.TestCase):
 
 class OfficialApiTests(unittest.TestCase):
     def test_request_and_results(self) -> None:
-        self.assertEqual(search_url("https://www.tracker-d.example/"), "https://api.tracker-d.example/api/v1/torrent/search")
+        self.assertEqual(search_url(f"https://www.{API_HOST}/"), f"https://api.{API_HOST}/api/v1/torrent/search")
         self.assertEqual(request_body("Cure", "tt0123948")["keyword"], "tt0123948")
         payload = {"data": [{
             "id": 120202, "name": "Cure 1997 1080p BluRay x265-FRDS", "small_descr": "X圣治", "size": 9000,
             "seeders": 3, "leechers": 1, "times_completed": 7, "added": "2026-01-02 03:04:05",
             "promotion_time_type": 2, "downhash": "abc", "imdb_id": "tt0123948", "tmdb_id": 36095,
         }]}
-        [torrent] = parse_results(payload, "https://www.tracker-d.example/")
+        [torrent] = parse_results(payload, f"https://www.{API_HOST}/")
         self.assertEqual((torrent.download_factor, torrent.labels, torrent.tmdb_id), (0.0, ["FREE"], 36095))
-        self.assertEqual(torrent.download_url, "https://www.tracker-d.example/download.php?id=120202&downhash=abc")
+        self.assertEqual(torrent.download_url, f"https://www.{API_HOST}/download.php?id=120202&downhash=abc")
         with self.assertRaisesRegex(errors.ApiError, "密钥无效"):
-            parse_results({"error": {"message": "密钥无效"}}, "https://www.tracker-d.example/")
+            parse_results({"error": {"message": "密钥无效"}}, f"https://www.{API_HOST}/")
 
 
 class EngineTests(IsolatedAppTestCase):
@@ -186,13 +193,13 @@ class EngineTests(IsolatedAppTestCase):
         self.assertEqual(first["imdbid"], "tt0076461")
 
     async def test_official_api_with_api_key_uses_the_api(self) -> None:
-        site = {"name": "站点D", "base_url": "https://www.tracker-d.example", "api_key": "k", "cookie": ""}
-        response = httpx.Response(200, json={"data": []}, request=httpx.Request("POST", "https://api.tracker-d.example/api/v1/torrent/search"))
+        site = {"name": "站点D", "base_url": f"https://www.{API_HOST}", "api_key": "k", "cookie": ""}
+        response = httpx.Response(200, json={"data": []}, request=httpx.Request("POST", f"https://api.{API_HOST}/api/v1/torrent/search"))
         request = AsyncMock(return_value=response)
         with patch("app.sites.engine.safe_request", new=request):
             self.assertEqual(await search(site, "Cure"), [])
         call = request.await_args
-        self.assertEqual((call.args[1], call.args[2], call.kwargs["headers"]["x-api-key"]), ("POST", "https://api.tracker-d.example/api/v1/torrent/search", "k"))
+        self.assertEqual((call.args[1], call.args[2], call.kwargs["headers"]["x-api-key"]), ("POST", f"https://api.{API_HOST}/api/v1/torrent/search", "k"))
 
     async def test_check_falls_back_to_title_and_reports_empty(self) -> None:
         site = {"name": "站"}
@@ -228,7 +235,7 @@ class EngineTests(IsolatedAppTestCase):
             # 详情页不在本站时不带 Cookie 外发；官方 API 站点与没有详情页的候选无法确认。
             self.assertIsNone(await verify(site, "https://evil.example/details.php?id=1"))
             self.assertIsNone(await verify(site, None))
-            self.assertIsNone(await verify({"base_url": "https://www.tracker-d.example", "api_key": "k"}, "details.php?id=1"))
+            self.assertIsNone(await verify({"base_url": f"https://www.{API_HOST}", "api_key": "k"}, "details.php?id=1"))
         request.assert_not_awaited()
         self.assertFalse(torrent_deleted(200, "<h1>正常详情</h1>"))
         self.assertFalse(torrent_deleted(200, "<td>错误</td><td>你没有该权限！</td>"))
@@ -316,8 +323,8 @@ class SiteIconAndCookieCloudInputTests(unittest.TestCase):
         self.assertIsNone(raster_image_media_type(b"<svg onload='alert(1)'></svg>"))
 
     def test_site_icon_fallback_uses_site_name_not_url_scheme(self) -> None:
-        fallback = site_routes.site_icon_fallback("站点T", "https://tracker-t.example").decode("utf-8")
-        self.assertIn(">站点T</text>", fallback)
+        fallback = site_routes.site_icon_fallback("云雀", "https://site.example").decode("utf-8")
+        self.assertIn(">云雀</text>", fallback)
         self.assertNotIn(">HT</text>", fallback)
         self.assertEqual(site_routes.SITE_ICON_ENDPOINT_VERSION, 2)
 

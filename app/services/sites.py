@@ -1,4 +1,4 @@
-"""PT site adapter selection and connection helpers."""
+"""site adapter selection and connection helpers."""
 
 from __future__ import annotations
 
@@ -264,7 +264,7 @@ async def fetch_moviepilot_sites() -> list[dict[str, Any]]:
 
 
 async def sync_sites_from_moviepilot() -> dict[str, Any]:
-    """Import and synchronize configured PT sites from MoviePilot."""
+    """Import and synchronize configured sites from MoviePilot."""
     from ..config import APP_VERSION
     from ..logs import event_logger
     from .cookiecloud import cookiecloud_configured, pull_cookiecloud

@@ -15,7 +15,7 @@ export function ProxySettings({ health }: { health: SettingsHealth }) {
 
   if (!settings) return null;
   const savedUrl = String(settings.outbound_proxy_url || "");
-  const scopes = [settings.tmdb_proxy_enabled ? "TMDB / Fanart" : "", settings.pt_proxy_enabled ? "PT 站点" : ""].filter(Boolean);
+  const scopes = [settings.tmdb_proxy_enabled ? "TMDB / Fanart" : "", settings.pt_proxy_enabled ? "站点" : ""].filter(Boolean);
   const active = Boolean(savedUrl) && scopes.length > 0;
   const summary = savedUrl ? `${savedUrl} · ${scopes.length ? `${scopes.join("、")}走代理` : "未启用任何范围"}` : "未设置代理地址";
   return (
@@ -74,7 +74,7 @@ export function ProxySettings({ health }: { health: SettingsHealth }) {
               onChange={(value) => set("tmdb_proxy_enabled", value)}
             />
             <SwitchRow
-              label="PT 站点允许走代理"
+              label="站点允许走代理"
               checked={Boolean(form.pt_proxy_enabled)}
               onChange={(value) => set("pt_proxy_enabled", value)}
             />

@@ -282,7 +282,7 @@ async def test_all_sites() -> dict[str, Any]:
 
 @router.post("/api/sites/sync-moviepilot", response_model=MoviePilotSitesSynced)
 async def sync_sites_from_mp() -> dict[str, Any]:
-    """Sync and import PT sites configured in MoviePilot into AutoList."""
+    """Sync and import sites configured in MoviePilot into AutoList."""
     return await sync_sites_from_moviepilot()
 
 @router.post("/api/sites/sync-cookiecloud", response_model=CookieCloudSynced)

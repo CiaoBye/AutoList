@@ -7358,7 +7358,7 @@
     },
     "/api/sites/sync-moviepilot": {
       "post": {
-        "description": "Sync and import PT sites configured in MoviePilot into AutoList.",
+        "description": "Sync and import sites configured in MoviePilot into AutoList.",
         "operationId": "sync_sites_from_mp_api_sites_sync_moviepilot_post",
         "responses": {
           "200": {

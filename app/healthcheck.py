@@ -1,6 +1,6 @@
 """Container healthcheck: local process, scheduler heartbeat and SQLite file.
 
-Deliberately does not call TMDB, PT sites, Emby, Transmission, or MoviePilot.
+Deliberately does not call TMDB, sites, Emby, Transmission, or MoviePilot.
 The scheduler check distinguishes soft degradation from a stopped or stale
 heartbeat, so an optional playlist sync failure does not by itself flip the
 container unhealthy while a dead scheduler still fails health checks.

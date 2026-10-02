@@ -13,7 +13,7 @@ SENSITIVE_ASSIGNMENT = re.compile(
 BEARER_TOKEN = re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]+")
 URL_USERINFO = re.compile(r"(?i)(https?://)([^/@\s:]+):([^/@\s]+)@")
 SENSITIVE_HEADER_LINE = re.compile(r"(?im)^(\s*(?:Authorization|Cookie|Set-Cookie)\s*:\s*).+$")
-# PT 站点下载/详情链接常用裸 key= 携带 passkey 类秘密，在 URL 上下文中统一脱敏（保留参数名）。
+# 站点下载/详情链接常用裸 key= 携带 passkey 类秘密，在 URL 上下文中统一脱敏（保留参数名）。
 DIAGNOSTIC_URL = re.compile(r"https?://[^\s<>\"']+", re.I)
 URL_QUERY_PARAM = re.compile(r"([?&])([^=&#?]+)=([^&#]*)")
 SENSITIVE_QUERY_KEY = re.compile(

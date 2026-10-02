@@ -1,4 +1,4 @@
-"""PT 站点 HTML 表格解析器与数值工具（审计 2-9：从 clients.py 拆出）。"""
+"""站点 HTML 表格解析器与数值工具（审计 2-9：从 clients.py 拆出）。"""
 
 from __future__ import annotations
 
@@ -63,5 +63,5 @@ def numeric_value(value: Any) -> float | None:
 
 
 def site_proxy(site: dict[str, Any]) -> str | None:
-    """Only explicitly opted-in PT sites use the configured outbound proxy."""
+    """Only explicitly opted-in sites use the configured outbound proxy."""
     return settings.outbound_proxy_url if settings.pt_proxy_enabled and site.get("proxy") and settings.outbound_proxy_url else None

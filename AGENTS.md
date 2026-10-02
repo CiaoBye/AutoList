@@ -19,7 +19,7 @@
 - 页面：藏馆 `#/`（只做总览）、片单 `#/films[/:id]`、挑选 `#/pick`、下载 `#/downloads`（只读 Transmission）、动态 `#/timeline`、设置 `#/settings[/:section]`（不带分区是概览），均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
 - 影片状态只在服务端计算（`app/services/films.py`），前端不自行推断。
 - 前端读取的接口在 `app/responses.py` 声明返回格式（路由写 `response_model`）；前端接口类型只在 `frontend/src/types.ts` 引用生成的类型，不手写字段。改动返回格式后运行 `.venv/bin/python scripts/export_openapi.py` 更新 `frontend/openapi.json`，前端构建会据此重新生成类型。
-- PT 站点接入集中在 `app/sites/`：新增或修正站点优先改站点档案；修改解析逻辑必须用 `tests/fixtures/sites/` 的真实页面回归，新增样本前清除 passkey、签名、用户编号与用户名等账号信息。
+- 站点接入集中在 `app/sites/`：新增或修正站点优先改站点档案；修改解析逻辑必须用 `tests/fixtures/sites/` 的真实页面回归，新增样本前清除 passkey、签名、用户编号与用户名等账号信息。
 - 后台任务统一经 `app/tasks.py` 启动与取消（`SEARCH` / `RECOGNITION` / `LIBRARY` / `AUTOMATION`），不另建运行登记表；外部请求统一经 `app/outbound.py` 的 `safe_request`；新增查询放到 `app/queries/<领域>.py`，路由里不直接写 SQL。
 - 数据库结构或数据变更在 `app/migrations.py` 的 `MIGRATIONS` 末尾追加更大编号的步骤，并在 `tests/test_migrations.py` 补测试；新增列写进 `ADDED_COLUMNS`，不要在启动流程里加每次都执行的整理代码。
 - 字号、圆角、控件高度、动效时长与缓动只用 `tokens.css` 里的变量（`--fs-*`、`--radius-*`、`--space-*`、`--control-h*`、`--dur-*`、`--ease`），样式里不写裸的字号、圆角与间距数值（间距只用 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48，0、1、2px 的细微调整除外）；所有动效写在 `styles/motion.css` 且放在 `prefers-reduced-motion: no-preference` 里。

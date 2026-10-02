@@ -30,7 +30,7 @@ def _search_client(timeout: float, proxy: str | None = None) -> httpx.AsyncClien
 
 
 async def close_search_clients() -> None:
-    """Close the shared PT/search connection pools during shutdown and tests.
+    """Close the shared site/search connection pools during shutdown and tests.
 
     The cache is intentionally process-local so search requests can reuse TCP
     connections.  Clearing only the dictionary leaves the underlying sockets
@@ -574,7 +574,7 @@ class TransmissionClient:
 
 
 class TorznabClient:
-    """Independent PT adapter for Torznab-compatible endpoints (Prowlarr/Jackett/custom gateways)."""
+    """Independent site adapter for Torznab-compatible endpoints (Prowlarr/Jackett/custom gateways)."""
 
     async def search(self, site: dict[str, Any], title: str, imdb_id: str | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"t": "movie", "q": title, "apikey": site.get("api_key", "")}
@@ -822,7 +822,7 @@ class MTeamClient:
 
 # Some sites use different search page endpoints (module-level constant, never mutated).
 class NexusPHPClient:
-    """Cookie 登录的 PT 站点：搜索与检测交给 ``app.sites`` 按站点档案处理，这里保留账户统计。"""
+    """Cookie 登录的站点：搜索与检测交给 ``app.sites`` 按站点档案处理，这里保留账户统计。"""
 
     # Some sites (e.g. hdarea.club) aggressively rate-limit automated User-Agents.
     _BROWSER_UA = (

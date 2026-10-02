@@ -5,7 +5,9 @@
 
 **给一份电影片单，自动补齐你的私人影库。**
 
-你只管维护想收藏的片单；AutoList 负责对照 Emby 找出缺哪些、去你自己的 PT 站点寻片、按你的标准挑出合格的资源，交给 MoviePilot 下载，并一直盯到影片入库。
+当前版本：`2.37`
+
+你只管维护想收藏的片单；AutoList 负责对照 Emby 找出缺哪些、去你自己的站点寻片、按你的标准挑出合格的资源，交给 MoviePilot 下载，并一直盯到影片入库。
 
 ![藏馆首页](docs/screenshots/home.jpg)
 
@@ -53,7 +55,7 @@ AutoList 不下载、不整理文件，也不内置任何站点——站点由�
 | --- | --- | --- |
 | [TMDB](https://www.themoviedb.org/) API Key | 识别影片、取海报 | ✓ |
 | [MoviePilot](https://github.com/jxxghp/MoviePilot) | 提交下载、分类、整理 | ✓ |
-| 你自己的 PT 站点账号 | 寻片的来源 | ✓ |
+| 你自己的站点账号 | 寻片的来源 | ✓ |
 | [Emby](https://emby.media/) | 判断是否已入库 | 建议 |
 | Transmission | 读取下载状态 | 建议 |
 

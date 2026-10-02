@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "2.37"
+APP_VERSION = "2.38"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {

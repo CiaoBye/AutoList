@@ -532,6 +532,14 @@
   font-size: var(--fs-s);
 }
 
+/* 一组并排的按钮（分页、页头操作、抽屉里的操作）：统一间距，窄了自动换行。 */
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .pager {
   display: flex;
   flex-wrap: wrap;

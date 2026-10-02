@@ -21,6 +21,8 @@ from ..logs import event_logger
 from ..schemas import SitePayload
 from ..services.cookiecloud import pull_cookiecloud
 from ..sites import profile_for
+from ..sites.engine import search_page_url
+from ..sites.errors import SEARCH_CAPTCHA_MESSAGE
 from ..services.sites import resolve_site_adapter, sync_sites_from_moviepilot, test_site_config
 from ..security import safe_error, signed_media_url
 from ..state import remember_site_icon, site_icon_cache
@@ -84,6 +86,7 @@ def _site_form_values(
         "rss_url": rss_url, "icon_url": payload.icon_url, "proxy": to_int(payload.proxy), "render": to_int(payload.render),
         "limit_interval": payload.limit_interval, "limit_count": payload.limit_count,
         "enabled": to_int(payload.enabled), "search_enabled": to_int(payload.search_enabled),
+        "supplement_only": to_int(payload.supplement_only),
     }
 
 
@@ -113,6 +116,9 @@ async def sites() -> list[dict[str, Any]]:
             "checked_at": item.pop("account_stats_checked_at"),
             "error": item.pop("account_stats_error"),
         }
+        # 站点检测或寻片遇到搜索人机验证时，给出种子搜索页地址让用户去验证。
+        needs_captcha = item.get("last_status") == "error" and SEARCH_CAPTCHA_MESSAGE in str(item.get("last_message") or "")
+        item["verify_url"] = search_page_url(str(item.get("base_url") or "")) if needs_captcha else None
         item["api_key_configured"] = bool(item.get("api_key"))
         item["cookie_configured"] = bool(item.get("cookie"))
         item["user_agent_configured"] = bool(item.get("user_agent"))

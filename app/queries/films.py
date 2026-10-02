@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..util import rows_to_dicts, to_int
+from ..util import rows_to_dicts, to_int, utc_now
 
 FILM_ITEM_COLUMNS = """i.id,i.playlist_id,i.rank_no,i.imdb_id,i.original_title,i.year,i.chinese_title,
     i.tmdb_id,i.tmdb_title,i.tmdb_original_title,i.tmdb_year,i.tmdb_imdb_id,i.tmdb_poster_path,i.fanart_poster_url,
@@ -99,3 +99,31 @@ def remember_artwork(conn: Any, item_id: int, tmdb_id: int, column: str, value: 
     if column not in ARTWORK_COLUMNS:
         raise ValueError(f"unknown artwork column: {column}")
     conn.execute(f"UPDATE playlist_items SET {column}=? WHERE id=? AND tmdb_id=?", (value, item_id, tmdb_id))  # nosec B608
+
+
+def item_ids_by_tmdb(conn: Any, tmdb_id: int) -> list[int]:
+    """片单里（含各份片单）这个 TMDB 编号对应的、尚未入馆的影片。"""
+    return [int(row[0]) for row in conn.execute(
+        "SELECT id FROM playlist_items WHERE tmdb_id=? AND library_state!='in_library'", (tmdb_id,),
+    ).fetchall()]
+
+
+def films_awaiting_library(conn: Any, limit: int, item_ids: list[int] | None = None) -> list[dict[str, Any]]:
+    """已识别、Emby 里还没有实体文件的影片，最久没查过的在前。
+
+    不限于经 AutoList 提交的：在 MoviePilot 里手动下载、整理进 Emby 的影片（如《热带疾病》）也要能入馆。"""
+    scope = f" AND id IN ({','.join('?' for _ in item_ids)})" if item_ids is not None else ""
+    return rows_to_dicts(conn.execute(
+        f"""SELECT * FROM playlist_items WHERE library_state!='in_library' AND tmdb_id IS NOT NULL{scope}
+           ORDER BY library_checked_at IS NOT NULL, library_checked_at LIMIT ?""",  # nosec B608
+        (*(item_ids or []), limit),
+    ).fetchall())
+
+
+def save_library_state(
+    conn: Any, item_id: int, state: str, emby_item_id: str | None, image_tag: str | None,
+) -> None:
+    conn.execute(
+        "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
+        (state, utc_now(), emby_item_id, image_tag, item_id),
+    )

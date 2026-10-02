@@ -58,6 +58,12 @@ def title_tokens(value: Any) -> set[str]:
     }
 
 
+def meaningful_title(value: Any) -> bool:
+    """去掉标点与无法比对的文字（如片假名）后还剩非纯数字的内容才算片名，“シークレット・サンシャイン：2007”只剩 2007，不算。"""
+    normalized = normalized_title_text(value)
+    return bool(normalized) and not normalized.isdigit()
+
+
 def item_title_variants(item: sqlite3.Row | dict[str, Any]) -> list[str | None]:
     """比对种子标题时认可的片名：TMDB 中文名与原名、导入原名、中文名，以及 TMDB 的其他译名（如 8½ 的 Eight and a Half）。"""
     identity = dict(item)
@@ -134,6 +140,8 @@ def strict_torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_titl
         return False
     variants = item_title_variants(item)
     for variant in variants:
+        if not meaningful_title(variant):
+            continue
         normalized = normalized_title_text(variant)
         tokens = informative_title_tokens(variant)
         if tokens and tokens.issubset(candidate_tokens):
@@ -152,6 +160,8 @@ def torrent_matches_item(item: sqlite3.Row | dict[str, Any], torrent_title: str)
     variants = item_title_variants(item)
     candidate_tokens = title_tokens(torrent_title)
     for variant in variants:
+        if not meaningful_title(variant):
+            continue
         normalized = normalized_title_text(variant)
         tokens = title_tokens(variant)
         if tokens and tokens.issubset(candidate_tokens):

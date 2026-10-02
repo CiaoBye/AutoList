@@ -131,6 +131,18 @@ class ProfileTests(unittest.TestCase):
                     detect_interruption(path, html)
         detect_interruption("/torrents.php", fixture("tracker-k.example"))
 
+    def test_signed_download_links_are_refreshed_from_the_page(self) -> None:
+        from app.sites.nexusphp import fresh_signed_download, is_signed_download
+
+        self.assertTrue(is_signed_download("https://tracker-k.example/download.php?id=629570&t=1700000000&sign=abc"))
+        self.assertFalse(is_signed_download("https://tracker-b.example/download.php?id=1&passkey=x"))
+        # 站点K页面里同一个种子还有打包下载（type=zip）的表单，只取单种下载那个。
+        self.assertEqual(
+            fresh_signed_download(fixture("tracker-k.example"), "629570", "https://tracker-k.example/"),
+            "https://tracker-k.example/download.php?id=629570&t=x&sign=x",
+        )
+        self.assertIsNone(fresh_signed_download(fixture("tracker-k.example"), "1", "https://tracker-k.example/"))
+
     def test_unknown_layout_falls_back_to_the_densest_table(self) -> None:
         html = """<table><tr><td>电影</td><td><table><tr><td>
             <a href="details.php?id=42">Movie.2020.1080p.x265-FRDS</a></td></tr></table></td>
@@ -738,6 +750,18 @@ class SiteAdapterMigrationTests(IsolatedAppTestCase):
         # 账户统计缓存不能因为每小时的同步被重置。
         self.assertEqual(row["account_stats_checked_at"], checked_at)
 
+    async def test_identical_cookie_still_records_cookiecloud_as_the_source(self) -> None:
+        from app.services.sites import apply_cookie_groups
+
+        site_id = _insert_site(name="手动填过同一份", base_url="https://pt.same.example", cookie="session=1")
+        with connect() as conn:
+            conn.execute("UPDATE pt_sites SET cookie_source=NULL,cookie_updated_at=NULL,last_status='ok' WHERE id=?", (site_id,))
+        apply_cookie_groups({"same.example": "session=1"})
+        with connect() as conn:
+            row = conn.execute("SELECT cookie_source,cookie_updated_at,last_status FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+        self.assertEqual((row["cookie_source"], row["last_status"]), ("cookiecloud", "ok"))
+        self.assertIsNotNone(row["cookie_updated_at"])
+
     async def test_cookie_from_cookiecloud_switches_rss_site_to_nexusphp(self) -> None:
         from app.services.sites import apply_cookie_groups
 
@@ -1023,7 +1047,7 @@ class CookieProvenanceTests(IsolatedAppTestCase):
             rows = {r["id"]: r for r in conn.execute("SELECT id,cookie_source,cookie_updated_at FROM pt_sites")}
         self.assertEqual(rows[changed]["cookie_source"], "cookiecloud")
         self.assertIsNotNone(rows[changed]["cookie_updated_at"])
-        self.assertIsNone(rows[same]["cookie_source"])
+        self.assertEqual(rows[same]["cookie_source"], "cookiecloud")
         summary = app_state.last_cookie_sync
         self.assertEqual((summary["origin"], summary["updated"], summary["unchanged"], summary["missing"]), ("schedule", ["站点B"], 1, ["站点R"]))
         # 只复测 Cookie 有变化的站点。
@@ -1159,3 +1183,22 @@ class CookieCloudPullTests(IsolatedAppTestCase):
         self.assertIsNone(reason)
         self.assertEqual(len(torrents), 1)
         self.assertEqual(site["cookie"], "session=new")
+
+
+class SearchCaptchaLinkTests(IsolatedAppTestCase):
+    async def test_search_captcha_gives_a_verify_link(self) -> None:
+        from app.sites.errors import SEARCH_CAPTCHA_MESSAGE
+
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,last_status,last_message,created_at)
+                   VALUES('站点J','nexusphp','https://tracker-j.example/',1,1,'error',?,?)""",
+                (SEARCH_CAPTCHA_MESSAGE, utc_now()),
+            )
+            conn.execute(
+                """INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,last_status,last_message,created_at)
+                   VALUES('其他','nexusphp','https://other.example/',1,1,'error','站点连接失败',?)""",
+                (utc_now(),),
+            )
+        links = {site["name"]: site["verify_url"] for site in await sites()}
+        self.assertEqual(links, {"站点J": "https://tracker-j.example/torrents.php", "其他": None})

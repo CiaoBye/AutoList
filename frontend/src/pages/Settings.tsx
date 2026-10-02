@@ -1,3 +1,4 @@
+import { useEffect, useState } from "preact/hooks";
 import { href, type SettingsSection } from "../router";
 import type { Theme } from "../theme";
 import { Appearance } from "./settings/Appearance";
@@ -9,11 +10,13 @@ import { Playlists } from "./settings/Playlists";
 import { ProxySettings } from "./settings/Proxy";
 import { Rules } from "./settings/Rules";
 import { Services } from "./settings/Services";
+import { SyncSettings } from "./settings/Sync";
 import { Sites } from "./settings/Sites";
 
 const SECTION_LABELS: Record<SettingsSection, string> = {
   overview: "概览",
   services: "服务连接",
+  sync: "联动",
   sites: "站点",
   playlists: "片单管理",
   rules: "入馆标准",
@@ -23,7 +26,7 @@ const SECTION_LABELS: Record<SettingsSection, string> = {
 
 const GROUPS: { label: string | null; items: SettingsSection[] }[] = [
   { label: null, items: ["overview"] },
-  { label: "连接", items: ["services"] },
+  { label: "连接", items: ["services", "sync"] },
   { label: "内容", items: ["sites", "playlists", "rules"] },
   { label: "系统", items: ["appearance", "logs"] },
 ];
@@ -35,28 +38,63 @@ interface SectionState {
   tone: Tone;
   mark?: string;
   text: string;
+  /** 当前这批问题的标识：打开分区后记为已看过，同一批问题不再显示标记，出现新问题才再显示。 */
+  signature?: string;
 }
+
+const SEEN_KEY = "autolist.settings-seen";
+
+const readSeen = (): Record<string, string> => {
+  try {
+    return JSON.parse(window.localStorage.getItem(SEEN_KEY) || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+};
+
+const writeSeen = (seen: Record<string, string>): void => {
+  try {
+    window.localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+  } catch {
+    // 浏览器禁用存储时标记会一直显示，不影响使用。
+  }
+};
 
 const sectionState = (section: SettingsSection, health: SettingsHealth): SectionState | null => {
   switch (section) {
     case "services":
       if (!health.services.data) return null;
       return health.failingServices
-        ? { tone: "bad", mark: String(health.failingServices), text: `${health.failingServices} 项异常` }
+        ? {
+          tone: "bad", mark: String(health.failingServices), text: `${health.failingServices} 项异常`,
+          signature: Object.entries(health.services.data).filter(([, item]) => item.configured !== false && !item.ok).map(([name]) => name).sort().join(","),
+        }
         : { tone: "ok", text: "正常" };
     case "sites":
-      if (health.failingSites.length) return { tone: "bad", mark: String(health.failingSites.length), text: `${health.failingSites.length} 个失败` };
-      if (health.emptySites.length) return { tone: "warn", mark: String(health.emptySites.length), text: `${health.emptySites.length} 个搜不到` };
+      if (health.failingSites.length) {
+        return {
+          tone: "bad", mark: String(health.failingSites.length), text: `${health.failingSites.length} 个失败`,
+          signature: health.failingSites.map((site) => `${site.id}:${site.last_message || ""}`).sort().join("|"),
+        };
+      }
+      if (health.emptySites.length) {
+        return {
+          tone: "warn", mark: String(health.emptySites.length), text: `${health.emptySites.length} 个搜不到`,
+          signature: `empty:${health.emptySites.map((site) => site.id).sort().join(",")}`,
+        };
+      }
       return null;
     case "appearance": {
+      // 没有启用访问令牌（本地使用）不算问题；只有设置了但强度不足才提示。
       const strength = health.settings.data?.access_token_strength;
-      if (strength === "missing") return { tone: "warn", mark: "!", text: "未启用访问令牌" };
-      if (strength === "weak") return { tone: "bad", mark: "!", text: "访问令牌强度不足" };
+      if (strength === "weak") return { tone: "bad", mark: "!", text: "访问令牌强度不足", signature: "weak" };
       return null;
     }
     case "logs": {
-      const errors = health.recentProblems.filter((event) => levelOf(event) === "ERROR").length;
-      return errors ? { tone: "bad", mark: String(errors), text: `${errors} 条错误` } : null;
+      const errors = health.recentProblems.filter((event) => levelOf(event) === "ERROR");
+      return errors.length
+        ? { tone: "bad", mark: String(errors.length), text: `${errors.length} 条错误`, signature: errors.map((event) => String(event.ts)).sort().pop() }
+        : null;
     }
     default:
       return null;
@@ -65,6 +103,15 @@ const sectionState = (section: SettingsSection, health: SettingsHealth): Section
 
 export function Settings({ section, onThemeChange }: { section: SettingsSection; onThemeChange: (theme: Theme) => void }) {
   const health = useSettingsHealth();
+  const [seen, setSeen] = useState(readSeen);
+  // 打开某个分区即视为看过它当前的问题：导航上的标记消失，直到出现新的问题。
+  const currentSignature = section === "overview" ? undefined : sectionState(section, health)?.signature;
+  useEffect(() => {
+    if (section === "overview" || !currentSignature || seen[section] === currentSignature) return;
+    const next = { ...seen, [section]: currentSignature };
+    writeSeen(next);
+    setSeen(next);
+  }, [section, currentSignature]);
   let body;
   switch (section) {
     case "overview":
@@ -77,6 +124,9 @@ export function Settings({ section, onThemeChange }: { section: SettingsSection;
           <ProxySettings health={health} />
         </div>
       );
+      break;
+    case "sync":
+      body = <SyncSettings />;
       break;
     case "sites":
       body = <Sites health={health} />;
@@ -117,7 +167,7 @@ export function Settings({ section, onThemeChange }: { section: SettingsSection;
                   >
                     {item === "services" && state ? <span class={`dot dot-${state.tone}`} aria-hidden="true" /> : null}
                     <span class="settings-nav-label">{SECTION_LABELS[item]}</span>
-                    {state?.mark ? (
+                    {state?.mark && seen[item] !== state.signature ? (
                       <span class={`settings-nav-mark mark-${state.tone}`} aria-label={state.text}>
                         {state.mark}
                       </span>

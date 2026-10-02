@@ -5,9 +5,9 @@ import { applyTheme, readTheme, type Theme } from "../../theme";
 import { CardHead, DirtyNote, SectionHead, SwitchRow, useAction } from "./shared";
 import { useSettingsForm } from "./useSettingsForm";
 
-export const THEMES: { id: Theme; name: string; note: string }[] = [
-  { id: "archive", name: "馆藏档案", note: "纸张底色，适合白天与长时间管理" },
-  { id: "cinema", name: "午夜放映", note: "深色，适合低亮度环境" },
+export const THEMES: { id: Theme; name: string }[] = [
+  { id: "archive", name: "馆藏档案" },
+  { id: "cinema", name: "午夜放映" },
 ];
 
 export const STRENGTH_TEXT: Record<string, string> = {
@@ -35,7 +35,7 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
       <SectionHead title="外观与访问" />
 
       <section class="card setting-card" aria-labelledby="appearance-theme">
-        <CardHead id="appearance-theme" title="主题" note="只保存在当前浏览器；动效跟随系统的“减少动态效果”设置" />
+        <CardHead id="appearance-theme" title="主题" />
         <div class="setting-card-body">
           <div class="theme-options" role="radiogroup" aria-labelledby="appearance-theme">
             {THEMES.map((item) => (
@@ -44,7 +44,6 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
                 <span class="theme-swatch" aria-hidden="true" />
                 <span>
                   <strong>{item.name}</strong>
-                  <small>{item.note}</small>
                 </span>
               </label>
             ))}
@@ -65,7 +64,6 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
           <>
             <SwitchRow
               label="“最近入馆”每天随机展示"
-              hint="关闭时按最近确认入馆的时间排列"
               checked={Boolean(form.dashboard_random_posters)}
               onChange={(value) => set("dashboard_random_posters", value)}
             />
@@ -81,6 +79,8 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
         )}
       </form>
 
+      {/* 服务端没有启用访问令牌（本地使用）时不显示这一块；本机存过令牌的仍显示，方便清除。 */}
+      {settings.data?.access_token_strength !== "missing" || hasToken ? (
       <form
         class="card setting-card"
         aria-labelledby="appearance-token"
@@ -131,6 +131,7 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
           </span>
         </div>
       </form>
+      ) : null}
     </div>
   );
 }

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from ..clients import EmbyClient
 from ..config import settings
 from ..database import connect
+from ..logs import event_logger
 from ..domain.titles import canonical_item_title, canonical_item_year
+from ..queries import films as film_queries
 from ..security import safe_error
 from ..util import rows_to_dicts, utc_now
 
@@ -59,6 +62,73 @@ async def hydrate_recent_emby_posters(items: list[dict[str, Any]]) -> None:
             )
 
     await asyncio.gather(*(hydrate(item) for item in items))
+
+
+# 还没入馆的影片定时向 Emby 复查：经 AutoList 提交或在 MoviePilot 手动下载的，整理进 Emby 后都自动入馆，
+# 不必手动“刷新 Emby 状态”。每次最多查 LIBRARY_RECHECK_LIMIT 部，最久没查过的在前。
+LIBRARY_RECHECK_INTERVAL_SECONDS = 5 * 60
+LIBRARY_RECHECK_LIMIT = 300
+_last_recheck_monotonic: float | None = None
+
+
+def library_recheck_due() -> bool:
+    return _last_recheck_monotonic is None or time.monotonic() - _last_recheck_monotonic >= LIBRARY_RECHECK_INTERVAL_SECONDS
+
+
+_background_rechecks: set[asyncio.Task[int]] = set()
+
+
+def kick_library_recheck() -> None:
+    """打开首页时，若距上次复查已超过间隔，就在后台复查一次，让手动下载并整理入库的影片尽快入馆。"""
+    if not library_recheck_due():
+        return
+
+    async def run() -> int:
+        try:
+            return await recheck_library_states()
+        except Exception as exc:  # 复查失败不影响首页，保持原状态
+            event_logger().warning("library_recheck_failed", extra={"error": safe_error(exc)})
+            return 0
+
+    task = asyncio.get_running_loop().create_task(run())
+    _background_rechecks.add(task)
+    task.add_done_callback(_background_rechecks.discard)
+
+
+async def recheck_library_states(item_ids: list[int] | None = None) -> int:
+    """复查尚未入馆的影片在 Emby 里的状态，返回新入馆的数量。查询失败的影片保持原状态。
+
+    给出 ``item_ids`` 时只查这几部（如正在下载的），不影响全量复查的间隔。"""
+    global _last_recheck_monotonic
+    if item_ids is None:
+        _last_recheck_monotonic = time.monotonic()
+    elif not item_ids:
+        return 0
+    if not settings.emby_base_url or not settings.emby_api_key:
+        return 0
+    with connect() as conn:
+        items = film_queries.films_awaiting_library(conn, LIBRARY_RECHECK_LIMIT, item_ids)
+    if not items:
+        return 0
+    emby = EmbyClient()
+    semaphore = asyncio.Semaphore(3)
+    arrived = 0
+
+    async def inspect(item: dict[str, Any]) -> None:
+        nonlocal arrived
+        async with semaphore:
+            state, emby_item_id, image_tag = await library_details(
+                emby, canonical_item_title(item), canonical_item_year(item), item["tmdb_id"],
+                item["tmdb_imdb_id"] or item["imdb_id"],
+            )
+        if state == "unknown":
+            return
+        arrived += state == "in_library"
+        with connect() as conn:
+            film_queries.save_library_state(conn, int(item["id"]), state, emby_item_id, image_tag)
+
+    await asyncio.gather(*(inspect(item) for item in items))
+    return arrived
 
 
 def update_library_task(task_id: int, **values: Any) -> None:

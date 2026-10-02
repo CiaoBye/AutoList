@@ -5,6 +5,7 @@ import { useLoad } from "../hooks";
 import { useAction } from "./settings/shared";
 import type { SearchAttempts, SearchTask, SearchTaskLog, SearchTaskStarted } from "../types";
 import { DrawerLayer } from "../components/DrawerLayer";
+import { VerifyLink } from "../components/VerifyLink";
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "排队中", running: "进行中", completed: "已完成", partial: "部分完成", failed: "失败",
@@ -117,7 +118,10 @@ export function TaskDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                   <tbody>
                     {data.attempts.sites.map((site) => (
                       <tr key={`${site.site_id}-${site.site_name}`}>
-                        <td>{site.site_name}</td>
+                        <td>
+                          {site.site_name}
+                          {site.verify_url ? <> <VerifyLink url={site.verify_url} siteId={site.site_id} onChecked={() => void bundle.reload()} /></> : null}
+                        </td>
                         <td class="mono">
                           {site.succeeded} / <span class={site.failed ? "text-issue" : ""}>{site.failed}</span>
                         </td>

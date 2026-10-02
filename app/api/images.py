@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -11,13 +12,14 @@ from ..clients import FANART_POSTER_URL, FanartClient, TMDBClient
 from ..config import settings
 from ..database import connect
 from ..logs import event_logger
+from ..queries.downloads import torrent_poster_path
 from ..queries.films import film_artwork, remember_artwork
 from ..security import safe_error
 from ..services.films import (
     fanart_version,
 )
 from ..services.recognition import TMDB_POSTER_PATH
-from ..state import poster_cache, remember_poster
+from ..state import fetch_once, poster_cache, remember_poster
 from ..util import raster_image_media_type, to_int
 
 router = APIRouter()
@@ -43,6 +45,21 @@ async def playlist_item_tmdb_poster(item_id: int) -> Response:
         poster_path = candidate if TMDB_POSTER_PATH.fullmatch(candidate) else ""
         with connect() as conn:
             remember_artwork(conn, item_id, to_int(row["tmdb_id"]), "tmdb_poster_path", poster_path)
+    return await _tmdb_poster_response(poster_path)
+
+
+@router.get("/api/downloads/{torrent_hash}/poster")
+async def download_poster(torrent_hash: str) -> Response:
+    """下载页里不在片单中的种子：识别出影片后显示 TMDB 海报。"""
+    if not re.fullmatch(r"[0-9a-f]{40}", torrent_hash):
+        raise HTTPException(404, "种子不存在")
+    with connect() as conn:
+        poster_path = torrent_poster_path(conn, torrent_hash)
+    return await _tmdb_poster_response(poster_path)
+
+
+async def _tmdb_poster_response(poster_path: str | None) -> Response:
+    """按 TMDB 海报路径代理图片（带进程内缓存），不向浏览器暴露 TMDB 地址与密钥。"""
     if not poster_path or not TMDB_POSTER_PATH.fullmatch(poster_path):
         raise HTTPException(404, "TMDB 没有这部影片的海报")
     cache_key = f"tmdb:{poster_path}"
@@ -50,7 +67,7 @@ async def playlist_item_tmdb_poster(item_id: int) -> Response:
         content, media_type = poster_cache[cache_key]
     else:
         try:
-            content, _ = await TMDBClient().poster_image(poster_path)
+            content, _ = await fetch_once(cache_key, lambda: TMDBClient().poster_image(poster_path))
         except httpx.HTTPStatusError as exc:
             status = 404 if exc.response.status_code == 404 else 502
             raise HTTPException(status, "TMDB 海报读取失败") from exc
@@ -174,7 +191,7 @@ async def playlist_item_fanart_poster(item_id: int, v: str = "") -> Response:
         cached = poster_cache.get(cache_key)
         if cached is None:
             try:
-                content, _ = await FanartClient().poster_image(poster_url)
+                content, _ = await fetch_once(cache_key, lambda: FanartClient().poster_image(poster_url))
             except Exception as exc:
                 event_logger().warning("fanart_poster_fetch_failed", extra={"detail": f"#{item_id} {safe_error(exc)}"})
             else:

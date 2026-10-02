@@ -13,11 +13,12 @@ from ..queries import selection as queries
 from ..queries.sites import all_sites
 from ..domain.titles import is_transmission_downloading, normalized_download_name, torrent_matches_item
 from ..security import safe_error, sanitize_sensitive_text
-from ..services.history import playlist_item_snapshot
+from ..services.history import long_stalled, playlist_item_snapshot
 from ..services.library import library_details
 from ..services.cookiecloud import with_cookie_refresh
 from ..services.search import wait_for_site_rate_limit
-from ..sites import verify as verify_on_site
+from ..sites.engine import verify_and_refresh
+from ..sites.nexusphp import is_signed_download
 from ..logs import event_logger
 from ..state import (
     selection_submit_lock,
@@ -123,11 +124,18 @@ async def submit_selection() -> dict[str, Any]:
             current_torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
         except Exception as exc:
             raise HTTPException(503, "无法确认 Transmission 当前下载任务，已暂停提交") from exc
-        active_torrents = [torrent for torrent in current_torrents if is_transmission_downloading(torrent)]
+        # 停滞超过 24 小时、没有做种者的种子不算“正在下载”：允许为同一影片换一个资源再提交。
+        active_torrents = [
+            torrent for torrent in current_torrents if is_transmission_downloading(torrent) and not long_stalled(torrent)
+        ]
         with connect() as conn:
             sites = all_sites(conn)
         emby = EmbyClient()
         moviepilot, completed, needs_research, submitted_tasks, expired_items = MoviePilotClient(), 0, 0, [], []
+        try:
+            downloader = await moviepilot.transmission_downloader()
+        except Exception as exc:
+            raise HTTPException(503, f"无法确认 MoviePilot 的 Transmission 下载器，已暂停提交：{safe_error(exc, 200)}") from exc
         skipped: list[dict[str, Any]] = []
         blocked_unknown: list[dict[str, Any]] = []
         removed: list[dict[str, Any]] = []
@@ -201,7 +209,15 @@ async def submit_selection() -> dict[str, Any]:
                     await wait_for_site_rate_limit(site)
                     detail_url = candidate["detail_url"] or (raw.get("torrent") or {}).get("detail_url")
                     # Cookie 失效时补拉 CookieCloud 并重试一次；新 Cookie 同时用于随后交给 MoviePilot 的种子。
-                    present = await with_cookie_refresh(site, lambda current: verify_on_site(current, detail_url))
+                    enclosure = (raw.get("torrent") or {}).get("enclosure")
+                    present, fresh_link = await with_cookie_refresh(
+                        site, lambda current: verify_and_refresh(current, detail_url, enclosure),
+                    )
+                    # 站点K等站点的下载地址带时效签名（约一小时），用详情页上当前有效的地址提交。
+                    if present and is_signed_download(enclosure):
+                        if not fresh_link:
+                            raise RuntimeError("下载地址已过期，详情页上没有找到新的下载地址")
+                        raw = {**raw, "torrent": {**raw["torrent"], "enclosure": fresh_link}}
                 except Exception as exc:
                     blocked_site.append({
                         "candidate_id": candidate["id"], "title": candidate["playlist_original_title"],
@@ -217,16 +233,20 @@ async def submit_selection() -> dict[str, Any]:
             try:
                 if not raw.get("media"):
                     raise RuntimeError("缺少媒体信息，无法应用 MoviePilot 分类规则")
-                # 固定走 MoviePilot DownloadChain：它补全 TMDB 媒体信息、按 MP 分类目录选择路径，
+                # 固定走 MoviePilot：按 TMDB 编号识别影片与分类、按分类目录选择下载路径，
                 # 再交由 Transmission 写入 MOVIEPILOT 与站点标签，供 MP 后续整理。
-                response = await moviepilot.download(raw["media"], _submission_torrent(raw["torrent"], site), downloader="Transmission")
+                # 片单影片可能在寻片后重新识别过：以片单当前的 TMDB 编号为准，交给 MoviePilot 识别分类。
+                media = {**raw["media"], "tmdb_id": candidate["playlist_tmdb_id"] or raw["media"].get("tmdb_id")}
+                response = await moviepilot.download(media, _submission_torrent(raw["torrent"], site), downloader=downloader)
                 success = _moviepilot_success(response)
                 if not isinstance(response, dict):
                     message = "MoviePilot 返回格式无效，未确认提交成功"
                     submission_hash = None
                 elif success:
                     message = response.get("message") or response.get("hash")
-                    submission_hash = str(response.get("hash") or "").strip() or None
+                    # MoviePilot 把 Transmission 里的种子 hash 放在 data.download_id（旧版本为顶层 hash）。
+                    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+                    submission_hash = str(response.get("hash") or data.get("download_id") or "").strip() or None
                     submitted_tasks.append({"candidate_id": candidate["id"], "hash": submission_hash, "mode": "moviepilot"})
                 else:
                     message = response.get("message") or "MoviePilot 未确认提交成功"

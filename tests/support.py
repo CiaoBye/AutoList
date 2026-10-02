@@ -48,6 +48,20 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
         os.environ.pop("AUTOLIST_ACCESS_TOKEN", None)
         os.environ.pop("AUTOLIST_REQUIRE_STRONG_TOKEN", None)
         state.raw_candidates.clear()
+        # 站点请求间隔在测试里关掉（需要验证间隔的用例单独设置），并清空上一个用例留下的请求时间。
+        from app.services import search as search_service
+
+        search_service._site_last_request.clear()
+        self._site_gap = patch.object(search_service, "SITE_REQUEST_GAP_SECONDS", 0.0)
+        self._site_gap.start()
+        # 人机验证后的等待恢复：测试里不等（需要验证等待的用例单独设置）。
+        self._captcha_wait = patch.multiple(search_service, CAPTCHA_PROBE_SECONDS=0, CAPTCHA_WAIT_SECONDS=0)
+        self._captcha_wait.start()
+        # 提交时会向 MoviePilot 查询下载器名称；测试默认返回 “Transmission”，需要验证查询本身的用例单独覆盖。
+        from app.clients import MoviePilotClient
+
+        self._downloader = patch.object(MoviePilotClient, "transmission_downloader", new=AsyncMock(return_value="Transmission"))
+        self._downloader.start()
         initialize()
 
     async def asyncTearDown(self) -> None:
@@ -60,6 +74,9 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(*background, return_exceptions=True)
         for kind in tasks.KINDS:
             kind.running.clear()
+        self._site_gap.stop()
+        self._captcha_wait.stop()
+        self._downloader.stop()
         state.raw_candidates.clear()
         # 进程级缓存与限流时间戳必须清理，避免跨测试假阳性（审计 2-24）。
         state.poster_cache.clear()

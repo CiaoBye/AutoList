@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 Number = int | float
 
 FilmStatus = Literal["unrecognized", "unchecked", "missing", "searching", "candidates", "selected", "downloading", "in_library"]
-FilmIssue = Literal["no_eligible", "submit_failed", "context_expired"]
+FilmIssue = Literal["no_eligible", "submit_failed", "context_expired", "organize_failed", "download_stalled"]
 TaskKind = Literal["search", "recognition", "library", "automation"]
 
 
@@ -47,7 +47,7 @@ class Film(Model):
     status_label: str
     issues: list[FilmIssue]
     issue_labels: list[str]
-    transfer: Literal["active", "waiting_library", "unknown"] | None
+    transfer: Literal["active", "stalled", "paused", "error", "waiting_library", "unknown"] | None
     poster_url: str | None
 
 
@@ -66,6 +66,7 @@ class SiteOption(Model):
     title: str
     site_name: str | None
     detail_url: str | None
+    publish_date: str | None
     seeders: int | None
     size: Number | None
     is_free: bool
@@ -78,6 +79,7 @@ class Candidate(Model):
     title: str
     site_name: str | None
     detail_url: str | None
+    publish_date: str | None
     size: Number | None
     seeders: int | None
     resolution: str | None
@@ -124,6 +126,8 @@ class FilmDetail(Film):
     playlist_name: str
     library_checked_at: str | None
     candidates: list[Candidate]
+    # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
+    hidden_low_resolution: int = 0
     excluded_summary: list[ExcludedReason]
     excluded_count: int
     history: list[FilmHistoryRecord]
@@ -164,7 +168,7 @@ class ActiveTask(Model):
 class Todo(Model):
     key: Literal[
         "search_missing", "pick", "submit", "unrecognized", "unchecked", "no_eligible", "submit_failed",
-        "context_expired", "failing_sites", "empty_sites",
+        "context_expired", "download_stalled", "organize_failed", "failing_sites", "empty_sites",
     ]
     count: int
     names: list[str] | None = None
@@ -185,8 +189,10 @@ class HomeData(Model):
 
 
 class PickItem(Film):
-    bucket: Literal["candidates", "selected", "no_eligible"]
+    bucket: Literal["candidates", "selected", "no_eligible", "stalled"]
     candidates: list[Candidate]
+    # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
+    hidden_low_resolution: int = 0
     excluded_summary: list[ExcludedReason]
     excluded_count: int
 
@@ -268,6 +274,16 @@ class SubmitResult(Model):
     blocked_site: list[SubmissionNote]
 
 
+class TransferInfo(Model):
+    """Transmission 里未完成种子的下载状况（只读）。"""
+    state: Literal["downloading", "queued", "checking", "stalled", "paused", "error"]
+    percent: Number
+    rate_bps: int
+    eta_seconds: int | None
+    peers: int
+    error: str | None
+
+
 class HistoryRecord(Model):
     id: int
     title: str
@@ -281,6 +297,103 @@ class HistoryRecord(Model):
     status_source: str
     status_reason: str
     next_action: str
+    transfer: TransferInfo | None = None
+
+
+class DownloadItem(Model):
+    """Transmission 里的一个种子；能对上提交记录时附上片单影片。"""
+    hash: str
+    name: str
+    film_id: int | None
+    film_title: str | None
+    film_year: int | None
+    poster_url: str | None
+    site: str | None
+    state: Literal["downloading", "checking", "stalled", "error", "queued", "paused", "seeding", "completed"]
+    percent: Number
+    size: int
+    downloaded: int
+    rate_down: int
+    rate_up: int
+    eta_seconds: int | None
+    seeders: int
+    leechers: int
+    ratio: Number | None
+    added_at: str | None
+    done_at: str | None
+    error: str | None
+
+
+class DownloadSummary(Model):
+    total: int
+    counts: dict[str, int]
+    download_bps: int
+    upload_bps: int
+    free_bytes: int | None
+
+
+class DownloadsPage(Model):
+    configured: bool
+    error: str | None
+    items: list[DownloadItem]
+    summary: DownloadSummary | None
+    web_url: str | None
+    checked_at: str
+
+
+class SyncSource(Model):
+    """一个外部系统在最近一次同步时的情况。"""
+    configured: bool
+    ok: bool
+    checked_at: str
+    message: str | None
+
+
+class SyncResult(Model):
+    ran_at: str
+    duration_ms: int
+    sources: dict[str, SyncSource]
+    downloading: int
+    arrived: int
+    removed: int
+
+
+class SyncEventStat(Model):
+    count: int
+    last_at: str | None
+    last_kind: str | None
+
+
+class SyncEventRecord(Model):
+    at: str
+    source: str
+    kind: str
+    hash: str | None
+    tmdb_id: int | None
+    fields: list[str] | None
+
+
+class SyncStatus(Model):
+    running: bool
+    last: SyncResult | None
+    interval_seconds: int
+    events: dict[str, SyncEventStat]
+    recent: list[SyncEventRecord]
+
+
+class TransmissionHooks(Model):
+    """Transmission 当前启用的“添加”“完成”脚本（空字符串表示未启用）。"""
+    added: str
+    done: str
+
+
+class SyncWebhooks(Model):
+    paths: dict[str, str]
+    transmission_hooks: TransmissionHooks | None
+
+
+class SyncEventAccepted(Model):
+    accepted: bool
 
 
 class HistoryCleared(Model):
@@ -337,6 +450,7 @@ class SiteAttemptSummary(Model):
     succeeded: int | None
     failed: int | None
     average_ms: int | None
+    verify_url: str | None = None
 
 
 class SearchAttempts(Model):
@@ -405,11 +519,13 @@ class Site(Model):
     limit_count: int | None
     enabled: int
     search_enabled: int
+    supplement_only: int
     migration_note: str | None
     last_status: str
     last_message: str | None
     last_duration_ms: int | None
     last_tested_at: str | None
+    verify_url: str | None
     cookie_updated_at: str | None
     cookie_source: Literal["cookiecloud", "manual", "moviepilot"] | None
     profile: str

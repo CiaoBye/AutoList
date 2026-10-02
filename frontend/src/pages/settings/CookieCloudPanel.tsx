@@ -24,9 +24,9 @@ export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth;
   const facts = !cc
     ? "正在读取 CookieCloud 状态……"
     : !cc.configured
-      ? "尚未配置：站点 Cookie 只能手动填写。填写与 Chrome CookieCloud 插件相同的服务器地址、用户 KEY 与端对端加密密码后自动拉取。"
+      ? "尚未配置"
       : [
-          `每 ${cc.pull_interval_minutes} 分钟从 ${cc.url || "CookieCloud 服务器"} 拉取，Cookie 失效时立即重新拉取`,
+          `每 ${cc.pull_interval_minutes} 分钟从 ${cc.url || "CookieCloud 服务器"} 拉取`,
           last
             ? `最近 ${formatTime(last.at)} ${ORIGIN_LABELS[last.origin] || "同步"}，更新 ${last.updated.length} 个、${last.unchanged} 个已是最新`
             : "服务重启后还没有同步过",
@@ -79,9 +79,6 @@ export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth;
             void run(save, "CookieCloud 设置已保存", () => health.cookiecloud.reload());
           }}
         >
-          <p class="muted settings-note">
-            填写与 Chrome CookieCloud 插件相同的服务器地址（例如 MoviePilot 自带的 CookieCloud：{"http://<MoviePilot 主机>:3000/cookiecloud"}）、用户 KEY 与端对端加密密码。
-          </p>
           <div class="field-grid">
             <TextField
               label="服务器地址"

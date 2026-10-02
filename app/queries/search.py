@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any
 
 from ..database import json_value
+from ..sites.engine import search_page_url
 from ..util import json_ids, rows_to_dicts, to_int, utc_now
 
 _ATTEMPT_COUNTS = """COUNT(*) AS total,
@@ -108,11 +109,18 @@ def task_attempts(conn: sqlite3.Connection, task_id: int, limit: int) -> list[di
 
 
 def task_site_summaries(conn: sqlite3.Connection, task_id: int) -> list[dict[str, Any]]:
-    return rows_to_dicts(conn.execute(
-        f"""SELECT site_id,site_name,{_ATTEMPT_COUNTS},CAST(AVG(duration_ms) AS INTEGER) AS average_ms
-            FROM search_attempts WHERE task_id=? GROUP BY site_id,site_name ORDER BY site_name""",  # nosec B608
+    """各站点的成功 / 失败次数与平均耗时；遇到搜索人机验证的站点附上种子搜索页地址，供用户去验证。"""
+    rows = rows_to_dicts(conn.execute(
+        f"""SELECT a.site_id,a.site_name,{_ATTEMPT_COUNTS},CAST(AVG(a.duration_ms) AS INTEGER) AS average_ms,
+                   MAX(a.error_code='site_captcha') AS needs_captcha,s.base_url
+            FROM search_attempts a LEFT JOIN pt_sites s ON s.id=a.site_id
+            WHERE a.task_id=? GROUP BY a.site_id,a.site_name ORDER BY a.site_name""",  # nosec B608
         (task_id,),
     ).fetchall())
+    for row in rows:
+        base_url = row.pop("base_url", None)
+        row["verify_url"] = search_page_url(base_url) if row.pop("needs_captcha", 0) and base_url else None
+    return rows
 
 
 def task_logs(conn: sqlite3.Connection, task_id: int, limit: int) -> list[dict[str, Any]]:

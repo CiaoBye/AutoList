@@ -68,7 +68,62 @@ class MoviePilotClient:
             response.raise_for_status()
             return {"ok": True, "configured": True, "downloaders": response.json()}
 
+    async def _get(self, path: str, params: dict[str, Any]) -> Any:
+        async with self._client() as client:
+            response = await safe_request(
+                client, "GET", path, headers=self.headers, params=params, label="MoviePilot 地址", allow_private=True,
+            )
+            response.raise_for_status()
+            body = response.json()
+        return body.get("data") if isinstance(body, dict) and "data" in body else body
+
+    async def download_history(self, page: int, count: int) -> list[dict[str, Any]]:
+        """MoviePilot 的下载历史（按时间倒序）：种子 hash、片名、年份、海报与站点。"""
+        data = await self._get("/api/v1/history/download", {"page": page, "count": count})
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
+    async def transfer_history(self, page: int, count: int) -> list[dict[str, Any]]:
+        """MoviePilot 的整理历史（按时间倒序）：种子 hash、是否成功与失败原因。"""
+        data = await self._get("/api/v1/history/transfer", {"page": page, "count": count})
+        if isinstance(data, dict):
+            data = data.get("list") or []
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
+    async def recognize(self, title: str) -> dict[str, Any] | None:
+        """按种子名识别影片（MoviePilot 的识别词与 TMDB 识别），认不出返回 None。"""
+        data = await self._get("/api/v1/media/recognize", {"title": title})
+        media = data.get("media_info") if isinstance(data, dict) else None
+        return media if isinstance(media, dict) and media.get("title") else None
+
+    async def transmission_downloader(self) -> str:
+        """MoviePilot 里 Transmission 下载器的名称（用户自己起的，如 TR）。提交时必须用这个名称，否则 MP 报“未找到下载器”。"""
+        status = await self.check()
+        if not status.get("ok"):
+            raise RuntimeError(str(status.get("message") or "无法连接 MoviePilot"))
+        clients = status.get("downloaders")
+        if isinstance(clients, dict):
+            clients = clients.get("data") if isinstance(clients.get("data"), list) else []
+        options = [
+            item for item in (clients or [])
+            if isinstance(item, dict) and str(item.get("type") or "").lower() == "transmission" and item.get("name")
+            and item.get("enabled", True) is not False
+        ]
+        if not options:
+            raise RuntimeError("MoviePilot 里没有启用的 Transmission 下载器")
+        # 有多个时优先 MP 的默认下载器。
+        chosen = next((item for item in options if item.get("default")), options[0])
+        return str(chosen["name"])
+
     async def download(self, media_in: dict[str, Any], torrent_in: dict[str, Any], downloader: str | None = None) -> Any:
+        """经 MoviePilot 添加下载：只传 TMDB 编号，由 MoviePilot 自己识别影片。
+
+        必须用 ``/api/v1/download/add``：它按 ``media_source`` + ``media_id`` 完整识别，得到分类（华语电影、
+        欧美电影等）并据此选择下载目录。``/api/v1/download/``（含媒体信息）直接采用传入的媒体信息、不再识别，
+        没有分类，种子会落在下载目录根下（1.90 之前的问题）。
+        """
+        tmdb_id = to_int(media_in.get("tmdb_id"))
+        if tmdb_id <= 0:
+            raise RuntimeError("缺少 TMDB 编号，MoviePilot 无法识别分类")
         torrent_payload = dict(torrent_in)
         factor = torrent_payload.pop("volume_factor", None)
         if factor is not None and torrent_payload.get("downloadvolumefactor") is None:
@@ -77,14 +132,26 @@ class MoviePilotClient:
         if publish_time and not torrent_payload.get("pubdate"):
             torrent_payload["pubdate"] = str(publish_time)
         torrent_payload.pop("detail_url", None)
-        async with self._client() as client:
-            response = await safe_request(
-                client, "POST", "/api/v1/download/", headers=self.headers,
-                json={"media_in": media_in, "torrent_in": torrent_payload, "downloader": downloader},
-                label="MoviePilot 地址", allow_private=True,
-            )
-            response.raise_for_status()
-            return response.json()
+        async def add(by_id: bool) -> Any:
+            body: dict[str, Any] = {"torrent_in": torrent_payload, "downloader": downloader}
+            if by_id:
+                body.update({"media_source": "themoviedb", "media_id": str(tmdb_id)})
+            async with self._client() as client:
+                response = await safe_request(
+                    client, "POST", "/api/v1/download/add", headers=self.headers, json=body,
+                    label="MoviePilot 地址", allow_private=True,
+                )
+                response.raise_for_status()
+                return response.json()
+
+        result = await add(True)
+        if isinstance(result, dict) and result.get("success") is False and "无法识别媒体信息" in str(result.get("message") or ""):
+            # 同一个 TMDB 编号同时是电影和电视剧（如 123678、408）时，MoviePilot 只凭编号分不清类型；
+            # 种子名本身能被它识别成同一部影片的话，改按种子名识别（分类与下载目录照常）。
+            media = await self.recognize(str(torrent_payload.get("title") or ""))
+            if media and to_int(media.get("tmdb_id")) == tmdb_id and str(media.get("type")) in {"电影", "movie"}:
+                return await add(False)
+        return result
 
 TMDB_POSTER_MAX_BYTES = 4 * 1024 * 1024
 
@@ -446,12 +513,64 @@ class TransmissionClient:
         data = await self._rpc("session-get")
         return {"ok": True, "configured": True, "version": data.get("version"), "rpc_version": data.get("rpc-version")}
 
+    async def remove_torrents(self, hashes: list[str], delete_data: bool) -> None:
+        """按 hash 删除种子任务；``delete_data`` 为真时一并删除已下载的文件。"""
+        if hashes:
+            await self._rpc("torrent-remove", {"ids": hashes, "delete-local-data": delete_data})
+
+    async def script_hooks(self) -> dict[str, str]:
+        """“添加”“完成”两个脚本钩子当前启用的脚本（未启用的为空字符串）。"""
+        data = await self._rpc("session-get", {"fields": [
+            "script-torrent-added-enabled", "script-torrent-added-filename",
+            "script-torrent-done-enabled", "script-torrent-done-filename",
+        ]})
+        return {
+            event: str(data.get(f"script-torrent-{event}-filename") or "") if data.get(f"script-torrent-{event}-enabled") else ""
+            for event in ("added", "done")
+        }
+
     async def current_downloads(self) -> list[dict[str, Any]]:
         if not self.base_url:
             return []
-        fields = ["id", "name", "hashString", "status", "percentDone", "totalSize", "labels", "downloadDir"]
+        fields = [
+            "id", "name", "hashString", "status", "percentDone", "totalSize", "labels", "downloadDir",
+            # 下载进度展示：速度、剩余时间、连接的做种者、错误与停滞。
+            "rateDownload", "eta", "error", "errorString", "peersSendingToUs", "peersConnected", "isStalled",
+            # 停滞多久：最后一次有数据传输的时间（从未传输为 0）与加入时间。
+            "activityDate", "addedDate",
+        ]
         data = await self._rpc("torrent-get", {"fields": fields})
         return data.get("torrents", [])
+
+    async def overview(self) -> dict[str, Any]:
+        """下载页用：全部种子的详细状态、当前总速度与下载目录剩余空间（只读）。"""
+        fields = [
+            "id", "name", "hashString", "status", "percentDone", "totalSize", "sizeWhenDone", "leftUntilDone",
+            "labels", "rateDownload", "rateUpload", "eta", "error", "errorString", "peersSendingToUs",
+            "peersGettingFromUs", "isStalled", "uploadRatio", "addedDate", "doneDate", "queuePosition", "activityDate",
+        ]
+        async def free_space() -> Any:
+            try:
+                directory = (await self._rpc("session-get", {"fields": ["download-dir"]})).get("download-dir")
+                return (await self._rpc("free-space", {"path": directory})).get("size-bytes") if directory else None
+            except Exception:
+                return None
+
+        # 四次 RPC 互不依赖（除了剩余空间要先知道下载目录），并行读取。
+        listing, stats, free_bytes = await asyncio.gather(
+            self._rpc("torrent-get", {"fields": fields}), self._rpc("session-stats"), free_space(),
+        )
+        torrents = listing.get("torrents", [])
+        return {
+            "torrents": torrents, "download_bps": stats.get("downloadSpeed") or 0,
+            "upload_bps": stats.get("uploadSpeed") or 0, "free_bytes": free_bytes,
+        }
+
+    def web_url(self) -> str | None:
+        """Transmission 自带的网页界面地址，供下载页跳转（不含账号密码）。"""
+        if not self.base_url:
+            return None
+        return self.base_url.removesuffix("/rpc") + "/web/"
 
 
 class TorznabClient:

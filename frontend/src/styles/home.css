@@ -1,133 +1,292 @@
 /* 藏馆首页：馆藏进度、待办、进行中的任务与海报架。 */
 
+/* 宽屏下底部只留海报架的 24px 间距（与 hooks.ts 的 SHELF_BOTTOM_SPACE 一致），首屏恰好放下，不出现多余的滚动。 */
+.page-home {
+  /* 竖向节奏：顶栏到进度卡、进度卡到海报架、海报架与海报架之间的距离一致（32px）。 */
+  --home-gap: var(--space-7);
+  padding-top: var(--home-gap);
+  padding-bottom: var(--space-6);
+}
+
+/* 顶部一行（进度卡与待办卡）的固定高度；数字字号按它缩放。 */
 .home-grid {
+  --home-top: 230px;
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  gap: 24px;
+  gap: var(--space-6);
   align-items: stretch;
 }
 
+/* 进度卡：纯数字记分牌，浅色底加一层很淡的点阵与右上角的暖色晕染。上面片单与操作，中间各状态的大数字（已入馆最大），底部一条细的分段进度条。 */
 .progress-card {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 32px 36px;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background-color: var(--surface);
+  background-image:
+    radial-gradient(70% 140% at 100% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink) 16%, transparent) 1px, transparent 0);
+  background-size: auto, 18px 18px;
 }
 
-.progress-figure {
+.progress-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
 }
 
-.progress-figure .big {
-  font-size: clamp(52px, 6vw, 76px);
-  font-weight: 600;
+.progress-head .actions {
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.progress-playlist-name {
+  font-family: var(--font-serif);
+  font-size: var(--fs-l);
+  font-weight: 700;
+}
+
+/* 数字平均分布在整行宽度里，数字在左、名称与说明叠在右边，高度只有一个数字那么高；中间的块垂直居中。 */
+.scoreboard {
+  display: flex;
+  align-items: center;
+  margin: auto 0;
+}
+
+.score {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  align-items: center;
+  min-width: 0;
+  padding: 0 var(--space-6);
+  border-left: 1px solid var(--line-strong);
+}
+
+.score-main {
+  flex: 1.3 1 0;
+}
+
+.score:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.score-num {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  color: var(--ink);
+  font-size: calc(var(--home-top) * 0.26);
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1;
 }
 
-.progress-figure .of {
-  font-size: clamp(22px, 2.6vw, 32px);
-  color: var(--muted);
+.score-main .score-num {
+  font-size: calc(var(--home-top) * 0.34);
 }
 
-.progress-figure .phrase {
-  font-family: var(--font-serif);
-  font-size: clamp(20px, 2.2vw, 26px);
-  font-weight: 700;
+.score-label {
+  grid-column: 2;
+  align-self: end;
+  color: var(--ink-2);
+  font-size: var(--fs-m);
+}
+
+.score-sub {
+  grid-column: 2;
+  align-self: start;
+  color: var(--muted);
+  font-size: var(--fs-s);
 }
 
 .stack-bar {
   display: flex;
-  height: 14px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--wash);
 }
 
-.stack-bar span {
+.stack-bar > span {
   display: block;
   height: 100%;
+  background: var(--bar-missing);
 }
 
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--ink-2);
-  font-size: 14px;
+/* 各状态的颜色：数字用文字色，分段条用实色。 */
+.score[data-status="in_library"] .score-num { color: var(--st-in_library-fg); }
+.score[data-status="downloading"] .score-num,
+.score[data-status="searching"] .score-num { color: var(--st-downloading-fg); }
+.score[data-status="selected"] .score-num,
+.score[data-status="candidates"] .score-num { color: var(--st-candidates-fg); }
+.score[data-status="missing"] .score-num,
+.score[data-status="unchecked"] .score-num { color: var(--st-missing-fg); }
+.score[data-status="unrecognized"] .score-num { color: var(--st-unrecognized-fg); }
+
+.stack-bar > [data-status="in_library"] { background: var(--st-in_library-fg); }
+.stack-bar > [data-status="downloading"],
+.stack-bar > [data-status="searching"] { background: var(--st-downloading-fg); }
+.stack-bar > [data-status="selected"],
+.stack-bar > [data-status="candidates"] { background: var(--st-candidates-fg); }
+.stack-bar > [data-status="unrecognized"] { background: var(--st-unrecognized-fg); }
+
+/* 卡片不够宽时（有待办、窄窗口或手机）：数字块换行，每块里数字在上、名称与说明在下，字号收小。 */
+@container (max-width: 760px) {
+  .scoreboard {
+    flex-wrap: wrap;
+    gap: var(--space-4) 0;
+  }
+
+  .score,
+  .score-main {
+    flex: 1 1 30%;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 var(--space-4);
+  }
+
+  .score:first-child {
+    padding-left: 0;
+  }
+
+  .score-num,
+  .score-label,
+  .score-sub {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .score-num {
+    font-size: 40px;
+  }
+
+  .score-main .score-num {
+    font-size: 52px;
+  }
 }
 
-.legend li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* 手机宽度的进度卡：片单名与三个按钮各占一行（按钮等宽），三块数字并排，整张卡压在一屏的三分之一以内。 */
+@container (max-width: 480px) {
+  .progress-head {
+    flex-flow: column nowrap;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .progress-head .actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: var(--space-2);
+    width: 100%;
+  }
+
+  .progress-head .actions .btn {
+    min-height: var(--control-h-s);
+    padding: 0 var(--space-2);
+    font-size: var(--fs-s);
+  }
+
+  .progress-playlist {
+    font-size: var(--fs-body);
+  }
+
+  .scoreboard {
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+
+  .score,
+  .score-main {
+    flex: 1 1 0;
+    padding: 0 var(--space-2) 0 var(--space-3);
+  }
+
+  .score:first-child {
+    padding-left: 0;
+  }
+
+  .score-num {
+    font-size: 30px;
+  }
+
+  .score-main .score-num {
+    font-size: 40px;
+  }
+
+  .score-label {
+    font-size: var(--fs-s);
+  }
+
+  .score-sub {
+    font-size: var(--fs-xs);
+  }
 }
 
-.legend .swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.progress-playlist {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-h);
+  margin-left: calc(-1 * var(--space-3));
+  padding: 0 var(--space-7) 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-m);
+  background-color: transparent;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--fs-l);
+  font-weight: 700;
+  cursor: pointer;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.progress-playlist:hover {
+  border-color: var(--line-strong);
+  background-color: var(--surface);
 }
 
 .progress-hint {
-  font-size: 13px;
+  font-size: var(--fs-s);
 }
+
+/* 版式固定：进度卡与待决定卡并排、等高，不随待办条数改变（事项最多显示 3 条，其余折叠）。 */
+/* 版式固定：顶部一行的高度恒定（有无待办都一样），海报区按剩余高度铺满。 */
+.home-grid {
+  min-height: var(--home-top);
+}
+
+.home-grid > .card {
+  min-height: 0;
+  overflow: hidden;
+}
+
+
+/* 没有待办时进度卡占满整行，有待办时右侧才出现“需要你决定”。 */
+.home-grid.is-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 
 .todo-card {
-  padding: 24px 24px 12px;
-}
-
-/* 待决定事项只有一条或没有时，进度卡占满整行，事项收成进度卡下方的一条提醒。 */
-.home-grid.is-compact {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
-
-.todo-card.is-compact {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-5) var(--space-2);
+}
+
+.todo-head {
+  display: flex;
   align-items: center;
-  gap: 8px 20px;
-  padding: 12px 20px;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
-.todo-card.is-compact .section-title {
-  font-size: 16px;
-  white-space: nowrap;
-}
-
-.todo-card.is-compact .todo-list {
-  flex: 1 1 320px;
-  margin: 0;
-}
-
-.todo-card.is-compact .todo,
-.todo-card.is-compact .todo-empty {
-  margin: 0;
-  padding: 0;
-  border-top: 0;
-}
-
-.todo-empty {
-  margin: 14px 0 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--wash);
-}
 
 .todo-list {
-  margin: 12px 0 0;
+  margin: var(--space-3) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -135,8 +294,8 @@
 .todo {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 0;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
   border-top: 1px solid var(--wash);
 }
 
@@ -159,22 +318,22 @@
 
 .todo-text span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-s);
 }
 
 .tasks {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 28px;
+  gap: var(--space-2);
+  margin-top: var(--space-7);
 }
 
 .task {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(120px, 280px) auto;
   align-items: center;
-  gap: 16px;
-  padding: 14px 18px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
 }
 
 .task-bar {
@@ -190,43 +349,63 @@
   background: var(--st-searching-fg);
 }
 
+/* 间距与 hooks.ts 的 useShelfCardWidth 一致：卡片与海报架之间、海报架与海报架之间 32px（--home-gap）。 */
 .shelf {
-  margin-top: 32px;
+  margin-top: var(--home-gap);
 }
 
 .shelf-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+/* 海报架的片名只占一行，标题高度固定，海报尺寸才能按窗口高度算准。 */
+.shelf-row .film-card-title {
+  -webkit-line-clamp: 1;
 }
 
 .shelf-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
 .task-tail {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
+  .page-home {
+    --home-gap: var(--space-5);
+    padding-bottom: 64px;
+  }
+
+  .home-grid {
+    --home-top: 150px;
+  }
+
   .home-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-grid {
+    height: auto;
   }
 
   /* 窄屏下海报架保持一行，横向滑动，避免 8 张大海报占满两屏。 */
   .shelf-row {
     grid-template-columns: none;
-    grid-auto-columns: clamp(112px, 22vw, 150px);
+    grid-auto-columns: var(--shelf-card, clamp(112px, 22vw, 150px));
     grid-auto-flow: column;
     margin: 0 calc(-1 * var(--page-gutter));
-    padding: 0 var(--page-gutter) 8px;
+    padding: 0 var(--page-gutter) var(--space-2);
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scroll-padding: 0 var(--page-gutter);
@@ -241,15 +420,26 @@
 
 @media (max-width: 900px) {
   .progress-card {
-    padding: 22px;
+    padding: var(--space-4);
+  }
+
+  .progress-playlist {
+    flex: 1 1 100%;
   }
 
   .task {
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .task-tail {
     justify-content: flex-start;
+  }
+}
+
+/* 手机上首屏放不下两排，海报保持可辨认的尺寸，向下滚动查看第二排。 */
+@media (max-width: 600px) {
+  .shelf-row {
+    grid-auto-columns: clamp(112px, 30vw, 150px);
   }
 }

@@ -71,6 +71,6 @@ export type SettingsDraft = ReturnType<typeof useSettingsDraft>;
 
 /** 单独读取运行时设置并编辑其中一组字段。 */
 export function useSettingsForm(fields: readonly string[]) {
-  const settings = useLoad<RuntimeSettings>((signal) => api<RuntimeSettings>("/api/settings", { signal }), []);
+  const settings = useLoad<RuntimeSettings>((signal) => api<RuntimeSettings>("/api/settings", { signal }), [], undefined, "settings");
   return useSettingsDraft(fields, settings);
 }

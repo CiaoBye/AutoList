@@ -87,7 +87,6 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
       <div class="setting-row setting-row-field">
         <span class="setting-row-text">
           <strong>识别与入库</strong>
-          <small>识别 TMDB 条目；按 IMDb 编号校准已有识别；向 Emby 核对是否已入库</small>
         </span>
         <span class="setting-row-control setting-row-buttons">
           <button class="btn btn-small" type="button" disabled={busy} onClick={() => post(`/api/playlists/${playlist.id}/recognize`, "已开始识别片单")}>
@@ -117,7 +116,7 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
             <label class="setting-row-text" for={`${titleId}-sync`}>
               <strong>定时同步新片</strong>
               <small>
-                {playlist.sync_enabled && playlist.next_sync_at ? `下次同步 ${formatTime(playlist.next_sync_at)}` : "从来源网址补充新加入的影片"}
+                {playlist.sync_enabled && playlist.next_sync_at ? `下次同步 ${formatTime(playlist.next_sync_at)}` : ""}
                 {playlist.last_sync_message ? (
                   <span class={playlist.last_sync_status === "failed" ? "text-issue" : undefined}> · 最近：{playlist.last_sync_message}</span>
                 ) : null}
@@ -150,7 +149,6 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
           <div class="setting-row setting-row-field">
             <span class="setting-row-text">
               <strong>手动同步</strong>
-              <small>同步新片只追加新条目；完整刷新按来源重新生成顺序与条目，已识别信息尽量保留</small>
             </span>
             <span class="setting-row-control setting-row-buttons">
               <button class="btn btn-small" type="button" disabled={busy} onClick={() => post<PlaylistSynced>(`/api/playlists/${playlist.id}/sync-now`, (result) => result.message || "已同步")}>
@@ -174,7 +172,6 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
         <div class="setting-row">
           <span class="setting-row-text">
             <strong>来源同步</strong>
-            <small>文件导入的片单没有来源网址，不能同步。</small>
           </span>
         </div>
       )}
@@ -182,7 +179,6 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
       <div class="setting-row setting-row-field">
         <label class="setting-row-text" for={`${titleId}-automation`}>
           <strong>新片自动补全</strong>
-          <small>同步到新片后自动识别并寻片；结果进入挑选台，由你确认后才会下载</small>
         </label>
         <span class="setting-row-control setting-row-control-narrow">
           <input
@@ -231,7 +227,7 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
 
 export function Playlists() {
   const toast = useToast();
-  const playlists = useLoad<PlaylistRow[]>((signal) => api<PlaylistRow[]>("/api/playlists", { signal }), []);
+  const playlists = useLoad<PlaylistRow[]>((signal) => api<PlaylistRow[]>("/api/playlists", { signal }), [], undefined, "playlists");
   const [importing, setImporting] = useState(false);
   const { busy, run } = useAction();
   const list = playlists.data || [];
@@ -253,9 +249,7 @@ export function Playlists() {
             导入片单
           </button>
         }
-      >
-        排在最前的片单作为藏馆首页默认显示的片单。
-      </SectionHead>
+      />
       {playlists.error && !playlists.data ? <div class="notice notice-bad" role="alert">片单读取失败：{playlists.error.message}</div> : null}
       {!playlists.data && !playlists.error ? <p class="muted">正在读取片单……</p> : null}
       {playlists.data && !list.length ? (

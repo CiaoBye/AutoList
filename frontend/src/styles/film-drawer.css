@@ -16,10 +16,10 @@
   z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
   width: min(480px, 100vw);
   overflow-y: auto;
-  padding: 24px 28px 40px;
+  padding: var(--space-6) var(--space-7) 40px;
   background: var(--surface);
   border-left: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -63,7 +63,7 @@
 
 .film-hero.has-banner .poster {
   position: relative;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lift);
   outline: 3px solid var(--surface);
 }
 
@@ -75,27 +75,27 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .film-hero {
   position: relative;
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .film-hero h2 {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: 26px;
+  font-size: var(--fs-xl);
   line-height: 1.25;
 }
 
 .film-meta {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .steps {
@@ -106,8 +106,8 @@
 
 .step {
   display: flex;
-  gap: 14px;
-  padding: 8px 0;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
 }
 
 .step-mark {
@@ -145,38 +145,43 @@
 
 .step-text span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-s);
 }
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-m);
   background: var(--paper);
 }
 
 .panel h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--fs-body);
 }
 
 .candidate {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: var(--space-2);
   align-items: center;
-  padding: 12px;
+  padding: var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   background: var(--surface);
+}
+
+.candidate-hidden {
+  margin: 0;
+  font-size: var(--fs-xs);
 }
 
 .candidate-main {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -184,7 +189,7 @@
 .candidate-site-name {
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-s);
   color: inherit;
   text-decoration: none;
 }
@@ -217,29 +222,51 @@ a.candidate-site-name:hover {
 .candidate-sites li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: var(--space-2);
   align-items: center;
-  padding: 10px 0 0;
+  padding: var(--space-3) 0 0;
 }
 
 .candidate-site-text {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .candidate-site-name {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--ink-2);
 }
 
 .candidate-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
+}
+
+.candidate-site {
+  color: var(--ink);
+  font-size: var(--fs-s);
+  font-weight: 700;
+}
+
+.candidate-fact {
+  color: var(--ink-2);
+  font-size: var(--fs-s);
+  font-weight: 700;
+}
+
+.candidate-date {
+  color: var(--ink-2);
+}
+
+.candidate-free {
+  color: var(--st-in_library-fg);
+  font-weight: 700;
 }
 
 .history-list {
@@ -252,9 +279,9 @@ a.candidate-site-name:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 0;
+  padding: var(--space-2) 0;
   border-top: 1px solid var(--wash);
-  font-size: 13px;
+  font-size: var(--fs-s);
 }
 
 .identity summary {
@@ -266,8 +293,8 @@ a.candidate-site-name:hover {
 .identity-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .match-list {
@@ -279,8 +306,8 @@ a.candidate-site-name:hover {
 .match-list li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 0;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
   border-top: 1px solid var(--line);
 }
 
@@ -294,13 +321,13 @@ a.candidate-site-name:hover {
 
 .match-text span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 @media (max-width: 900px) {
   .drawer {
     width: 100vw;
-    padding: 16px 16px calc(32px + env(safe-area-inset-bottom));
+    padding: var(--space-4) var(--space-4) calc(var(--space-7) + env(safe-area-inset-bottom));
     border-left: 0;
   }
 

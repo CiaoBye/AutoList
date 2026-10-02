@@ -17,14 +17,19 @@ export function PosterSkeletons({ count, className = "film-wall" }: { count: num
 export function HomeSkeleton() {
   return (
     <div aria-hidden="true">
-      <div class="card skeleton-hero">
-        <span class="skeleton skeleton-line is-short" />
-        <span class="skeleton skeleton-figure" />
-        <span class="skeleton skeleton-bar" />
+      <div class="home-grid">
+        <div class="card progress-card">
+          <span class="skeleton skeleton-line is-short" />
+          <span class="skeleton skeleton-figure" />
+          <span class="skeleton skeleton-bar" />
+        </div>
+        <div class="card todo-card">
+          <span class="skeleton skeleton-line is-short" />
+        </div>
       </div>
       <section class="shelf">
         <span class="skeleton skeleton-line is-title" />
-        <PosterSkeletons count={8} className="shelf-row" />
+        <PosterSkeletons count={16} className="shelf-row" />
       </section>
     </div>
   );

@@ -187,6 +187,17 @@
             "title": "Is Free",
             "type": "boolean"
           },
+          "publish_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Date"
+          },
           "recommendation": {
             "title": "Recommendation",
             "type": "string"
@@ -285,6 +296,7 @@
           "title",
           "site_name",
           "detail_url",
+          "publish_date",
           "size",
           "seeders",
           "resolution",
@@ -615,6 +627,309 @@
         "title": "CookieSync",
         "type": "object"
       },
+      "DownloadItem": {
+        "description": "Transmission 里的一个种子；能对上提交记录时附上片单影片。",
+        "properties": {
+          "added_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added At"
+          },
+          "done_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done At"
+          },
+          "downloaded": {
+            "title": "Downloaded",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta Seconds"
+          },
+          "film_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Film Id"
+          },
+          "film_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Film Title"
+          },
+          "film_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Film Year"
+          },
+          "hash": {
+            "title": "Hash",
+            "type": "string"
+          },
+          "leechers": {
+            "title": "Leechers",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Percent"
+          },
+          "poster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poster Url"
+          },
+          "rate_down": {
+            "title": "Rate Down",
+            "type": "integer"
+          },
+          "rate_up": {
+            "title": "Rate Up",
+            "type": "integer"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "seeders": {
+            "title": "Seeders",
+            "type": "integer"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "downloading",
+              "checking",
+              "stalled",
+              "error",
+              "queued",
+              "paused",
+              "seeding",
+              "completed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hash",
+          "name",
+          "film_id",
+          "film_title",
+          "film_year",
+          "poster_url",
+          "site",
+          "state",
+          "percent",
+          "size",
+          "downloaded",
+          "rate_down",
+          "rate_up",
+          "eta_seconds",
+          "seeders",
+          "leechers",
+          "ratio",
+          "added_at",
+          "done_at",
+          "error"
+        ],
+        "title": "DownloadItem",
+        "type": "object"
+      },
+      "DownloadSummary": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "download_bps": {
+            "title": "Download Bps",
+            "type": "integer"
+          },
+          "free_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Bytes"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "upload_bps": {
+            "title": "Upload Bps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "counts",
+          "download_bps",
+          "upload_bps",
+          "free_bytes"
+        ],
+        "title": "DownloadSummary",
+        "type": "object"
+      },
+      "DownloadsPage": {
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DownloadItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DownloadSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "web_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Url"
+          }
+        },
+        "required": [
+          "configured",
+          "error",
+          "items",
+          "summary",
+          "web_url",
+          "checked_at"
+        ],
+        "title": "DownloadsPage",
+        "type": "object"
+      },
       "ExcludedReason": {
         "properties": {
           "count": {
@@ -680,7 +995,9 @@
               "enum": [
                 "no_eligible",
                 "submit_failed",
-                "context_expired"
+                "context_expired",
+                "organize_failed",
+                "download_stalled"
               ],
               "type": "string"
             },
@@ -766,6 +1083,9 @@
               {
                 "enum": [
                   "active",
+                  "stalled",
+                  "paused",
+                  "error",
                   "waiting_library",
                   "unknown"
                 ],
@@ -840,6 +1160,11 @@
             "title": "Excluded Summary",
             "type": "array"
           },
+          "hidden_low_resolution": {
+            "default": 0,
+            "title": "Hidden Low Resolution",
+            "type": "integer"
+          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/FilmHistoryRecord"
@@ -874,7 +1199,9 @@
               "enum": [
                 "no_eligible",
                 "submit_failed",
-                "context_expired"
+                "context_expired",
+                "organize_failed",
+                "download_stalled"
               ],
               "type": "string"
             },
@@ -989,6 +1316,9 @@
               {
                 "enum": [
                   "active",
+                  "stalled",
+                  "paused",
+                  "error",
                   "waiting_library",
                   "unknown"
                 ],
@@ -1321,6 +1651,16 @@
           "torrent_name": {
             "title": "Torrent Name",
             "type": "string"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TransferInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1640,7 +1980,8 @@
             "enum": [
               "candidates",
               "selected",
-              "no_eligible"
+              "no_eligible",
+              "stalled"
             ],
             "title": "Bucket",
             "type": "string"
@@ -1662,6 +2003,11 @@
             },
             "title": "Excluded Summary",
             "type": "array"
+          },
+          "hidden_low_resolution": {
+            "default": 0,
+            "title": "Hidden Low Resolution",
+            "type": "integer"
           },
           "id": {
             "title": "Id",
@@ -1690,7 +2036,9 @@
               "enum": [
                 "no_eligible",
                 "submit_failed",
-                "context_expired"
+                "context_expired",
+                "organize_failed",
+                "download_stalled"
               ],
               "type": "string"
             },
@@ -1776,6 +2124,9 @@
               {
                 "enum": [
                   "active",
+                  "stalled",
+                  "paused",
+                  "error",
                   "waiting_library",
                   "unknown"
                 ],
@@ -3410,6 +3761,10 @@
             "title": "Search Enabled",
             "type": "integer"
           },
+          "supplement_only": {
+            "title": "Supplement Only",
+            "type": "integer"
+          },
           "timeout_seconds": {
             "title": "Timeout Seconds",
             "type": "integer"
@@ -3421,6 +3776,17 @@
           "user_agent_configured": {
             "title": "User Agent Configured",
             "type": "boolean"
+          },
+          "verify_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verify Url"
           }
         },
         "required": [
@@ -3441,11 +3807,13 @@
           "limit_count",
           "enabled",
           "search_enabled",
+          "supplement_only",
           "migration_note",
           "last_status",
           "last_message",
           "last_duration_ms",
           "last_tested_at",
+          "verify_url",
           "cookie_updated_at",
           "cookie_source",
           "profile",
@@ -3620,6 +3988,17 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "verify_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verify Url"
           }
         },
         "required": [
@@ -3816,6 +4195,17 @@
             "title": "Is Free",
             "type": "boolean"
           },
+          "publish_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Date"
+          },
           "seeders": {
             "anyOf": [
               {
@@ -3862,6 +4252,7 @@
           "title",
           "site_name",
           "detail_url",
+          "publish_date",
           "seeders",
           "size",
           "is_free",
@@ -3985,6 +4376,11 @@
           "search_enabled": {
             "default": false,
             "title": "Search Enabled",
+            "type": "boolean"
+          },
+          "supplement_only": {
+            "default": false,
+            "title": "Supplement Only",
             "type": "boolean"
           },
           "timeout_seconds": {
@@ -4119,6 +4515,267 @@
           "blocked_site"
         ],
         "title": "SubmitResult",
+        "type": "object"
+      },
+      "SyncEventAccepted": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "SyncEventAccepted",
+        "type": "object"
+      },
+      "SyncEventRecord": {
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fields"
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hash"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tmdb Id"
+          }
+        },
+        "required": [
+          "at",
+          "source",
+          "kind",
+          "hash",
+          "tmdb_id",
+          "fields"
+        ],
+        "title": "SyncEventRecord",
+        "type": "object"
+      },
+      "SyncEventStat": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "last_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last At"
+          },
+          "last_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Kind"
+          }
+        },
+        "required": [
+          "count",
+          "last_at",
+          "last_kind"
+        ],
+        "title": "SyncEventStat",
+        "type": "object"
+      },
+      "SyncResult": {
+        "properties": {
+          "arrived": {
+            "title": "Arrived",
+            "type": "integer"
+          },
+          "downloading": {
+            "title": "Downloading",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "ran_at": {
+            "title": "Ran At",
+            "type": "string"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "sources": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SyncSource"
+            },
+            "title": "Sources",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ran_at",
+          "duration_ms",
+          "sources",
+          "downloading",
+          "arrived",
+          "removed"
+        ],
+        "title": "SyncResult",
+        "type": "object"
+      },
+      "SyncSource": {
+        "description": "一个外部系统在最近一次同步时的情况。",
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "ok",
+          "checked_at",
+          "message"
+        ],
+        "title": "SyncSource",
+        "type": "object"
+      },
+      "SyncStatus": {
+        "properties": {
+          "events": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SyncEventStat"
+            },
+            "title": "Events",
+            "type": "object"
+          },
+          "interval_seconds": {
+            "title": "Interval Seconds",
+            "type": "integer"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/SyncEventRecord"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running",
+          "last",
+          "interval_seconds",
+          "events",
+          "recent"
+        ],
+        "title": "SyncStatus",
+        "type": "object"
+      },
+      "SyncWebhooks": {
+        "properties": {
+          "paths": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "object"
+          },
+          "transmission_hooks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TransmissionHooks"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "paths",
+          "transmission_hooks"
+        ],
+        "title": "SyncWebhooks",
         "type": "object"
       },
       "TaskPayload": {
@@ -4342,6 +4999,8 @@
               "no_eligible",
               "submit_failed",
               "context_expired",
+              "download_stalled",
+              "organize_failed",
               "failing_sites",
               "empty_sites"
             ],
@@ -4368,6 +5027,93 @@
           "count"
         ],
         "title": "Todo",
+        "type": "object"
+      },
+      "TransferInfo": {
+        "description": "Transmission 里未完成种子的下载状况（只读）。",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta Seconds"
+          },
+          "peers": {
+            "title": "Peers",
+            "type": "integer"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Percent"
+          },
+          "rate_bps": {
+            "title": "Rate Bps",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "downloading",
+              "queued",
+              "checking",
+              "stalled",
+              "paused",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "percent",
+          "rate_bps",
+          "eta_seconds",
+          "peers",
+          "error"
+        ],
+        "title": "TransferInfo",
+        "type": "object"
+      },
+      "TransmissionHooks": {
+        "description": "Transmission 当前启用的“添加”“完成”脚本（空字符串表示未启用）。",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "done"
+        ],
+        "title": "TransmissionHooks",
         "type": "object"
       },
       "ValidationError": {
@@ -4601,6 +5347,62 @@
           }
         },
         "summary": "Cookiecloud Status"
+      }
+    },
+    "/api/downloads": {
+      "get": {
+        "operationId": "downloads_api_downloads_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadsPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Downloads"
+      }
+    },
+    "/api/downloads/{torrent_hash}/poster": {
+      "get": {
+        "description": "下载页里不在片单中的种子：识别出影片后显示 TMDB 海报。",
+        "operationId": "download_poster_api_downloads__torrent_hash__poster_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "torrent_hash",
+            "required": true,
+            "schema": {
+              "title": "Torrent Hash",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Poster"
       }
     },
     "/api/films": {
@@ -6845,6 +7647,120 @@
           }
         },
         "summary": "Test Site"
+      }
+    },
+    "/api/sync/events/{source}": {
+      "post": {
+        "description": "MoviePilot（Webhook 插件）、Transmission（添加 / 完成脚本）、Emby（Webhooks）推送的事件。\n\n这条路径不走访问令牌，改用地址里的事件密钥校验；事件只作为提示触发同步。",
+        "operationId": "sync_event_api_sync_events__source__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "title": "Source",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncEventAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Event"
+      }
+    },
+    "/api/sync/refresh": {
+      "post": {
+        "operationId": "refresh_api_sync_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Refresh"
+      }
+    },
+    "/api/sync/status": {
+      "get": {
+        "operationId": "sync_status_api_sync_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync Status"
+      }
+    },
+    "/api/sync/token/reset": {
+      "post": {
+        "description": "重置事件密钥：旧地址立即失效。",
+        "operationId": "reset_sync_token_api_sync_token_reset_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncWebhooks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reset Sync Token"
+      }
+    },
+    "/api/sync/webhooks": {
+      "get": {
+        "description": "三方推送事件的地址（相对路径，含密钥）与 Transmission 脚本钩子的启用情况，供设置里的“联动”页展示。",
+        "operationId": "sync_webhooks_api_sync_webhooks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncWebhooks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync Webhooks"
       }
     },
     "/api/timeline": {

@@ -1,26 +1,26 @@
 /* 动态页。 */
 
 .timeline-day {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .timeline-date {
-  margin-bottom: 10px;
-  font-size: 18px;
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-l);
 }
 
 .timeline {
   margin: 0;
-  padding: 4px 20px;
+  padding: var(--space-1) var(--space-5);
   list-style: none;
 }
 
 .timeline-item {
   display: grid;
   grid-template-columns: 52px 10px minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-3);
   align-items: baseline;
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   border-top: 1px solid var(--wash);
 }
 
@@ -29,14 +29,27 @@
 }
 
 .timeline-time {
-  font-size: 13px;
+  font-size: var(--fs-s);
 }
+
 
 .timeline-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/* 宽屏下一条动态排成一行：时间、标题、详情各占一列，详情用满剩余宽度，不再两行堆叠把右边留空。 */
+@media (min-width: 1100px) {
+  .timeline-item {
+    grid-template-columns: 56px 10px minmax(180px, 320px) minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .timeline-text {
+    display: contents;
+  }
 }
 
 .timeline-title {
@@ -53,14 +66,14 @@ a.timeline-title:hover {
 .timeline-detail {
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-s);
 }
 
 .tabs .tab-link {
   display: flex;
   align-items: center;
-  min-height: 42px;
-  padding: 0 16px;
+  min-height: var(--control-h);
+  padding: 0 var(--space-4);
   background: var(--surface);
   color: var(--ink);
   text-decoration: none;
@@ -71,13 +84,29 @@ a.timeline-title:hover {
   color: var(--paper);
 }
 
+/* 提交记录里下载中的进度。 */
+.transfer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 420px;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+}
+
+.transfer.is-ok .transfer-bar > span { background: var(--st-in_library-fg); }
+.transfer.is-warn .transfer-bar > span { background: var(--st-candidates-fg); }
+.transfer.is-bad .transfer-bar > span { background: var(--issue-fg); }
+.transfer.is-warn .transfer-text strong { color: var(--st-candidates-fg); }
+.transfer.is-bad .transfer-text strong { color: var(--issue-fg); }
+
 @media (max-width: 900px) {
   .timeline {
-    padding: 4px 14px;
+    padding: var(--space-1) var(--space-3);
   }
 
   .timeline-item {
     grid-template-columns: 44px 10px minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--space-2);
   }
 }

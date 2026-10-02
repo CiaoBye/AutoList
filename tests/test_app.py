@@ -142,7 +142,7 @@ class InterfaceContractTests(unittest.TestCase):
             ["node", "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script],
             cwd=self.root, text=True,
         )
-        self.assertEqual(json.loads(output), ["—", "5.0 GB", "47.2 TB", "250 TB", "3 MB"])
+        self.assertEqual(json.loads(output), ["—", "5.00 GB", "47.16 TB", "250.00 TB", "3.00 MB"])
 
 
 class LogFormatterAndErrorHandlerTests(IsolatedAppTestCase):

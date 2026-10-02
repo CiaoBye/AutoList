@@ -10,6 +10,7 @@ import { ISSUE_LABELS, STATUS_LABELS } from "../status";
 import type { FilmIssue, FilmPage, FilmStatus, SearchTaskStarted } from "../types";
 import { FilmDrawer } from "./FilmDrawer";
 import { startBatchSearch } from "./Home";
+import { forgetCurrentPlaylist, readCurrentPlaylist, rememberCurrentPlaylist } from "../currentPlaylist";
 
 const PAGE_SIZE = 120;
 const ALWAYS_SHOWN: FilmStatus[] = ["missing", "in_library"];
@@ -23,13 +24,16 @@ const FILTER_ORDER: FilmStatus[] = [
   "unrecognized",
   "unchecked",
 ];
-const ISSUES: FilmIssue[] = ["no_eligible", "submit_failed", "context_expired"];
+const ISSUES: FilmIssue[] = ["no_eligible", "submit_failed", "context_expired", "download_stalled", "organize_failed"];
 
 type View = "grid" | "list";
 
 export function Films({ route }: { route: Route }) {
   const toast = useToast();
-  const playlist = route.query.get("playlist");
+  // 不带 playlist 时显示当前片单（首页或片单页最后选的）；“全部片单”写作 playlist=all。
+  const playlistParam = route.query.get("playlist");
+  const showAll = playlistParam === "all";
+  const playlist = showAll ? null : playlistParam ?? readCurrentPlaylist();
   const status = route.query.get("status") || "all";
   const query = route.query.get("q") || "";
   const page = Math.max(1, Number(route.query.get("page") || 1));
@@ -40,7 +44,7 @@ export function Films({ route }: { route: Route }) {
   const [range, setRange] = useState({ start: "", end: "" });
   const debounce = useRef<number | undefined>(undefined);
 
-  const params = { playlist, status: status === "all" ? null : status, q: query || null, view: view === "grid" ? null : view };
+  const params = { playlist: showAll ? "all" : playlist, status: status === "all" ? null : status, q: query || null, view: view === "grid" ? null : view };
   const listHref = (overrides: Record<string, string | number | null>) => href("/films", { ...params, page: page > 1 ? page : null, ...overrides });
 
   const films = useLoad<FilmPage>(
@@ -52,9 +56,27 @@ export function Films({ route }: { route: Route }) {
     },
     [playlist, status, query, page],
     (data) => (data && data.counts.searching > 0 ? 5000 : null),
+    `films:${playlist}:${status}:${query}:${page}`,
   );
 
   useEffect(() => setDraft(query), [query]);
+
+  // 记住的片单已被删除：忘掉它，回到默认。
+  useEffect(() => {
+    if (!playlistParam && films.error?.status === 404 && readCurrentPlaylist()) {
+      forgetCurrentPlaylist();
+      navigate(href("/films", { ...params, playlist: null, page: null }), true);
+    }
+  }, [films.error]);
+
+  // 第一次进入、还没有当前片单时，默认显示排在最前的片单。
+  useEffect(() => {
+    const first = films.data?.playlists[0]?.id;
+    if (!showAll && !playlist && first) {
+      rememberCurrentPlaylist(first);
+      navigate(href("/films", { ...params, playlist: first, page: null }), true);
+    }
+  }, [films.data, showAll, playlist]);
 
   const onSearchInput = (value: string) => {
     setDraft(value);
@@ -117,10 +139,14 @@ export function Films({ route }: { route: Route }) {
           <select
             class="page-head-select"
             aria-label="片单"
-            value={playlist || ""}
-            onChange={(event) => navigate(href("/films", { ...params, playlist: (event.target as HTMLSelectElement).value || null, page: null }))}
+            value={showAll ? "all" : playlist || ""}
+            onChange={(event) => {
+              const value = (event.target as HTMLSelectElement).value;
+              rememberCurrentPlaylist(value);
+              navigate(href("/films", { ...params, playlist: value, page: null }));
+            }}
           >
-            <option value="">全部片单</option>
+            <option value="all">全部片单</option>
             {data.playlists.map((item) => (
               <option key={item.id} value={String(item.id)}>
                 {item.name} · {item.item_count} 部
@@ -182,7 +208,6 @@ export function Films({ route }: { route: Route }) {
         <details class="range-search">
           <summary class="btn">按序号寻片</summary>
           <form class="range-form card" onSubmit={(event) => void runRange(event)}>
-            <span class="muted" style={{ fontSize: "13px" }}>按片单序号范围寻片，包含已入馆的影片会被自动跳过。</span>
             <div class="toolbar" style={{ marginBottom: 0 }}>
               <label class="field">
                 <span>从</span>
@@ -227,7 +252,6 @@ export function Films({ route }: { route: Route }) {
       {data && !data.items.length ? (
         <div class="card empty">
           <strong>{query ? "没有匹配的影片" : data.playlists.length ? "这个筛选下没有影片" : "还没有片单"}</strong>
-          <span>{query ? "换一个关键词，或清空查找条件。" : "切换上方的状态筛选查看其他影片。"}</span>
         </div>
       ) : null}
 

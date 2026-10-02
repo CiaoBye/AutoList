@@ -22,6 +22,8 @@ from ..tasks import AUTOMATION, LIBRARY, SEARCH
 from ..util import to_int, utc_now
 from .films import reidentify_item
 from .library import library_details, run_library_scan
+from .artwork import start_warm, warm_due
+from .sync import reconcile, sync_due
 from .recognition import persist_tmdb_item, recognize_item
 from .imports import normalize_import_items
 from .search import begin_search_task_slot, run_search, searchable_playlist_items
@@ -543,6 +545,16 @@ async def sync_scheduler() -> None:
                         raise
                     except Exception as exc:
                         event_logger().warning("scheduler_cookiecloud_sync_failed", extra={"error": safe_error(exc)})
+                # 对齐 Transmission、MoviePilot、Emby：手动添加的下载、整理完成与入馆都靠它发现（间隔见 sync.SYNC_INTERVAL_SECONDS）。
+                if sync_due():
+                    try:
+                        await reconcile()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        event_logger().warning("scheduler_sync_failed", extra={"error": safe_error(exc)})
+                if warm_due():
+                    start_warm()
                 await consume_queued_automation_runs()
                 now = utc_now()
                 with connect() as conn:

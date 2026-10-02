@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import lxml.html
 
@@ -93,6 +93,23 @@ def detect_interruption(final_path: str, html: str) -> None:
     # 登录表单里嵌的 Turnstile 验证码也来自 challenges.cloudflare.com，所以放在登录页判断之后。
     if "challenges.cloudflare.com" in head[:5000] and "logout.php" not in head:
         raise CloudflareChallenge()
+
+
+# 站点K等站点的下载按钮带时效签名（download.php?id=…&t=…&sign=…），约一小时后失效，提交时需要从详情页换新的。
+SIGNED_DOWNLOAD = re.compile(r"download\.php\?id=(\d+)(?:&amp;|&)t=([^&\"'\s<>]+)(?:&amp;|&)sign=([^&\"'\s<>]+)")
+
+
+def is_signed_download(url: str | None) -> bool:
+    query = parse_qs(urlsplit(str(url or "")).query)
+    return bool(query.get("t") and query.get("sign"))
+
+
+def fresh_signed_download(html: str, torrent_id: str, base_url: str) -> str | None:
+    """从详情页找到这个种子当前有效的签名下载地址（不含打包下载 type=zip 的那个）。"""
+    for match in SIGNED_DOWNLOAD.finditer(html):
+        if match.group(1) == torrent_id:
+            return urljoin(base_url, f"download.php?id={match.group(1)}&t={match.group(2)}&sign={match.group(3)}")
+    return None
 
 
 def torrent_deleted(status_code: int, html: str) -> bool:

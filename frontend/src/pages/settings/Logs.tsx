@@ -103,9 +103,7 @@ export function Logs() {
             </button>
           </>
         }
-      >
-        服务端的结构化事件日志（已脱敏），用于排查问题；日常进度看“动态”。
-      </SectionHead>
+      />
 
       <div class="log-filters">
         <div class="chips" role="group" aria-label="按级别筛选">

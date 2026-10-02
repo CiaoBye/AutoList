@@ -33,7 +33,8 @@ from ..domain.titles import (
 from ..queries.sites import searchable_site_ids
 from ..security import safe_error, sanitize_sensitive_text
 from ..sites import SiteError
-from ..state import prune_raw_candidates, remember_raw_candidate
+from ..sites.errors import SearchCaptcha
+from ..state import forget_raw_candidate, prune_raw_candidates, remember_raw_candidate
 from ..tasks import SEARCH
 from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, to_float, to_int, utc_now
 from ..outbound import safe_detail_url
@@ -50,10 +51,18 @@ _site_request_times: dict[int, deque[float]] = {}
 _site_rate_locks: dict[int, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
 
 
+# 同一站点相邻两次搜索请求至少间隔的秒数（站点自己配置了更严格的频率时以站点为准）。
+SITE_REQUEST_GAP_SECONDS = 3.0
+_site_last_request: dict[int, float] = {}
+
+
 async def wait_for_site_rate_limit(site: dict[str, Any]) -> None:
     site_id = to_int(site.get("id") or 0)
+    if not site_id:
+        return
+    await _wait_for_site_gap(site_id)
     interval = to_float(site.get("limit_interval")) if site.get("limit_interval") is not None else 0.0
-    if not site_id or interval <= 0:
+    if interval <= 0:
         return
     count = max(1, to_int(site.get("limit_count") or 1))
     loop = asyncio.get_running_loop()
@@ -74,12 +83,35 @@ async def wait_for_site_rate_limit(site: dict[str, Any]) -> None:
         history.append(time.monotonic())
 
 
-async def _current_downloads_cached() -> tuple[list[dict[str, Any]], str]:
+async def _wait_for_site_gap(site_id: int) -> None:
+    """同一站点的请求排队，相邻两次之间至少隔 SITE_REQUEST_GAP_SECONDS 秒。"""
+    loop = asyncio.get_running_loop()
+    entry = _site_gap_locks.get(site_id)
+    if entry is None or entry[0] is not loop:
+        entry = (loop, asyncio.Lock())
+        _site_gap_locks[site_id] = entry
+    async with entry[1]:
+        last = _site_last_request.get(site_id)
+        if last is not None:
+            remaining = SITE_REQUEST_GAP_SECONDS - (time.monotonic() - last)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+        _site_last_request[site_id] = time.monotonic()
+
+
+_site_gap_locks: dict[int, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
+
+
+def invalidate_downloads_snapshot() -> None:
+    _transmission_snapshot_cache.clear()
+
+
+async def _current_downloads_cached(force: bool = False) -> tuple[list[dict[str, Any]], str]:
     import time as _time
 
     now = _time.monotonic()
     cached = _transmission_snapshot_cache.get(0)
-    if cached is not None and now - cached[0] < TRANSMISSION_SNAPSHOT_TTL_SECONDS:
+    if not force and cached is not None and now - cached[0] < TRANSMISSION_SNAPSHOT_TTL_SECONDS:
         return cached[1], cached[2]
     transmission = TransmissionClient()
     try:
@@ -214,9 +246,17 @@ def begin_search_task_slot(conn: sqlite3.Connection) -> None:
 
 
 SEARCH_FILM_CONCURRENCY = 3
-SEARCH_SITE_CONCURRENCY = 2
+# 同一个站点同一时间只发一个搜索请求，避免并发请求被站点限流或判为异常。
+SEARCH_SITE_CONCURRENCY = 1
 SEARCH_REQUEST_CONCURRENCY = 10
+# “仅补缺”站点只为可选种子少于这个数的影片补搜。
+SUPPLEMENT_MIN_RELEASES = 3
 SITE_BLOCKED = "site_blocked"
+SITE_CAPTCHA = "site_captcha"
+# 站点要求搜索人机验证后：每 CAPTCHA_PROBE_SECONDS 试一次，最多等 CAPTCHA_WAIT_SECONDS（站点J连续搜索过快触发后约 10 分钟内自行恢复）。
+CAPTCHA_PROBE_SECONDS = 60
+CAPTCHA_WAIT_SECONDS = 20 * 60
+BLOCKING_ERRORS = {SITE_BLOCKED, SITE_CAPTCHA}
 SEARCH_ERROR_MESSAGES = {
     "dns_error": "无法解析站点地址，请检查域名或 DNS 设置",
     "connect_error": "无法连接站点，请检查地址和网络",
@@ -230,6 +270,8 @@ SEARCH_ERROR_MESSAGES = {
 
 
 def classify_search_error(exc: Exception) -> tuple[str, str]:
+    if isinstance(exc, SearchCaptcha):
+        return SITE_CAPTCHA, str(exc)
     if isinstance(exc, SiteError):
         # 登录失效、二次验证、维护、人机验证：站点自己说明了原因，本次任务里重试也不会好转。
         return SITE_BLOCKED, str(exc)
@@ -253,6 +295,33 @@ def classify_search_error(exc: Exception) -> tuple[str, str]:
     if isinstance(exc, (ValueError, TypeError, json.JSONDecodeError)) or re.search(r"(?:parse|xml|json)", technical):
         return "parse_error", SEARCH_ERROR_MESSAGES["parse_error"]
     return "error", SEARCH_ERROR_MESSAGES["error"]
+
+
+def mark_site_captcha(site: dict[str, Any], reason: str) -> None:
+    """寻片中遇到搜索人机验证时，把站点检测状态也标为异常，站点列表与概览随即提示去验证。"""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE pt_sites SET last_status='error',last_message=?,last_tested_at=? WHERE id=?",
+            (reason, utc_now(), site["id"]),
+        )
+
+
+def mark_site_recovered(site: dict[str, Any]) -> None:
+    """人机验证解除、搜索恢复后，站点检测状态回到正常，不再提示去验证。"""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE pt_sites SET last_status='ok',last_message=?,last_tested_at=? WHERE id=?",
+            ("搜索恢复正常", utc_now(), site["id"]),
+        )
+
+
+def clear_skipped_attempts(task_id: int, item_id: int, site_id: int) -> None:
+    """补搜前删掉这部影片在该站点的“跳过 / 需要验证”记录，任务结果只保留补搜的那次。"""
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM search_attempts WHERE task_id=? AND playlist_item_id=? AND site_id=? AND status='failed' AND error_code=?",
+            (task_id, item_id, site_id, SITE_CAPTCHA),
+        )
 
 
 def record_search_attempt(
@@ -451,220 +520,334 @@ async def run_search(task_id: int) -> None:
     matched = 0
     warnings: list[str] = []
     # 本次任务中已被站点拦截（登录失效、人机验证、维护等）的站点：后续影片不再请求，直接记为失败，便于处理后“重试失败的站点”。
-    blocked_sites: dict[int, str] = {}
-    # 多部影片同时寻片：每个站点同时最多 SEARCH_SITE_CONCURRENCY 个请求，全任务最多 SEARCH_REQUEST_CONCURRENCY 个，
-    # 避免慢站点拖住整批；每部片搜完立即写入候选并记入 done_item_ids_json，挑选台随即可以看到。
+    blocked_sites: dict[int, tuple[str, str]] = {}
+    # 多部影片同时寻片，但同一个站点同一时间只发一个请求、相邻两次至少间隔 SITE_REQUEST_GAP_SECONDS 秒
+    # （见 wait_for_site_rate_limit）；每部片搜完立即写入候选并记入 done_item_ids_json，挑选台随即可以看到。
+    # “仅补缺”的站点在其他站点搜完后，只为可选资源不足 SUPPLEMENT_MIN_RELEASES 个的影片按 IMDb 检索一次。
     film_slots = asyncio.Semaphore(SEARCH_FILM_CONCURRENCY)
     request_slots = asyncio.Semaphore(SEARCH_REQUEST_CONCURRENCY)
     site_slots = {to_int(site["id"]): asyncio.Semaphore(SEARCH_SITE_CONCURRENCY) for site in sites}
+    main_sites = [site for site in sites if not to_int(site.get("supplement_only"))]
+    supplement_sites = [site for site in sites if to_int(site.get("supplement_only"))]
+    clients = {"torznab": torznab, "mteam": mteam, "nexusphp": nexusphp, "rss": rss}
+    try:
+        policy = normalized_policy(json.loads(config.get("candidate_policy") or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        policy = normalized_policy({})
     done_item_ids: list[int] = []
+    kept_by_film: dict[int, int] = {}
+    # 因搜索人机验证暂停的站点 → 还没在该站搜过的影片（与当时用的检索词），任务最后等站点恢复后补搜。
+    captcha_waiting: dict[int, list[tuple[dict[str, Any], list[tuple[str, str | None, str]]]]] = {}
 
-    async def search_film(item: sqlite3.Row) -> None:
-        nonlocal matched
+    async def prepare_film(item: sqlite3.Row) -> dict[str, Any] | None:
+        """识别、核对 Emby；已入馆返回 None。"""
         label = f"#{item['rank_no']} {item['original_title']}"
         task_log(task_id, "info", "recognize", f"开始识别 {label}")
-        try:
-            tmdb_media = await recognize_item(item)
-            if not tmdb_media:
-                raise RuntimeError("TMDB 未返回匹配结果")
-            tmdb_id = to_int(tmdb_media["id"])
-            media = {
-                "source": "themoviedb",
-                "tmdb_id": tmdb_id,
-                "imdb_id": tmdb_media.get("imdb_id") or item["imdb_id"],
-                "title": tmdb_media.get("title") or item["chinese_title"] or item["original_title"],
-                "original_title": tmdb_media.get("original_title") or item["original_title"],
-                "year": str(tmdb_media.get("release_date") or item["year"] or "")[:4] or None,
-                "release_date": tmdb_media.get("release_date"),
-                "type": "电影",
-                "poster_path": tmdb_media.get("poster_path"),
-            }
-            persist_tmdb_item(to_int(item["id"]), tmdb_media, item["imdb_id"])
-            # sqlite3.Row is a snapshot: use the just-recognized identity
-            # for this search's candidate filtering as well as future runs.
-            with connect() as conn:
-                item = conn.execute("SELECT * FROM playlist_items WHERE id=?", (item["id"],)).fetchone()
-            if item is None:
-                raise RuntimeError("搜索中的影片已不存在")
-            item = await ensure_alt_titles(item)
-            task_log(task_id, "info", "recognize", f"识别完成 {label} → TMDB {tmdb_id}")
-            state, emby_item_id, image_tag = await library_details(
-                emby, str(media["title"]), to_int(media["year"]) if media.get("year") else item["year"],
-                tmdb_id, media.get("imdb_id"),
+        tmdb_media = await recognize_item(item)
+        if not tmdb_media:
+            raise RuntimeError("TMDB 未返回匹配结果")
+        tmdb_id = to_int(tmdb_media["id"])
+        media = {
+            "source": "themoviedb",
+            "tmdb_id": tmdb_id,
+            "imdb_id": tmdb_media.get("imdb_id") or item["imdb_id"],
+            "title": tmdb_media.get("title") or item["chinese_title"] or item["original_title"],
+            "original_title": tmdb_media.get("original_title") or item["original_title"],
+            "year": str(tmdb_media.get("release_date") or item["year"] or "")[:4] or None,
+            "release_date": tmdb_media.get("release_date"),
+            "type": "电影",
+            "poster_path": tmdb_media.get("poster_path"),
+        }
+        persist_tmdb_item(to_int(item["id"]), tmdb_media, item["imdb_id"])
+        # sqlite3.Row is a snapshot: use the just-recognized identity
+        # for this search's candidate filtering as well as future runs.
+        with connect() as conn:
+            item = conn.execute("SELECT * FROM playlist_items WHERE id=?", (item["id"],)).fetchone()
+        if item is None:
+            raise RuntimeError("搜索中的影片已不存在")
+        item = await ensure_alt_titles(item)
+        task_log(task_id, "info", "recognize", f"识别完成 {label} → TMDB {tmdb_id}")
+        state, emby_item_id, image_tag = await library_details(
+            emby, str(media["title"]), to_int(media["year"]) if media.get("year") else item["year"],
+            tmdb_id, media.get("imdb_id"),
+        )
+        with connect() as conn:
+            conn.execute(
+                "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
+                (state, utc_now(), emby_item_id, image_tag, item["id"]),
             )
-            with connect() as conn:
-                conn.execute(
-                    "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
-                    (state, utc_now(), emby_item_id, image_tag, item["id"]),
-                )
-            task_log(task_id, "info", "library", f"Emby 状态：{state}")
-            if state == "in_library":
-                task_log(task_id, "info", "search", f"{label} 已有实体文件，跳过站点搜索")
-                return
-            pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
-            clients = {"torznab": torznab, "mteam": mteam, "nexusphp": nexusphp, "rss": rss}
-            queries = build_search_queries(item, media)
-            film = item
+        task_log(task_id, "info", "library", f"Emby 状态：{state}")
+        if state == "in_library":
+            task_log(task_id, "info", "search", f"{label} 已有实体文件，跳过站点搜索")
+            return None
+        queries = build_search_queries(item, media)
+        task_log(task_id, "info", "search", "检索词：" + " → ".join(query[2] for query in queries))
+        return {
+            "item": item, "media": media, "tmdb_id": tmdb_id, "state": state, "label": label,
+            "queries": queries, "pairs": [], "site_failures": 0,
+        }
 
-            def is_target(torrent: dict[str, Any]) -> bool:
-                return candidate_identity(
-                    film, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
-                    first_value(torrent, ("imdbid", "imdb_id")),
-                )[0]
+    async def search_sites(film: dict[str, Any], film_sites: list[dict[str, Any]], queries: list[tuple[str, str | None, str]]) -> None:
+        """在一组站点上搜索这部影片，结果累加到 film["pairs"]。"""
+        item, media, label = film["item"], film["media"], film["label"]
 
-            task_log(task_id, "info", "search", "检索词：" + " → ".join(query[2] for query in queries))
-            item_sites = [
-                site for site in sites
-                if not pair_scope or (to_int(item["id"]), to_int(site["id"])) in pair_scope
-            ]
-            site_failures = 0
-            for site in item_sites:
-                if to_int(site["id"]) in blocked_sites:
-                    site_failures += 1
-                    record_search_attempt(
-                        task_id, to_int(item["id"]), site, 1, "failed", 0, 0, SITE_BLOCKED,
-                        f"本次任务已跳过：{blocked_sites[to_int(site['id'])]}", query_count=0,
-                    )
-            site_results = await asyncio.gather(*(
-                search_one_site(
-                    task_id, item, site, clients, _search_slot(site_slots[to_int(site["id"])], request_slots), queries,
-                    is_target=is_target,
+        def is_target(torrent: dict[str, Any]) -> bool:
+            return candidate_identity(
+                item, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
+                first_value(torrent, ("imdbid", "imdb_id")),
+            )[0]
+
+        item_sites = [
+            site for site in film_sites
+            if not pair_scope or (to_int(item["id"]), to_int(site["id"])) in pair_scope
+        ]
+        for site in item_sites:
+            if to_int(site["id"]) in blocked_sites:
+                film["site_failures"] += 1
+                record_search_attempt(
+                    task_id, to_int(item["id"]), site, 1, "failed", 0, 0, blocked_sites[to_int(site["id"])][0],
+                    f"本次任务已跳过：{blocked_sites[to_int(site['id'])][1]}", query_count=0,
                 )
-                for site in item_sites if to_int(site["id"]) not in blocked_sites
-            ))
-            for site, torrents, reason, query_count, error_code in site_results:
-                if reason:
-                    site_failures += 1
-                    if error_code == SITE_BLOCKED:
-                        # 并行的几部影片可能同时撞上同一个被拦截的站点，警告只记一次。
-                        if to_int(site["id"]) not in blocked_sites:
-                            warnings.append(f"{site['name']}：{reason}（本次任务后续影片跳过该站点）")
-                        blocked_sites[to_int(site["id"])] = reason
-                        task_log(task_id, "warning", "search", f"{site['name']} 搜索失败：{reason}；本次任务后续影片跳过该站点")
-                    else:
-                        warnings.append(f"{label} · {site['name']}：{reason}")
-                        task_log(task_id, "warning", "search", f"{site['name']} 搜索失败：{reason}")
-                    event_logger().warning("site_search_failed", extra={
-                        "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
-                        "site": site["name"], "error": reason[:300],
-                    })
-                    continue
-                pairs.extend((media, torrent) for torrent in torrents)
-                task_log(task_id, "info", "search", f"{site['name']} 返回 {len(torrents)} 个资源（{query_count} 个检索词）")
-            try:
-                raw_policy = json.loads(config.get("candidate_policy") or "{}")
-            except (TypeError, json.JSONDecodeError):
-                raw_policy = {}
-            policy = normalized_policy(raw_policy)
-            pairs.sort(key=lambda pair: analyze_candidate(str(first_value(pair[1], ("title", "torrent_name", "name"), "")), 0, config, pair[1], policy)["ranking"])
-            limit = to_int(policy["candidate_limit"])
-            eligible_keys: list[str] = []
-            excluded_keys: list[str] = []
-            selected_pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
-            selected_keys: set[tuple[str, str, str]] = set()
-            exclusion_counts: Counter[str] = Counter()
-            releases = ReleaseClusters()
-            for pair in pairs:
-                torrent = pair[1]
-                analysis = analyze_candidate(
-                    str(first_value(torrent, ("title", "torrent_name", "name"), "")), 0, config, torrent, policy,
-                )
-                identity_ok, identity_reason = candidate_identity(
-                    item, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
-                    first_value(torrent, ("imdbid", "imdb_id")),
-                )
-                if not identity_ok:
-                    analysis = dict(analysis)
-                    analysis.update({
-                        "eligible": False, "manual": True, "recommendation": "excluded",
-                        "reason": identity_reason, "exclusion_reason": identity_reason,
-                    })
-                if not analysis["eligible"]:
-                    exclusion_counts[str(analysis.get("exclusion_reason") or "不符合允许组合")] += 1
-                # 保留数量按不同发布计：同一种子在多个站点、标题写法不同，只占一个名额。
-                key = releases.key(
-                    str(first_value(torrent, ("title", "torrent_name", "name"), "")),
-                    first_value(torrent, ("size", "size_bytes")), analysis.get("group"), analysis.get("resolution"),
-                )
-                bucket_name = "eligible" if analysis["eligible"] else "excluded"
-                bucket = eligible_keys if analysis["eligible"] else excluded_keys
-                if key not in bucket:
-                    if len(bucket) >= limit:
-                        continue
-                    bucket.append(key)
-                selection_key = (bucket_name, key, str(first_value(torrent, ("site_name", "site"), torrent.get("_site_id") or "")))
-                if selection_key in selected_keys:
-                    continue
-                selected_keys.add(selection_key)
-                selected_pairs.append(pair)
-            kept = len(eligible_keys)
-            summary = {
-                "rank": item["rank_no"], "movie": item["original_title"],
-                "results": len(pairs), "kept": kept,
-                "excluded": [{"reason": reason, "count": count} for reason, count in exclusion_counts.most_common(3)],
-            }
-            if site_failures:
-                summary["site_failures"] = site_failures
-            task_log(task_id, "info", "summary", json.dumps(summary, ensure_ascii=False))
-            event_logger().info("movie_search_summary", extra={
-                "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
-                "results": len(pairs), "kept": kept, "excluded": len(excluded_keys),
-            })
-            # 候选写入合并为单个事务（审计 3-29）：避免每候选独立 SQLite 事务的写放大。
-            candidate_rows: list[tuple[Any, ...]] = []
-            for index, (source_media, torrent) in enumerate(selected_pairs):
-                candidate_id = uuid.uuid4().hex
-                title = str(first_value(torrent, ("title", "torrent_name", "name"), "未知资源"))
-                analyzed = analyze_candidate(title, index, config, torrent, policy)
-                identity_ok, identity_reason = candidate_identity(
-                    item, source_media, title, first_value(torrent, ("imdbid", "imdb_id")),
-                )
-                if not identity_ok:
-                    analyzed = dict(analyzed)
-                    analyzed.update({
-                        "eligible": False, "manual": True, "recommendation": "excluded",
-                        "reason": identity_reason, "exclusion_reason": identity_reason,
-                    })
-                metadata = secret_free({
-                    "description": torrent.get("description"), "labels": torrent.get("labels", []),
-                    "volume_factor": torrent.get("volume_factor"), "publish_time": first_value(torrent, ("pubdate", "publish_time")),
-                    "source": analyzed["source"], "profile_label": analyzed.get("profile_label"),
+                if blocked_sites[to_int(site["id"])][0] == SITE_CAPTCHA:
+                    captcha_waiting.setdefault(to_int(site["id"]), []).append((film, queries))
+        site_results = await asyncio.gather(*(
+            search_one_site(
+                task_id, item, site, clients, _search_slot(site_slots[to_int(site["id"])], request_slots), queries,
+                is_target=is_target,
+            )
+            for site in item_sites if to_int(site["id"]) not in blocked_sites
+        ))
+        for site, torrents, reason, query_count, error_code in site_results:
+            if reason:
+                film["site_failures"] += 1
+                if error_code in BLOCKING_ERRORS:
+                    # 并行的几部影片可能同时撞上同一个被拦截的站点，警告只记一次。
+                    paused = error_code == SITE_CAPTCHA
+                    note = "暂停该站点，其他站点搜完后等待恢复再补搜" if paused else "本次任务后续影片跳过该站点"
+                    if to_int(site["id"]) not in blocked_sites:
+                        warnings.append(f"{site['name']}：{reason}（{note}）")
+                        if paused:
+                            mark_site_captcha(site, reason)
+                    blocked_sites[to_int(site["id"])] = (error_code, reason)
+                    if paused:
+                        captcha_waiting.setdefault(to_int(site["id"]), []).append((film, queries))
+                    task_log(task_id, "warning", "search", f"{site['name']} 搜索失败：{reason}；{note}")
+                else:
+                    warnings.append(f"{label} · {site['name']}：{reason}")
+                    task_log(task_id, "warning", "search", f"{site['name']} 搜索失败：{reason}")
+                event_logger().warning("site_search_failed", extra={
+                    "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
+                    "site": site["name"], "error": reason[:300],
                 })
-                fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))
-                candidate_rows.append((
-                    candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
-                    first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],
-                    analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
-                    analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
-                    to_int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
-                    analyzed.get("exclusion_reason"), analyzed.get("profile_id"), safe_detail_url(first_value(torrent, ("detail_url",))), json_value(metadata), utc_now()),
-                )
-                remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
-            if candidate_rows:
-                with connect() as conn:
-                    conn.executemany(
-                        """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,profile_id,detail_url,metadata_json,created_at)
-                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        candidate_rows,
-                    )
-            matched += len(eligible_keys)
-            task_log(
-                task_id, "info", "candidate",
-                f"{label} 保留 {len(eligible_keys)} 个可下载候选，记录 {len(excluded_keys)} 个排除样本",
-            )
-        except Exception as exc:
-            reason = safe_error(exc)
-            warnings.append(f"{label}：{reason}")
-            task_log(task_id, "error", "movie", f"{label} 处理失败：{reason}")
+                continue
+            film["pairs"].extend((media, torrent) for torrent in torrents)
+            task_log(task_id, "info", "search", f"{site['name']} 返回 {len(torrents)} 个资源（{query_count} 个检索词）")
 
-    async def process(item: sqlite3.Row) -> None:
+    def save_candidates(film: dict[str, Any]) -> int:
+        """按入馆标准挑出候选并写入（补缺后整部重写），返回保留的可选种子数。"""
+        item, label, state, tmdb_id = film["item"], film["label"], film["state"], film["tmdb_id"]
+        media, site_failures = film["media"], film["site_failures"]
+        with connect() as conn:
+            stale = [row["id"] for row in conn.execute(
+                "SELECT id FROM candidates WHERE task_id=? AND playlist_item_id=?", (task_id, item["id"]),
+            ).fetchall()]
+            if stale:
+                conn.execute("DELETE FROM candidates WHERE task_id=? AND playlist_item_id=?", (task_id, item["id"]))
+        for candidate_id in stale:
+            forget_raw_candidate(candidate_id)
+        pairs = sorted(film["pairs"], key=lambda pair: analyze_candidate(str(first_value(pair[1], ("title", "torrent_name", "name"), "")), 0, config, pair[1], policy)["ranking"])
+        limit = to_int(policy["candidate_limit"])
+        eligible_keys: list[str] = []
+        excluded_keys: list[str] = []
+        selected_pairs: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
+        selected_keys: set[tuple[str, str, str]] = set()
+        exclusion_counts: Counter[str] = Counter()
+        releases = ReleaseClusters()
+        for pair in pairs:
+            torrent = pair[1]
+            analysis = analyze_candidate(
+                str(first_value(torrent, ("title", "torrent_name", "name"), "")), 0, config, torrent, policy,
+            )
+            identity_ok, identity_reason = candidate_identity(
+                item, media, str(first_value(torrent, ("title", "torrent_name", "name"), "")),
+                first_value(torrent, ("imdbid", "imdb_id")),
+            )
+            if not identity_ok:
+                analysis = dict(analysis)
+                analysis.update({
+                    "eligible": False, "manual": True, "recommendation": "excluded",
+                    "reason": identity_reason, "exclusion_reason": identity_reason,
+                })
+            if not analysis["eligible"]:
+                exclusion_counts[str(analysis.get("exclusion_reason") or "不符合允许组合")] += 1
+            # 保留数量按不同发布计：同一种子在多个站点、标题写法不同，只占一个名额。
+            key = releases.key(
+                str(first_value(torrent, ("title", "torrent_name", "name"), "")),
+                first_value(torrent, ("size", "size_bytes")), analysis.get("group"), analysis.get("resolution"),
+            )
+            bucket_name = "eligible" if analysis["eligible"] else "excluded"
+            bucket = eligible_keys if analysis["eligible"] else excluded_keys
+            if key not in bucket:
+                if len(bucket) >= limit:
+                    continue
+                bucket.append(key)
+            selection_key = (bucket_name, key, str(first_value(torrent, ("site_name", "site"), torrent.get("_site_id") or "")))
+            if selection_key in selected_keys:
+                continue
+            selected_keys.add(selection_key)
+            selected_pairs.append(pair)
+        kept = len(eligible_keys)
+        summary = {
+            "rank": item["rank_no"], "movie": item["original_title"],
+            "results": len(pairs), "kept": kept,
+            "excluded": [{"reason": reason, "count": count} for reason, count in exclusion_counts.most_common(3)],
+        }
+        if site_failures:
+            summary["site_failures"] = site_failures
+        task_log(task_id, "info", "summary", json.dumps(summary, ensure_ascii=False))
+        event_logger().info("movie_search_summary", extra={
+            "task_id": task_id, "rank": item["rank_no"], "movie": item["original_title"],
+            "results": len(pairs), "kept": kept, "excluded": len(excluded_keys),
+        })
+        # 候选写入合并为单个事务（审计 3-29）：避免每候选独立 SQLite 事务的写放大。
+        candidate_rows: list[tuple[Any, ...]] = []
+        for index, (source_media, torrent) in enumerate(selected_pairs):
+            candidate_id = uuid.uuid4().hex
+            title = str(first_value(torrent, ("title", "torrent_name", "name"), "未知资源"))
+            analyzed = analyze_candidate(title, index, config, torrent, policy)
+            identity_ok, identity_reason = candidate_identity(
+                item, source_media, title, first_value(torrent, ("imdbid", "imdb_id")),
+            )
+            if not identity_ok:
+                analyzed = dict(analyzed)
+                analyzed.update({
+                    "eligible": False, "manual": True, "recommendation": "excluded",
+                    "reason": identity_reason, "exclusion_reason": identity_reason,
+                })
+            metadata = secret_free({
+                "description": torrent.get("description"), "labels": torrent.get("labels", []),
+                "volume_factor": torrent.get("volume_factor"), "publish_time": first_value(torrent, ("pubdate", "publish_time")),
+                "source": analyzed["source"], "profile_label": analyzed.get("profile_label"),
+            })
+            fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))
+            candidate_rows.append((
+                candidate_id, task_id, item["id"], index, title, first_value(torrent, ("site_name", "site")),
+                first_value(torrent, ("size", "size_bytes")), first_value(torrent, ("seeders", "seeder")), analyzed["resolution"],
+                analyzed["codec"], analyzed["group"], analyzed["tier"], analyzed["score"], json_value(analyzed["breakdown"]),
+                analyzed["ranking"], analyzed["recommendation"], analyzed["reason"], fingerprint, state,
+                to_int(analyzed["manual"]), "eligible" if analyzed["eligible"] else "excluded",
+                analyzed.get("exclusion_reason"), analyzed.get("profile_id"), safe_detail_url(first_value(torrent, ("detail_url",))), json_value(metadata), utc_now()),
+            )
+            remember_raw_candidate(candidate_id, {"media": source_media, "torrent": torrent, "tmdb_id": tmdb_id})
+        if candidate_rows:
+            with connect() as conn:
+                conn.executemany(
+                    """INSERT INTO candidates(id,task_id,playlist_item_id,candidate_index,title,site_name,size,seeders,resolution,codec,group_name,group_tier,score,score_breakdown,ranking,recommendation,recommendation_reason,resource_key,library_state,is_manual_only,eligibility,exclusion_reason,profile_id,detail_url,metadata_json,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    candidate_rows,
+                )
+        task_log(
+            task_id, "info", "candidate",
+            f"{label} 保留 {len(eligible_keys)} 个可下载候选，记录 {len(excluded_keys)} 个排除样本",
+        )
+        return len(eligible_keys)
+
+    async def process(item: sqlite3.Row) -> dict[str, Any] | None:
+        """主站点搜索；需要补缺时返回这部影片的上下文，留到补缺阶段。"""
+        nonlocal matched
+        film: dict[str, Any] | None = None
         async with film_slots:
-            await search_film(item)
+            try:
+                film = await prepare_film(item)
+                if film is not None:
+                    await search_sites(film, main_sites, film["queries"])
+                    kept_by_film[to_int(item["id"])] = save_candidates(film)
+                    matched += kept_by_film[to_int(item["id"])]
+            except Exception as exc:
+                reason = safe_error(exc)
+                label = f"#{item['rank_no']} {item['original_title']}"
+                warnings.append(f"{label}：{reason}")
+                task_log(task_id, "error", "movie", f"{label} 处理失败：{reason}")
+                film = None
+        # 重试任务里补缺站点的组合都是上次失败的，照常补搜；否则只补可选资源不足的影片。
+        if film is not None and supplement_sites and (pair_scope or kept_by_film[to_int(item["id"])] < SUPPLEMENT_MIN_RELEASES):
+            return film
+        finish(item)
+        return None
+
+    async def supplement(film: dict[str, Any]) -> None:
+        nonlocal matched
+        item = film["item"]
+        async with film_slots:
+            try:
+                task_log(task_id, "info", "search", f"{film['label']} 可选资源不足 {SUPPLEMENT_MIN_RELEASES} 个，按 IMDb 补搜仅补缺站点")
+                # 补缺只用第一个检索词（IMDb，影片没有 IMDb 编号时为原名），节省站点的搜索次数。
+                await search_sites(film, supplement_sites, film["queries"][:1])
+                previous = kept_by_film.get(to_int(item["id"]), 0)
+                kept_by_film[to_int(item["id"])] = save_candidates(film)
+                matched += kept_by_film[to_int(item["id"])] - previous
+            except Exception as exc:
+                reason = safe_error(exc)
+                warnings.append(f"{film['label']}：{reason}")
+                task_log(task_id, "error", "movie", f"{film['label']} 补缺失败：{reason}")
+        finish(item)
+
+    async def resume_captcha_site(site_id: int, waiting: list[tuple[dict[str, Any], list[tuple[str, str | None, str]]]]) -> None:
+        """站点要求搜索人机验证时不放弃：其他站点搜完后每分钟试一次（最多 CAPTCHA_WAIT_SECONDS），
+        恢复后（冷却结束，或用户在浏览器完成了验证）接着为这些影片补搜。"""
+        nonlocal matched
+        site = next(site for site in sites if to_int(site["id"]) == site_id)
+        first_film, first_queries = waiting[0]
+        minutes = CAPTCHA_WAIT_SECONDS // 60
+        task_log(
+            task_id, "warning", "search",
+            f"{site['name']} 需要搜索人机验证：{len(waiting)} 部影片等待该站点，每分钟试一次，最多等 {minutes} 分钟；"
+            "可在浏览器打开该站种子列表页完成验证，恢复后自动继续",
+        )
+        deadline = time.monotonic() + CAPTCHA_WAIT_SECONDS
+        while True:
+            await asyncio.sleep(CAPTCHA_PROBE_SECONDS)
+            await wait_for_site_rate_limit(site)
+            try:
+                client = clients[str(site["adapter"])]
+                title, imdb_id, _label = first_queries[0]
+                await _search_with_retry(site, client, title, imdb_id)
+                break
+            except SearchCaptcha:
+                if time.monotonic() >= deadline:
+                    task_log(task_id, "warning", "search", f"{site['name']} 等了 {minutes} 分钟仍需验证，这些影片留待“重试失败的站点”")
+                    return
+            except Exception as exc:
+                task_log(task_id, "warning", "search", f"{site['name']} 恢复检查失败：{safe_error(exc)}，留待“重试失败的站点”")
+                return
+        task_log(task_id, "info", "search", f"{site['name']} 已恢复，继续为 {len(waiting)} 部影片搜索")
+        blocked_sites.pop(site_id, None)
+        mark_site_recovered(site)
+        warnings[:] = [warning for warning in warnings if not warning.startswith(f"{site['name']}：")]
+        for film, queries in waiting:
+            if site_id in blocked_sites:
+                break
+            item_id = to_int(film["item"]["id"])
+            clear_skipped_attempts(task_id, item_id, site_id)
+            film["site_failures"] = max(0, film["site_failures"] - 1)
+            await search_sites(film, [site], queries)
+            previous = kept_by_film.get(item_id, 0)
+            kept_by_film[item_id] = save_candidates(film)
+            matched += kept_by_film[item_id] - previous
+        update_task(task_id, matched=matched)
+
+    def finish(item: sqlite3.Row) -> None:
         done_item_ids.append(to_int(item["id"]))
         update_task(task_id, completed=len(done_item_ids), matched=matched, done_item_ids_json=json_value(done_item_ids))
 
     try:
-        await asyncio.gather(*(process(item) for item in items))
+        pending = [film for film in await asyncio.gather(*(process(item) for item in items)) if film is not None]
+        if pending:
+            task_log(task_id, "info", "search", f"其他站点搜完，{len(pending)} 部影片补搜仅补缺站点")
+            await asyncio.gather(*(supplement(film) for film in pending))
+        # 需要人机验证的站点：等它恢复后补搜（不同站点同时等）。
+        if captcha_waiting:
+            await asyncio.gather(*(resume_captcha_site(site_id, waiting) for site_id, waiting in list(captcha_waiting.items())))
         status = "partial" if warnings else "completed"
         message = "；".join(warnings[:5])[:500] if warnings else None
         update_task(task_id, status=status, completed=len(items), matched=matched, error_message=message)

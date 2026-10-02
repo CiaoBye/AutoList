@@ -35,6 +35,23 @@ function ReleaseTitle({ title, url, className }: { title: string; url: string | 
   );
 }
 
+/** 站点、体积、做种与发布日期：挑选时最常看的几项，比规则说明更醒目。 */
+function ReleaseFacts({ siteName, size, seeders, publishDate }: {
+  siteName: string | null;
+  size: number | null;
+  seeders: number | null;
+  publishDate: string | null;
+}) {
+  return (
+    <>
+      <span class="candidate-site">{siteName || "未知站点"}</span>
+      <span class="candidate-fact mono">{formatSize(size)}</span>
+      <span class="candidate-fact mono">{seeders ?? 0} 做种</span>
+      {publishDate ? <span class="candidate-date mono" title="站点发布日期">{publishDate}</span> : null}
+    </>
+  );
+}
+
 /** 一条候选资源：同一发布跨站点折叠，显示做种最多的一条，其余站点可展开逐个选定。 */
 export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candidate; onToggle: (id: string) => void; busy: boolean }) {
   const [expanded, setExpanded] = useState(false);
@@ -55,9 +72,7 @@ export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candida
         </span>
         <ReleaseTitle className="candidate-name" title={candidate.title} url={candidate.detail_url} />
         <span class="candidate-meta">
-          <span>{candidate.site_name || "未知站点"}</span>
-          <span class="mono">{formatSize(candidate.size)}</span>
-          <span class="mono">{candidate.seeders ?? 0} 做种</span>
+          <ReleaseFacts siteName={candidate.site_name} size={candidate.size} seeders={candidate.seeders} publishDate={candidate.publish_date} />
           {candidate.recommendation_reason ? <span>{candidate.recommendation_reason}</span> : null}
           {others.length ? (
             <button
@@ -81,10 +96,8 @@ export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candida
               <span class="candidate-site-text">
                 <ReleaseTitle className="candidate-site-name" title={option.title} url={option.detail_url} />
                 <span class="candidate-meta">
-                  <span>{option.site_name || "未知站点"}</span>
-                  <span class="mono">{formatSize(option.size)}</span>
-                  <span class="mono">{option.seeders ?? 0} 做种</span>
-                  {option.is_free ? <span>免费</span> : null}
+                  <ReleaseFacts siteName={option.site_name} size={option.size} seeders={option.seeders} publishDate={option.publish_date} />
+                  {option.is_free ? <span class="candidate-free">免费</span> : null}
                 </span>
               </span>
               <ToggleButton

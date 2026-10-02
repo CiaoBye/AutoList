@@ -25,6 +25,9 @@ export type TmdbMatch = Schemas["TmdbMatch"];
 export type ActiveTask = Schemas["ActiveTask"];
 export type Todo = Schemas["Todo"];
 export type HomeData = Schemas["HomeData"];
+export type SyncResult = Schemas["SyncResult"];
+export type SyncStatus = Schemas["SyncStatus"];
+export type SyncWebhooks = Schemas["SyncWebhooks"];
 
 export type PickItem = Schemas["PickItem"];
 export type PickBucket = PickItem["bucket"];
@@ -36,6 +39,8 @@ export type Timeline = Schemas["Timeline"];
 export type SelectionItem = Schemas["SelectionItem"];
 export type SubmitResult = Schemas["SubmitResult"];
 export type HistoryRecord = Schemas["HistoryRecord"];
+export type DownloadsPage = Schemas["DownloadsPage"];
+export type DownloadItem = Schemas["DownloadItem"];
 export type HistoryCleared = Schemas["HistoryCleared"];
 
 export type SearchTask = Schemas["SearchTask"];

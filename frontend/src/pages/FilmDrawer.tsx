@@ -26,36 +26,36 @@ function buildSteps(film: FilmDetail): Step[] {
     return [
       { title: "已识别", detail: film.tmdb_id ? `TMDB ${film.tmdb_id}` : "", state: "done" },
       { title: "Emby 中已有实体文件", detail: `最近检查：${formatTime(film.library_checked_at)}`, state: "done" },
-      { title: "已入馆", detail: "无需寻片", state: "done" },
+      { title: "已入馆", detail: "", state: "done" },
     ];
   }
   const state = (done: boolean, now: boolean): Step["state"] => (done ? "done" : now ? "now" : "todo");
   return [
     {
       title: recognized ? "已识别" : "识别 TMDB",
-      detail: recognized ? `TMDB ${film.tmdb_id}${film.imdb_id ? ` · ${film.imdb_id}` : ""}` : "识别后才能寻片",
+      detail: recognized ? `TMDB ${film.tmdb_id}${film.imdb_id ? ` · ${film.imdb_id}` : ""}` : "",
       state: state(recognized, !recognized),
     },
     {
       title: checked ? (inLibrary ? "Emby 中已有实体文件" : "Emby 中没有实体文件") : "确认 Emby 入库状态",
-      detail: checked ? `最近检查：${formatTime(film.library_checked_at)}` : "还没有确认是否已在 Emby",
+      detail: checked ? `最近检查：${formatTime(film.library_checked_at)}` : "",
       state: state(checked, recognized && !checked),
     },
     {
       title: film.status === "searching" ? "寻片中" : "寻片",
       detail: film.search
         ? `最近一次：${formatTime(film.search.finished_at)} · ${film.search.sites} 个站点 · ${film.search.results} 条结果`
-        : `将在 ${film.search_site_count} 个站点中搜索`,
+        : "",
       state: state(searched && film.status !== "searching", film.status === "missing" || film.status === "searching"),
     },
     {
       title: "挑选资源",
-      detail: film.candidates.length ? `${film.candidates.length} 个合格资源` : "寻片后按入馆标准推荐",
+      detail: film.candidates.length ? `${film.candidates.length} 个合格资源` : "",
       state: state(["selected", "downloading", "in_library"].includes(film.status), film.status === "candidates"),
     },
     {
       title: "下载并入馆",
-      detail: film.transfer ? TRANSFER_LABELS[film.transfer] : "经 MoviePilot 提交到 Transmission",
+      detail: film.transfer ? TRANSFER_LABELS[film.transfer] : "",
       state: state(inLibrary, film.status === "selected" || film.status === "downloading"),
     },
   ];
@@ -88,12 +88,11 @@ function IdentityFix({ film, busy, onRun }: {
     <details class="panel identity" open={film.status === "unrecognized"}>
       <summary>{film.status === "unrecognized" ? "识别这部影片" : "识别不对？"}</summary>
       <div class="identity-body">
-        <span class="muted" style={{ fontSize: "13px" }}>
-          {film.tmdb_id
-            ? `当前对应 TMDB ${film.tmdb_id}《${film.title}》。可以按导入时的原名重新识别，或搜索后手动指定。`
-            : "可以按导入时的原名重新识别，或搜索后手动指定。"}
-          修正后会重新核对 Emby 入库状态。
-        </span>
+        {film.tmdb_id ? (
+          <span class="muted" style={{ fontSize: "13px" }}>
+            当前对应 TMDB {film.tmdb_id}《{film.title}》
+          </span>
+        ) : null}
         <span class="actions">
           <button
             class="btn btn-small"
@@ -114,7 +113,7 @@ function IdentityFix({ film, busy, onRun }: {
           </button>
         </form>
         {error ? <span class="notice notice-bad">{error}</span> : null}
-        {matches && !matches.length ? <span class="muted">没有找到结果，换个关键词试试（可用原名或英文名）。</span> : null}
+        {matches && !matches.length ? <span class="muted">没有找到结果</span> : null}
         {matches && matches.length ? (
           <ul class="match-list">
             {matches.map((match) => (
@@ -159,6 +158,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     (signal) => api<FilmDetail>(`/api/films/${id}`, { signal }),
     [id],
     (data) => (data?.status === "searching" ? 4000 : null),
+    `film:${id}`,
   );
 
   useEffect(() => {
@@ -256,7 +256,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                       {step.title}
                       {step.state === "now" ? <span class="visually-hidden">（当前步骤）</span> : null}
                     </strong>
-                    <span>{step.detail}</span>
+                    {step.detail ? <span>{step.detail}</span> : null}
                   </span>
                 </li>
               ))}
@@ -265,7 +265,6 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {data.status === "unrecognized" ? (
               <section class="panel">
                 <h3>还没有对上 TMDB</h3>
-                <span class="muted">识别后才能寻片。可以只识别这一部（见下方），也可以识别整份片单。</span>
                 <span class="actions">
                   <button
                     class="btn btn-primary"
@@ -282,7 +281,6 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {data.status === "unchecked" ? (
               <section class="panel">
                 <h3>还没确认是否已在 Emby</h3>
-                <span class="muted">刷新片单的 Emby 状态后，才能判断这部影片是否缺片。</span>
                 <span class="actions">
                   <button
                     class="btn btn-primary"
@@ -302,14 +300,10 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 {data.issues.includes("no_eligible") ? (
                   <span class="muted">
                     {data.excluded_count
-                      ? `${data.excluded_count} 个结果被入馆标准排除：${data.excluded_summary.map((item) => `${item.reason} ${item.count}`).join("、")}。`
-                      : "各站点都没有返回与这部影片匹配的结果。"}
+                      ? data.excluded_summary.map((item) => `${item.reason} ${item.count}`).join("、")
+                      : "没有匹配的搜索结果"}
                   </span>
-                ) : (
-                  <span class="muted">
-                    将在参与搜索的 {data.search_site_count} 个站点中按 IMDb、TMDB 原名与中文名搜索，并按入馆标准筛出合格资源。
-                  </span>
-                )}
+                ) : null}
                 <span class="actions">
                   <button class="btn btn-primary" type="button" disabled={busy} onClick={() => void search()}>
                     {data.search ? "重新寻片" : "寻片"}
@@ -321,7 +315,6 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {data.status === "searching" ? (
               <section class="panel" aria-live="polite">
                 <h3>正在寻片</h3>
-                <span class="muted">正在各站点搜索，完成后合格资源会出现在这里。</span>
               </section>
             ) : null}
 
@@ -330,7 +323,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 <h3>{data.status === "selected" ? "已选定的资源" : "合格资源"}</h3>
                 {data.issues.includes("context_expired") ? (
                   <div class="notice notice-bad">
-                    候选的下载信息已过期（超过 7 天），需要重新寻片后才能提交。
+                    候选已过期
                     <button class="btn btn-small" type="button" disabled={busy} onClick={() => void search()}>
                       重新寻片
                     </button>
@@ -339,6 +332,15 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 {data.candidates.map((candidate) => (
                   <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={(candidateId) => void toggle(candidateId)} />
                 ))}
+                {data.issues.includes("submit_failed") ? (
+                  <div class="notice notice-bad">
+                    上次提交失败
+                    <button class="btn btn-small" type="button" disabled={busy} onClick={() => void search()}>
+                      重新寻片
+                    </button>
+                  </div>
+                ) : null}
+                {data.hidden_low_resolution ? <p class="muted candidate-hidden">另有 {data.hidden_low_resolution} 个低分辨率资源未显示</p> : null}
                 {data.status === "selected" ? (
                   <span class="actions">
                     <a class="btn btn-primary" href="#/pick?status=selected">
@@ -351,7 +353,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
 
             {data.status === "downloading" ? (
               <section class="panel">
-                <h3>已提交下载</h3>
+                <h3>{data.history.length ? "已提交下载" : "正在下载"}</h3>
                 <span class="muted">{data.transfer ? TRANSFER_LABELS[data.transfer] : ""}</span>
               </section>
             ) : null}

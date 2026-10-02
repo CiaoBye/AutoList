@@ -19,6 +19,8 @@
   --focus: #1d4e89;
   --overlay: rgba(27, 26, 23, 0.36);
   --shadow: 0 1px 2px rgba(27, 26, 23, 0.06), 0 8px 24px rgba(27, 26, 23, 0.06);
+  --shadow-lift: 0 10px 24px rgba(27, 26, 23, 0.2);
+  --shadow-pop: 0 -8px 24px rgba(27, 26, 23, 0.16);
 
   --st-unrecognized-fg: #9b2c2c;
   --st-unrecognized-bg: #f6e0de;
@@ -48,16 +50,22 @@
   --poster-6: #3b3a2a;
   --poster-ink: #f4f1ea;
 
-  /* 顶栏：深色放映厅色带，给页面顶部足够的分量。 */
-  --nav-bg: #1f1c18;
-  --nav-ink: #f4efe4;
-  --nav-muted: #b8ae9d;
-  --nav-line: rgba(244, 239, 228, 0.16);
-  --nav-hover: rgba(244, 239, 228, 0.08);
-  --nav-accent: #e0763a;
-  --nav-ok: #7cc49c;
-  --nav-busy: #8fb8ea;
-  --nav-bad: #f0a39e;
+  /* 顶栏：浅色主题用浅色纸张底、深色字，强调色做当前页的下划线与底色。 */
+  --nav-bg: #fffdf8;
+  --nav-ink: #1b1a17;
+  --nav-muted: #5e5a52;
+  --nav-line: rgba(27, 26, 23, 0.16);
+  --nav-hover: rgba(27, 26, 23, 0.05);
+  --nav-accent: #9a3412;
+  --nav-active-bg: rgba(154, 52, 18, 0.1);
+  --nav-chip-bg: #fffdf8;
+  --nav-edge: #d9d2c3;
+  --nav-fill: linear-gradient(180deg, #fcfaf5 0%, #f4f1ea 100%);
+  --nav-shadow: 0 1px 0 #ddd6c8;
+  --nav-ok: #2f6b4f;
+  --nav-busy: #1d4e89;
+  --nav-bad: #9b2c2c;
+  --nav-warn: #8a5a00;
 }
 
 [data-theme="cinema"] {
@@ -76,6 +84,8 @@
   --focus: #8fb8ea;
   --overlay: rgba(0, 0, 0, 0.55);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-lift: 0 10px 24px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 -8px 24px rgba(0, 0, 0, 0.4);
 
   --st-unrecognized-fg: #f0a39e;
   --st-unrecognized-bg: #3a2322;
@@ -111,19 +121,59 @@
   --nav-line: rgba(238, 243, 240, 0.12);
   --nav-hover: rgba(238, 243, 240, 0.07);
   --nav-accent: #e08a5b;
+  --nav-active-bg: rgba(224, 138, 91, 0.16);
+  --nav-chip-bg: rgba(238, 243, 240, 0.06);
+  --nav-edge: rgba(238, 243, 240, 0.12);
+  --nav-fill: linear-gradient(180deg, #0a1113 0%, #111b1e 100%);
+  --nav-shadow: 0 1px 0 rgba(238, 243, 240, 0.1), 0 12px 24px -14px rgba(0, 0, 0, 0.5);
   --nav-ok: #7fc4a1;
   --nav-busy: #8fb8ea;
   --nav-bad: #f0a39e;
+  --nav-warn: #e7c274;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --control-h: 44px;
+    --control-h-s: 36px;
+  }
 }
 
 :root {
   --font-serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", "Noto Serif CJK SC", serif;
   --font-sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  /* 字号只用这一组：说明 12 / 次要 13 / 控件 14 / 正文 15 / 小标题 18 / 分区标题 22 / 页面标题 30 / 展示 40。 */
+  --fs-xs: 12px;
+  --fs-s: 13px;
+  --fs-m: 14px;
+  --fs-body: 15px;
+  --fs-l: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 30px;
+  --fs-display: 40px;
+  /* 间距：4 为基准的一组（4 / 8 / 12 / 16 / 20 / 24 / 32 / 48），gap、padding、margin 只用它们，0、1、2px 的细微调整除外。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  /* 圆角：标签与小控件 / 按钮、输入框、卡片内元素 / 卡片与浮层。 */
   --radius-s: 6px;
-  --radius-m: 10px;
+  --radius-m: 8px;
   --radius-l: 14px;
-  --nav-height: 64px;
+  /* 控件高度：标准 40（触屏 44），小号 32（触屏 36）。 */
+  --control-h: 40px;
+  --control-h-s: 32px;
+  /* 动效：统一的缓动与时长，只在“减少动态效果”未开启时生效（见 styles/motion.css）。 */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --nav-height: 72px;
   --tab-height: 64px;
   --page-gutter: clamp(16px, 4vw, 64px);
   /* 海报墙、首页等浏览型页面用宽版；时间线、设置等阅读型页面限制行宽。 */

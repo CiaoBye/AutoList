@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "1.76"
+APP_VERSION = "2.33"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -136,13 +136,15 @@ class Settings:
     tr_username: str = os.getenv("TR_USERNAME", "")
     tr_password: str = os.getenv("TR_PASSWORD", "")
     dashboard_random_posters: bool = os.getenv("DASHBOARD_RANDOM_POSTERS", "false").lower() == "true"
+    # 事件地址（MoviePilot / Transmission / Emby 主动通知 AutoList）里的密钥，首次使用时自动生成，只在服务端校验。
+    sync_token: str = ""
     # 下载目录与分类不在 AutoList 保存：统一交由 MoviePilot 的媒体分类规则处理。
 
     def apply(self, values: dict[str, Any]) -> None:
         for key in (
             "mp_base_url", "mp_api_key", "emby_base_url", "emby_api_key", "tmdb_api_key",
             "tmdb_language", "fanart_api_key", "mdblist_api_key", "cookiecloud_url", "cookiecloud_key", "cookiecloud_password", "outbound_proxy_url", "ai_base_url", "ai_api_key", "ai_model", "tr_base_url",
-            "tr_username", "tr_password",
+            "tr_username", "tr_password", "sync_token",
         ):
             if key in values and values[key] is not None:
                 value = str(values[key]).strip()

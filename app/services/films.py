@@ -9,19 +9,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from ..config import settings
 from ..database import connect
-from ..domain.titles import canonical_item_original_title, canonical_item_title, canonical_item_year
+from ..domain.titles import (
+    canonical_item_original_title, canonical_item_title, canonical_item_year, normalized_download_name,
+    strict_torrent_matches_item,
+)
+from ..queries import downloads as download_queries
 from ..security import signed_media_url
 from ..state import raw_candidates
 from ..util import to_int, utc_now
-from .history import _active_history_matches
+from .history import _active_history_matches, _unfinished, long_stalled, organize_failures, transfer_info
 from .search import _current_downloads_cached
+
+HASH_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 # 主状态，按入馆流程顺序排列。
 FILM_STATUSES: tuple[str, ...] = (
@@ -42,6 +51,8 @@ FILM_ISSUE_LABELS = {
     "no_eligible": "无合格资源",
     "submit_failed": "提交失败",
     "context_expired": "候选已过期",
+    "organize_failed": "整理失败",
+    "download_stalled": "下载停滞",
 }
 
 
@@ -56,9 +67,36 @@ class _Signals:
     submitted: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
     last_submit_failed: set[int] = field(default_factory=set)
     downloading_active: set[int] = field(default_factory=set)
+    # 正在下载的影片在 Transmission 里的状况（stalled / paused / error 等），用于影片状态的补充说明。
+    transfer_states: dict[int, str] = field(default_factory=dict)
+    # 停滞超过 STALLED_ALERT_HOURS 的下载，与 MoviePilot 整理失败的影片。
+    stalled_long: set[int] = field(default_factory=set)
+    # 有没停滞的下载在进行的影片：换了资源之后，旧的停滞种子还留在 Transmission 里也不再算“下载停滞”。
+    healthy: set[int] = field(default_factory=set)
+    # 每部影片未下完的种子，以及没停滞的那些里最近一次加入的时间（用于找出被新资源取代的停滞旧种子）。
+    active: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
+    newest_healthy: dict[int, int] = field(default_factory=dict)
+    organize_failed: set[int] = field(default_factory=set)
+    # 不是经 AutoList 提交、但 Transmission 里确有对应种子的影片（在 MoviePilot 或 Transmission 里手动添加）。
+    external: set[int] = field(default_factory=set)
     transmission_state: str = "unknown"
     # 仍有可用下载上下文的候选（加密存库，7 天有效）。
     contexts: set[str] = field(default_factory=set)
+
+
+def _note_active(signals: _Signals, item_id: int, torrent: dict[str, Any]) -> None:
+    """记下影片的一个未下完的种子；同一部影片有多个时，只要有一个没停滞就不算停滞。"""
+    signals.downloading_active.add(item_id)
+    signals.active.setdefault(item_id, []).append(torrent)
+    if long_stalled(torrent):
+        if item_id not in signals.healthy:
+            signals.stalled_long.add(item_id)
+            signals.transfer_states[item_id] = transfer_info(torrent)["state"]
+        return
+    signals.healthy.add(item_id)
+    signals.newest_healthy[item_id] = max(signals.newest_healthy.get(item_id, 0), to_int(torrent.get("addedDate")))
+    signals.stalled_long.discard(item_id)
+    signals.transfer_states[item_id] = transfer_info(torrent)["state"]
 
 
 def _placeholders(values: Iterable[Any]) -> str:
@@ -178,13 +216,20 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
     return signals
 
 
+# 手动添加的种子下完并整理后会一直在 Transmission 里做种；超过这个天数仍不见入馆的，不再当作“等待入馆”。
+EXTERNAL_FINISHED_DAYS = 7
+
+
+def _torrent_hash(torrent: dict[str, Any]) -> str:
+    return str(torrent.get("hashString") or "").strip().casefold()
+
+
 async def _attach_transmission(signals: _Signals, items_by_id: dict[int, dict[str, Any]]) -> None:
-    if not signals.submitted:
-        return
     torrents, state = await _current_downloads_cached()
     signals.transmission_state = state
     if state == "unknown":
         return
+    failures = await organize_failures() if signals.submitted else {}
     histories: list[dict[str, Any]] = []
     for item_id, rows in signals.submitted.items():
         for row in rows:
@@ -192,7 +237,91 @@ async def _attach_transmission(signals: _Signals, items_by_id: dict[int, dict[st
     matched, _ambiguous = _active_history_matches(histories, torrents)
     for row in histories:
         if to_int(row["id"]) in matched:
-            signals.downloading_active.add(to_int(row["item_id"]))
+            _note_active(signals, to_int(row["item_id"]), matched[to_int(row["id"])])
+    for row in histories:
+        if str(row.get("submission_hash") or "").strip().casefold() in failures and to_int(row["id"]) not in matched:
+            signals.organize_failed.add(to_int(row["item_id"]))
+    known_hashes = {str(row.get("submission_hash") or "").strip().casefold() for row in histories}
+    await _attach_external(signals, items_by_id, torrents, known_hashes, failures)
+
+
+# 种子名与影片的严格匹配很费 CPU（每对要做标题切词），而种子和影片都很少变：按（种子名、影片、影片的标题字段）记住结果，
+# 没记过的一批放到线程里算，避免卡住事件循环（藏馆、挑选等页面的请求同时在等）。
+_NAME_MATCH_FIELDS = ("original_title", "chinese_title", "tmdb_title", "tmdb_original_title", "year", "tmdb_year", "tmdb_alt_titles_json")
+_NAME_MATCH_LIMIT = 200_000
+_name_matches: dict[tuple[str, int, int], bool] = {}
+
+
+def _item_signature(item: dict[str, Any]) -> int:
+    return hash(tuple(str(item.get(field) or "") for field in _NAME_MATCH_FIELDS))
+
+
+def _match_key(name: str, item: dict[str, Any]) -> tuple[str, int, int]:
+    return (name, to_int(item["id"]), _item_signature(item))
+
+
+def _external_matches(
+    torrent: dict[str, Any], entry: dict[str, Any] | None, items: list[dict[str, Any]], by_tmdb: dict[int, list[int]],
+) -> list[int]:
+    """一个种子对应片单里的哪些影片：先看识别出的 TMDB 编号，识别不出时按片名与年份，且只认唯一的一部。"""
+    if entry and entry.get("tmdb_id"):
+        return by_tmdb.get(to_int(entry["tmdb_id"]), [])
+    name = str(torrent.get("name") or "")
+    found = [item for item in items if _name_matches.get(_match_key(name, item))]
+    if len({to_int(item.get("tmdb_id")) or to_int(item["id"]) for item in found}) != 1:
+        return []
+    return [to_int(item["id"]) for item in found]
+
+
+async def _attach_external(
+    signals: _Signals, items_by_id: dict[int, dict[str, Any]], torrents: list[dict[str, Any]],
+    known_hashes: set[str], failures: dict[str, str],
+) -> None:
+    """Transmission 里不是经 AutoList 提交、却对得上片单影片的种子，也算这部影片的下载。"""
+    items = [item for item in items_by_id.values() if item.get("library_state") != "in_library"]
+    unknown = [torrent for torrent in torrents if _torrent_hash(torrent) and _torrent_hash(torrent) not in known_hashes]
+    if not items or not unknown:
+        return
+    by_tmdb: dict[int, list[int]] = {}
+    for item in items:
+        if item.get("tmdb_id"):
+            by_tmdb.setdefault(to_int(item["tmdb_id"]), []).append(to_int(item["id"]))
+    with connect() as conn:
+        media = download_queries.torrent_media(conn, [_torrent_hash(torrent) for torrent in unknown])
+    cutoff = time.time() - EXTERNAL_FINISHED_DAYS * 86400
+    best: dict[int, dict[str, Any]] = {}
+    pending = {
+        _match_key(name, item): (name, item)
+        for torrent in unknown
+        if not (entry := media.get(_torrent_hash(torrent))) or not entry.get("tmdb_id")
+        if _unfinished(torrent) or to_int(torrent.get("addedDate")) >= cutoff
+        for name in [str(torrent.get("name") or "")]
+        for item in items
+        if _match_key(name, item) not in _name_matches
+    }
+    if pending:
+        keys = list(pending)
+        results = await asyncio.to_thread(lambda: [strict_torrent_matches_item(pending[key][1], pending[key][0]) for key in keys])
+        if len(_name_matches) + len(keys) > _NAME_MATCH_LIMIT:
+            _name_matches.clear()
+        _name_matches.update(zip(keys, results))
+    for torrent in unknown:
+        if not _unfinished(torrent) and to_int(torrent.get("addedDate")) < cutoff:
+            continue
+        for item_id in _external_matches(torrent, media.get(_torrent_hash(torrent)), items, by_tmdb):
+            current = best.get(item_id)
+            # 同一部影片有多个种子时，优先未下完的，其次最近加入的。
+            rank = (_unfinished(torrent), to_int(torrent.get("addedDate")))
+            if current is None or rank > (_unfinished(current), to_int(current.get("addedDate"))):
+                best[item_id] = torrent
+    if not failures and any(not _unfinished(torrent) for torrent in best.values()):
+        failures = await organize_failures()
+    for item_id, torrent in best.items():
+        signals.external.add(item_id)
+        if _unfinished(torrent):
+            _note_active(signals, item_id, torrent)
+        elif _torrent_hash(torrent) in failures:
+            signals.organize_failed.add(item_id)
 
 
 def _resolve(item: dict[str, Any], signals: _Signals) -> tuple[str, list[str], str | None]:
@@ -204,14 +333,22 @@ def _resolve(item: dict[str, Any], signals: _Signals) -> tuple[str, list[str], s
     library_state = str(item.get("library_state") or "unknown")
     if library_state == "in_library":
         return "in_library", issues, None
-    if item_id in signals.submitted:
+    if item_id in signals.submitted or item_id in signals.external:
+        if item_id not in signals.submitted:
+            # 已有下载在进行（手动添加的），之前那次提交失败不再是待处理的问题。
+            issues = [issue for issue in issues if issue != "submit_failed"]
         if item_id in signals.downloading_active:
-            transfer = "active"
+            state = signals.transfer_states.get(item_id, "downloading")
+            transfer = state if state in {"stalled", "paused", "error"} else "active"
+            if item_id in signals.stalled_long:
+                issues.append("download_stalled")
         elif signals.transmission_state == "unknown":
             transfer = "unknown"
         else:
             # 已提交但 Transmission 中不在下载：可能已完成、等待 MoviePilot 整理或 Emby 入库。
             transfer = "waiting_library"
+            if item_id in signals.organize_failed:
+                issues.append("organize_failed")
         return "downloading", issues, transfer
     selected = signals.selected.get(item_id)
     if selected:
@@ -297,6 +434,33 @@ async def project_films(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         signals = _collect_signals(conn, items)
     await _attach_transmission(signals, {to_int(item["id"]): item for item in items})
     return [film_summary(item, *_resolve(item, signals)) for item in items]
+
+
+async def replaced_stalled_torrents(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """换了资源之后留在 Transmission 里的停滞旧种子：同一部影片已有更晚加入、没停滞的下载。
+
+    ``keep_data`` 为真表示旧种子与新种子是同一个发布名（跨站点的同一资源共用同样的文件），删任务时不能删文件。"""
+    with connect() as conn:
+        signals = _collect_signals(conn, items)
+    await _attach_transmission(signals, {to_int(item["id"]): item for item in items})
+    replaced: dict[str, dict[str, Any]] = {}
+    for item_id, torrents in signals.active.items():
+        newest = signals.newest_healthy.get(item_id)
+        if not newest:
+            continue
+        healthy_names = {
+            normalized_download_name(torrent.get("name")) for torrent in torrents
+            if not long_stalled(torrent)
+        }
+        for torrent in torrents:
+            torrent_hash = _torrent_hash(torrent)
+            if not long_stalled(torrent) or to_int(torrent.get("addedDate")) >= newest or not HASH_PATTERN.fullmatch(torrent_hash):
+                continue
+            replaced[torrent_hash] = {
+                "item_id": item_id, "hash": torrent_hash, "name": str(torrent.get("name") or ""),
+                "keep_data": normalized_download_name(torrent.get("name")) in healthy_names,
+            }
+    return list(replaced.values())
 
 
 def status_counts(films: list[dict[str, Any]]) -> dict[str, int]:

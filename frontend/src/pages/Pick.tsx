@@ -13,8 +13,9 @@ const BUCKET_LABELS: Record<PickBucket | "all", string> = {
   candidates: "待挑选",
   selected: "已选定",
   no_eligible: "无合格资源",
+  stalled: "下载停滞",
 };
-const BUCKETS: (PickBucket | "all")[] = ["all", "candidates", "selected", "no_eligible"];
+const BUCKETS: (PickBucket | "all")[] = ["all", "candidates", "selected", "stalled", "no_eligible"];
 
 const selectionTitle = (item: SelectionItem): string => item.tmdb_title || item.chinese_title || item.original_title;
 
@@ -62,7 +63,7 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
       <div class="pick-body">
         {expired ? (
           <div class="notice notice-bad">
-            下载信息已过期（超过 7 天），需要重新寻片后才能提交。
+            候选已过期
             <button class="btn btn-small" type="button" disabled={busy} onClick={() => onSearch(film.id)}>
               重新寻片
             </button>
@@ -72,8 +73,8 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
           <div class="notice notice-bad">
             <span style={{ flex: "1 1 240px" }}>
               {film.excluded_count
-                ? `搜索结果全部被入馆标准排除：${film.excluded_summary.map((item) => `${item.reason} ${item.count}`).join("、")}。`
-                : "各站点都没有返回与这部影片匹配的结果。"}
+                ? film.excluded_summary.map((item) => `${item.reason} ${item.count}`).join("、")
+                : "没有匹配的搜索结果"}
             </span>
             <button class="btn btn-small" type="button" disabled={busy} onClick={() => onSearch(film.id)}>
               重新寻片
@@ -86,6 +87,7 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
         {film.candidates.map((candidate) => (
           <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={onToggle} />
         ))}
+        {film.hidden_low_resolution ? <p class="muted candidate-hidden">另有 {film.hidden_low_resolution} 个低分辨率资源未显示</p> : null}
       </div>
     </section>
   );
@@ -108,8 +110,9 @@ export function Pick({ route }: { route: Route }) {
     [status, playlist],
     // 寻片进行中时定时刷新：每部片搜完就会出现在这里，不必等整批结束。
     (data) => (data?.searching ? 8000 : null),
+    `picks:${status}:${playlist}`,
   );
-  const selection = useLoad<SelectionItem[]>((signal) => api<SelectionItem[]>("/api/selection", { signal }), []);
+  const selection = useLoad<SelectionItem[]>((signal) => api<SelectionItem[]>("/api/selection", { signal }), [], undefined, "selection");
 
   const reloadAll = async () => {
     await Promise.all([picks.reload(), selection.reload()]);
@@ -219,7 +222,6 @@ export function Pick({ route }: { route: Route }) {
       {data && !data.items.length && !data.searching ? (
         <div class="card empty">
           <strong>{status === "all" ? "挑选台暂无待选资源" : `没有“${BUCKET_LABELS[status]}”的影片`}</strong>
-          <span>为缺片寻片后，合格资源会按电影出现在这里。</span>
           <a class="btn btn-primary" href={href("/")}>
             回到藏馆寻片
           </a>
@@ -266,11 +268,7 @@ export function Pick({ route }: { route: Route }) {
               <strong>
                 待入馆清单 · {items.length} 部 · <span class="mono">{formatSize(totalSize)}</span>
               </strong>
-              <span>
-                {expiredInSelection
-                  ? `${expiredInSelection} 部已过期，提交时会跳过，需要重新寻片`
-                  : "提交前会再次确认 Emby 与 Transmission，避免重复下载"}
-              </span>
+              {expiredInSelection ? <span>{expiredInSelection} 部已过期</span> : null}
             </span>
             <button class="btn tray-btn" type="button" aria-expanded={showSelection} onClick={() => setShowSelection((value) => !value)}>
               {showSelection ? "收起清单" : "查看清单"}

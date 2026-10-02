@@ -7,6 +7,7 @@ import { STRENGTH_TEXT, THEMES } from "./Appearance";
 import { CHECKED_SERVICES, dotClass, serviceDetail, type SettingsHealth } from "./health";
 import { eventLabel, describe, LEVEL_CLASS, LEVEL_TEXT, levelOf, shortStamp } from "./logText";
 import { SectionHead, useAction } from "./shared";
+import { VerifyLink } from "../../components/VerifyLink";
 
 const clockOf = (date: Date | null) =>
   date ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}` : "";
@@ -34,9 +35,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
             {health.services.loading ? "检测中…" : "重新检测"}
           </button>
         }
-      >
-        打开设置时自动检测一次；有异常的项目点进去处理。
-      </SectionHead>
+      />
 
       <section class="card overview-card" aria-labelledby="overview-services">
         <header class="overview-head">
@@ -66,7 +65,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
                 <span class={`dot ${aiConfigured ? "dot-ok" : "dot-off"}`} aria-hidden="true" />
                 AI 辅助识别
               </span>
-              <span class="muted">{aiConfigured ? "已配置 · TMDB 找不到时纠正片名" : "未配置 · 可选"}</span>
+              <span class="muted">{aiConfigured ? "已配置" : "未配置 · 可选"}</span>
             </a>
           </div>
         )}
@@ -94,7 +93,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
                     <span class="dot dot-bad" aria-hidden="true" />
                     <strong>{site.name}</strong>
                     <span class="muted overview-clip">{site.last_message || "检测失败"}</span>
-                    <span class="badge st-issue">失败</span>
+                    {site.verify_url ? <VerifyLink url={site.verify_url} siteId={site.id} onChecked={() => void health.sites.reload()} /> : <span class="badge st-issue">失败</span>}
                   </li>
                 ))}
                 {health.emptySites.map((site) => (
@@ -129,11 +128,11 @@ export function Overview({ health }: { health: SettingsHealth }) {
           {!cc ? (
             <p class="muted overview-body">正在读取 CookieCloud 状态……</p>
           ) : !cc.configured ? (
-            <p class="notice overview-body">尚未配置 CookieCloud：站点 Cookie 只能手动填写。在“站点”页顶部填写服务器地址、用户 KEY 与端对端加密密码。</p>
+            <p class="notice overview-body">尚未配置 CookieCloud</p>
           ) : (
             <>
               <dl class="overview-facts">
-                <div><dt>同步方式</dt><dd>每 {cc.pull_interval_minutes} 分钟拉取；站点提示 Cookie 已失效时立即重新拉取一次</dd></div>
+                <div><dt>同步方式</dt><dd>每 {cc.pull_interval_minutes} 分钟拉取</dd></div>
                 <div>
                   <dt>最近同步</dt>
                   <dd>
@@ -203,7 +202,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
             <a class="overview-more" href={href("/settings/appearance")}>外观与访问 →</a>
           </header>
           <div class="overview-body overview-stack">
-            {strength ? <p class={`notice${strength === "strong" ? "" : " notice-bad"}`}>{STRENGTH_TEXT[strength]}</p> : null}
+            {strength && strength !== "missing" ? <p class={`notice${strength === "strong" ? "" : " notice-bad"}`}>{STRENGTH_TEXT[strength]}</p> : null}
             <dl class="overview-facts overview-facts-flat">
               <div><dt>主题</dt><dd>{theme ? theme.name : "—"}</dd></div>
             </dl>

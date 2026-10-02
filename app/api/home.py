@@ -15,14 +15,15 @@ from ..services.films import (
     project_films,
     status_counts,
 )
+from ..services import sync
 from ..services.library import hydrate_recent_emby_posters
 from ..tasks import active_tasks
 from ..util import to_int
 from ..responses import HomeData
 
 router = APIRouter()
-# 首页海报架最多返回的影片数；界面按可用宽度只显示一整行。
-HOME_SHELF_SIZE = 16
+# 首页海报架最多返回的影片数；界面按可用宽度显示一到两排。
+HOME_SHELF_SIZE = 24
 
 @router.get("/api/home", response_model=HomeData)
 async def home(playlist_id: int | None = None) -> dict[str, Any]:
@@ -36,6 +37,7 @@ async def home(playlist_id: int | None = None) -> dict[str, Any]:
         failing_sites = searchable_site_names(conn, "error")
         empty_sites = searchable_site_names(conn, "empty")
         tasks = active_tasks(conn)
+    sync.kick()
     projected = await project_films(items)
     counts = status_counts(projected)
     in_library = [item for item in items if item.get("library_state") == "in_library"]
@@ -63,6 +65,8 @@ async def home(playlist_id: int | None = None) -> dict[str, Any]:
     add("no_eligible", counts["issue:no_eligible"])
     add("submit_failed", counts["issue:submit_failed"])
     add("context_expired", counts["issue:context_expired"])
+    add("download_stalled", counts["issue:download_stalled"])
+    add("organize_failed", counts["issue:organize_failed"])
     add("failing_sites", len(failing_sites), names=failing_sites[:5])
     add("empty_sites", len(empty_sites), names=empty_sites[:5])
     return {

@@ -119,7 +119,6 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
           <label class="field">
             <span>片单网址</span>
             <input type="url" value={url} placeholder="https://letterboxd.com/…/list/… 或 TMDB、IMDb、MDBList 片单" onInput={(event) => { setUrl((event.target as HTMLInputElement).value); setPreview(null); }} />
-            <small class="field-hint">支持公开的 TMDB、Letterboxd、IMDb 与 MDBList 片单；私有片单请用导出文件。网址导入的片单可以定时同步新片。</small>
           </label>
         ) : null}
         {mode === "file" ? (
@@ -180,7 +179,6 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
               {busy ? "读取中…" : "预览"}
             </button>
           )}
-          <span class="muted">导入后会自动识别 TMDB（需已配置）。</span>
         </div>
       </form>
     </dialog>

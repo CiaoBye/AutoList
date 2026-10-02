@@ -106,6 +106,7 @@ class SitePayload(BaseModel):
     limit_count: int | None = Field(default=None, ge=1)
     enabled: bool = True
     search_enabled: bool = False
+    supplement_only: bool = False
     clear_api_key: bool = False
     clear_cookie: bool = False
     clear_rss_url: bool = False

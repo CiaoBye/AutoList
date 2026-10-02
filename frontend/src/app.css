@@ -8,5 +8,7 @@
 @import "./styles/films.css";
 @import "./styles/film-drawer.css";
 @import "./styles/pick.css";
+@import "./styles/downloads.css";
 @import "./styles/timeline.css";
 @import "./styles/settings.css";
+@import "./styles/motion.css";

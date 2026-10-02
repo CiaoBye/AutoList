@@ -1,15 +1,15 @@
 import { useEffect, useState } from "preact/hooks";
 
 /**
- * Hash 路由：#/、#/films、#/films/12?status=missing、#/settings（概览）、#/settings/sites。
+ * Hash 路由：#/、#/films、#/films/12?status=missing、#/downloads?state=stalled、#/settings（概览）、#/settings/sites。
  * 直接访问、刷新与浏览器前进后退都由 hash 本身恢复，服务端只需提供 /。
  */
-export type RouteName = "home" | "films" | "pick" | "timeline" | "settings" | "not_found";
+export type RouteName = "home" | "films" | "pick" | "downloads" | "timeline" | "settings" | "not_found";
 
-export type SettingsSection = "overview" | "services" | "sites" | "playlists" | "rules" | "appearance" | "logs";
+export type SettingsSection = "overview" | "services" | "sites" | "playlists" | "rules" | "appearance" | "logs" | "sync";
 
 /** 可以直接出现在地址里的设置分区；概览就是 #/settings 本身。 */
-export const SETTINGS_SECTIONS: Exclude<SettingsSection, "overview">[] = ["services", "sites", "playlists", "rules", "appearance", "logs"];
+export const SETTINGS_SECTIONS: Exclude<SettingsSection, "overview">[] = ["services", "sync", "sites", "playlists", "rules", "appearance", "logs"];
 
 export interface Route {
   name: RouteName;
@@ -35,7 +35,7 @@ export const parseRoute = (hash: string): Route => {
     const section = SETTINGS_SECTIONS.find((item) => item === second) ?? null;
     return { ...base, name: section ? "settings" : "not_found", section };
   }
-  if ((first === "pick" || first === "timeline") && !second) return { ...base, name: first };
+  if ((first === "pick" || first === "downloads" || first === "timeline") && !second) return { ...base, name: first };
   return { ...base, name: "not_found" };
 };
 

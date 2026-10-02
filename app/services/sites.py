@@ -113,9 +113,9 @@ def apply_cookie_groups(groups: dict[str, str], site_id: int | None = None, orig
     missing: list[str] = []
     with connect() as conn:
         if site_id is None:
-            rows = conn.execute("SELECT id,name,base_url,adapter,cookie FROM pt_sites ORDER BY id").fetchall()
+            rows = conn.execute("SELECT id,name,base_url,adapter,cookie,cookie_source FROM pt_sites ORDER BY id").fetchall()
         else:
-            rows = conn.execute("SELECT id,name,base_url,adapter,cookie FROM pt_sites WHERE id=?", (site_id,)).fetchall()
+            rows = conn.execute("SELECT id,name,base_url,adapter,cookie,cookie_source FROM pt_sites WHERE id=?", (site_id,)).fetchall()
         for row in rows:
             host = urlparse(str(row["base_url"])).hostname or ""
             match = cookie_for_host(groups, host)
@@ -126,6 +126,12 @@ def apply_cookie_groups(groups: dict[str, str], site_id: int | None = None, orig
             adapter = "nexusphp" if row["adapter"] == "rss" else row["adapter"]
             if match[1] == str(row["cookie"] or "") and adapter == row["adapter"]:
                 unchanged.append(str(row["name"]))
+                if row["cookie_source"] != "cookiecloud":
+                    # Cookie 与 CookieCloud 里的一致（之前手动填过同一份）：只补记来源，不动检测结果与账户统计。
+                    conn.execute(
+                        "UPDATE pt_sites SET cookie_source='cookiecloud',cookie_updated_at=COALESCE(cookie_updated_at,?) WHERE id=?",
+                        (utc_now(), row["id"]),
+                    )
                 continue
             conn.execute(
                 """UPDATE pt_sites

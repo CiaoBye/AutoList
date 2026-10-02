@@ -10,7 +10,7 @@ from ..util import rows_to_dicts, to_int, utc_now
 # 站点表单可编辑的列，按 SitePayload 的字段顺序。
 SITE_FORM_COLUMNS = (
     "name", "adapter", "base_url", "api_key", "cookie", "user_agent", "priority", "timeout_seconds", "rss_url", "icon_url",
-    "proxy", "render", "limit_interval", "limit_count", "enabled", "search_enabled",
+    "proxy", "render", "limit_interval", "limit_count", "enabled", "search_enabled", "supplement_only",
 )
 
 

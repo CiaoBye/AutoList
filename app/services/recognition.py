@@ -12,7 +12,7 @@ from ..candidate_policy import analyze as analyze_policy_candidate
 from ..clients import AIRecognitionClient, TMDBClient
 from ..config import settings
 from ..database import connect
-from ..domain.titles import normalized_title_text
+from ..domain.titles import meaningful_title, normalized_title_text
 from ..util import to_int, utc_now
 
 
@@ -288,7 +288,7 @@ def usable_alt_titles(titles: list[str], known: list[Any]) -> list[str]:
     kept: list[str] = []
     for title in titles:
         key = normalized_title_text(title)
-        if not key or key in seen:
+        if not meaningful_title(title) or key in seen:
             continue
         seen.add(key)
         kept.append(title)

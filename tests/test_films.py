@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -120,6 +121,7 @@ class FilmStatusTests(FilmFixture):
         self.assertTrue(all(film["status"] == "missing" and "no_eligible" not in film["issues"] for film in home["up_next"]))
         ranks = [film["rank_no"] for film in home["up_next"]]
         self.assertEqual(ranks, sorted(ranks))
+
 
 
 class FilmSearchTests(FilmFixture):
@@ -452,7 +454,7 @@ class PickQueueTests(FilmFixture):
         with self._no_transmission():
             queue = await pick_routes.picks(playlist_id=self.playlist_id, status="all")
         buckets = {item["id"]: item["bucket"] for item in queue["items"]}
-        self.assertEqual(queue["counts"], {"all": 3, "candidates": 1, "selected": 1, "no_eligible": 1})
+        self.assertEqual(queue["counts"], {"all": 3, "candidates": 1, "selected": 1, "no_eligible": 1, "stalled": 0})
         self.assertEqual(buckets[self.items["candidates"]], "candidates")
         self.assertEqual(buckets[self.items["selected"]], "selected")
         self.assertEqual(buckets[self.items["no_eligible"]], "no_eligible")
@@ -802,3 +804,205 @@ class EmbyPosterTests(SeededPlaylistTestCase):
             EmbyClient.poster = original
         self.assertEqual(response.media_type, "image/png")
         self.assertEqual(response.body, b"\x89PNG\r\n\x1a\nposter")
+
+    async def test_emby_poster_falls_back_to_tmdb_when_emby_fails(self) -> None:
+        # Emby 里只有 .strm 占位的影片有图片标记，取图却返回 500。
+        with connect() as conn:
+            item_id = to_int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1", (self.playlist_id,),
+            ).fetchone()[0])
+            conn.execute(
+                "UPDATE playlist_items SET emby_item_id='abc123',emby_image_tag='tag1',tmdb_id=11830,tmdb_poster_path='/p.jpg' WHERE id=?",
+                (item_id,),
+            )
+        failed = httpx.HTTPStatusError("boom", request=httpx.Request("GET", "http://emby"), response=httpx.Response(500))
+        with patch.object(settings, "tmdb_api_key", "key"), \
+             patch("app.api.playlists.EmbyClient.poster", new=AsyncMock(side_effect=failed)), \
+             patch("app.api.images.TMDBClient.poster_image", new=AsyncMock(return_value=(b"\x89PNG\r\n\x1a\ntmdb", "image/png"))):
+            response = await playlist_item_poster(item_id, "tag1")
+        self.assertEqual(response.body, b"\x89PNG\r\n\x1a\ntmdb")
+        self.assertEqual(response.headers["Cache-Control"], "private, max-age=3600")
+
+
+class LibraryRecheckTests(IsolatedAppTestCase):
+    async def test_films_not_in_library_are_rechecked_until_they_arrive(self) -> None:
+        from app.services import library
+
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            ids = {}
+            for rank, title in ((1, "Arrived"), (2, "Pending"), (3, "NotSubmitted"), (4, "EmbyDown")):
+                ids[title] = to_int(conn.execute(
+                    "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,library_state) VALUES(?,?,?,2020,?,'strm')",
+                    (playlist_id, rank, title, 100 + rank),
+                ).lastrowid)
+            for title in ("Arrived", "Pending", "EmbyDown"):
+                conn.execute(
+                    "INSERT INTO download_history(playlist_item_id,title,torrent_name,success,message,created_at) VALUES(?,?,?,1,'ok',?)",
+                    (ids[title], title, title, utc_now()),
+                )
+        checked: list[str] = []
+
+        async def details(_emby: object, title: str, *_args: object, **_kwargs: object) -> tuple:
+            checked.append(title)
+            return {"Arrived": ("in_library", "e1", "t1"), "Pending": ("strm", "e2", None),
+                    "NotSubmitted": ("in_library", "e3", None)}.get(title, ("unknown", None, None))
+
+        with patch.object(settings, "emby_base_url", "http://emby.example"), \
+             patch.object(settings, "emby_api_key", "key"), \
+             patch("app.services.library.library_details", new=details):
+            arrived = await library.recheck_library_states()
+        self.assertEqual(arrived, 2)
+        # 在 MoviePilot 手动下载、没经 AutoList 提交的影片也查（如《热带疾病》）。
+        self.assertEqual(sorted(checked), ["Arrived", "EmbyDown", "NotSubmitted", "Pending"])
+        with connect() as conn:
+            states = {row["original_title"]: (row["library_state"], row["emby_item_id"]) for row in conn.execute("SELECT * FROM playlist_items")}
+        self.assertEqual(states["Arrived"], ("in_library", "e1"))
+        self.assertEqual(states["Pending"], ("strm", "e2"))
+        self.assertEqual(states["NotSubmitted"], ("in_library", "e3"))
+        self.assertEqual(states["EmbyDown"], ("strm", None))  # Emby 查询失败保持原状态
+        self.assertFalse(library.library_recheck_due())
+
+
+class DownloadProblemTests(IsolatedAppTestCase):
+    async def test_long_stalled_and_organize_failed_films_are_flagged(self) -> None:
+        import time as clock
+
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            stalled, failed, fresh = (to_int(conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,library_state) VALUES(?,?,?,2020,?,'not_found')",
+                (playlist_id, rank, title, 100 + rank),
+            ).lastrowid) for rank, title in ((1, "Stalled"), (2, "Failed"), (3, "Fresh")))
+            for item_id, torrent_hash in ((stalled, "h1"), (failed, "h2"), (fresh, "h3")):
+                conn.execute(
+                    """INSERT INTO download_history(playlist_item_id,title,torrent_name,success,message,submission_hash,created_at)
+                       VALUES(?,?,?,1,'ok',?,?)""",
+                    (item_id, str(item_id), f"T{item_id}", torrent_hash, utc_now()),
+                )
+        now = int(clock.time())
+        idle = {"status": 4, "percentDone": 0, "rateDownload": 0, "peersSendingToUs": 0, "activityDate": 0}
+        torrents = [
+            {**idle, "hashString": "h1", "name": "T1", "addedDate": now - 30 * 3600},  # 停滞 30 小时
+            {**idle, "hashString": "h3", "name": "T3", "addedDate": now - 2 * 3600},   # 刚加入 2 小时，不提示
+        ]
+        with patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=(torrents, "known_present"))), \
+             patch("app.services.films.organize_failures", new=AsyncMock(return_value={"h2": "未识别到媒体信息"})):
+            page = await film_routes.films(playlist_id=playlist_id, status="all", q="", page=1, page_size=60)
+            queue = await pick_routes.picks(playlist_id=playlist_id, status="all")
+        by_id = {item["id"]: item for item in page["items"]}
+        self.assertEqual((by_id[stalled]["status"], by_id[stalled]["issues"]), ("downloading", ["download_stalled"]))
+        self.assertEqual((by_id[failed]["transfer"], by_id[failed]["issues"]), ("waiting_library", ["organize_failed"]))
+        self.assertEqual(by_id[fresh]["issues"], [])
+        # 停滞超过 24 小时的回到挑选台，方便换一个资源。
+        self.assertEqual({item["id"]: item["bucket"] for item in queue["items"]}, {stalled: "stalled"})
+
+
+class ExternalDownloadTests(IsolatedAppTestCase):
+    """在 MoviePilot 或 Transmission 里手动添加的下载，也要让对应影片显示为下载中。"""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        with connect() as conn:
+            self.playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            self.hoop = to_int(conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,tmdb_title,tmdb_year,library_state)
+                   VALUES(?,85,'Hoop Dreams',1994,50,'篮球梦',1994,'not_found')""", (self.playlist_id,),
+            ).lastrowid)
+            self.other = to_int(conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,tmdb_title,tmdb_year,library_state)
+                   VALUES(?,86,'Another Film',2001,51,'另一部',2001,'not_found')""", (self.playlist_id,),
+            ).lastrowid)
+            # 之前经 AutoList 提交失败过：已有下载在进行时，这个提交失败不再算待处理。
+            conn.execute(
+                "INSERT INTO download_history(playlist_item_id,title,torrent_name,success,message,created_at) VALUES(?,?,?,0,'无法识别媒体信息',?)",
+                (self.hoop, "t", "Old.Hoop.Dreams", utc_now()),
+            )
+
+    async def _films(self, torrents: list[dict[str, object]]) -> dict[int, dict[str, object]]:
+        with patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=(torrents, "known_present"))), \
+             patch("app.services.films.organize_failures", new=AsyncMock(return_value={})):
+            page = await film_routes.films(playlist_id=self.playlist_id, status="all", q="", page=1, page_size=60)
+        return {item["id"]: item for item in page["items"]}
+
+    async def test_unsubmitted_torrent_matching_the_title_marks_the_film_downloading(self) -> None:
+        torrent = {
+            "hashString": "a" * 40, "status": 4, "percentDone": 0.3, "addedDate": int(time.time()) - 600,
+            "name": "Hoop.Dreams.1994.Criterion.Collection.1080i.BluRay.x265.10bit.DTS.iNT-TLF",
+        }
+        films = await self._films([torrent])
+        self.assertEqual((films[self.hoop]["status"], films[self.hoop]["transfer"], films[self.hoop]["issues"]), ("downloading", "active", []))
+        self.assertEqual(films[self.other]["status"], "missing")
+
+    async def test_finished_torrent_waits_for_the_library_but_old_ones_are_ignored(self) -> None:
+        name = "Hoop.Dreams.1994.1080p.BluRay.x265-GRP"
+        done = {"hashString": "b" * 40, "name": name, "status": 6, "percentDone": 1.0, "addedDate": int(time.time()) - 3600}
+        films = await self._films([done])
+        self.assertEqual((films[self.hoop]["status"], films[self.hoop]["transfer"]), ("downloading", "waiting_library"))
+        films = await self._films([{**done, "addedDate": int(time.time()) - 30 * 86400}])
+        self.assertEqual(films[self.hoop]["status"], "missing")
+
+    async def test_recognised_tmdb_id_decides_even_when_the_name_says_nothing(self) -> None:
+        torrent = {"hashString": "c" * 40, "name": "Criterion.Collection.1080i.BluRay", "status": 4, "percentDone": 0.1,
+                   "addedDate": int(time.time())}
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at) VALUES(?,?,?,?,?,?)",
+                (torrent["hashString"], "篮球梦", 1994, 50, "moviepilot", utc_now()),
+            )
+        films = await self._films([torrent])
+        self.assertEqual(films[self.hoop]["status"], "downloading")
+        # 识别结果是另一部影片时，即使片名碰巧相近也不算。
+        with connect() as conn:
+            conn.execute("UPDATE torrent_media SET tmdb_id=999 WHERE hash=?", (torrent["hashString"],))
+        films = await self._films([{**torrent, "name": "Hoop.Dreams.1994.1080p"}])
+        self.assertEqual(films[self.hoop]["status"], "missing")
+
+
+class SwappedResourceTests(IsolatedAppTestCase):
+    async def test_a_healthy_replacement_clears_the_stalled_flag_of_the_old_torrent(self) -> None:
+        now = int(time.time())
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            item = to_int(conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,library_state)
+                   VALUES(?,1,'Swap Film',2020,200,'not_found')""", (playlist_id,),
+            ).lastrowid)
+            conn.execute(
+                """INSERT INTO download_history(playlist_item_id,title,torrent_name,success,message,submission_hash,created_at)
+                   VALUES(?,?,?,1,'ok',?,?)""", (item, "t", "Swap.Film.2020.2160p.NEW", "n" * 40, utc_now()),
+            )
+        stalled = {"hashString": "e" * 40, "name": "Swap.Film.2020.1080p.OLD", "status": 4, "percentDone": 0.0, "rateDownload": 0,
+                   "peersSendingToUs": 0, "activityDate": 0, "addedDate": now - 30 * 3600}
+        healthy = {"hashString": "n" * 40, "name": "Swap.Film.2020.2160p.NEW", "status": 4, "percentDone": 0.2, "rateDownload": 900000,
+                   "peersSendingToUs": 5, "activityDate": now, "addedDate": now - 600}
+
+        async def film(torrents: list[dict[str, object]]) -> dict[str, object]:
+            with patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=(torrents, "known_present"))), \
+                 patch("app.services.films.organize_failures", new=AsyncMock(return_value={})):
+                page = await film_routes.films(playlist_id=playlist_id, status="all", q="", page=1, page_size=60)
+            return page["items"][0]
+
+        # 只有停滞的旧种子时仍是“下载停滞”；新资源在下载后，旧种子留在 Transmission 里也不再算。
+        only_old = await film([stalled])
+        self.assertEqual((only_old["status"], only_old["issues"]), ("downloading", ["download_stalled"]))
+        swapped = await film([stalled, healthy])
+        self.assertEqual((swapped["status"], swapped["issues"], swapped["transfer"]), ("downloading", [], "active"))
+        self.assertEqual((await film([healthy, stalled]))["issues"], [])
+
+        # 新资源下载后，旧的停滞种子被找出来（发布名不同才连文件一起删）；只有停滞的旧种子时不动。
+        async def replaced(torrents: list[dict[str, object]]) -> list[dict[str, object]]:
+            with connect() as conn:
+                items = [dict(row) for row in conn.execute("SELECT * FROM playlist_items").fetchall()]
+            with patch("app.services.films._current_downloads_cached", new=AsyncMock(return_value=(torrents, "known_present"))), \
+                 patch("app.services.films.organize_failures", new=AsyncMock(return_value={})):
+                return await film_service.replaced_stalled_torrents(items)
+
+        self.assertEqual(await replaced([stalled]), [])
+        found = await replaced([stalled, healthy])
+        self.assertEqual([(entry["hash"], entry["keep_data"]) for entry in found], [("e" * 40, False)])
+        same_release = {**stalled, "name": healthy["name"]}
+        found = await replaced([same_release, healthy])
+        self.assertEqual([(entry["hash"], entry["keep_data"]) for entry in found], [("e" * 40, True)])
+        # 比新资源更晚加入的停滞种子不算被取代。
+        self.assertEqual(await replaced([{**stalled, "addedDate": now + 10}, healthy]), [])

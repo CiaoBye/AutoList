@@ -39,11 +39,13 @@ export function useSettingsHealth(): SettingsHealth {
   const services = useLoad<Record<string, ProviderStatus>>(
     (signal) => api<Record<string, ProviderStatus>>("/api/settings/test", { method: "POST", signal, timeoutMs: 45000 }),
     [],
+    undefined,
+    "settings-test",
   );
-  const sites = useLoad<Site[]>((signal) => api<Site[]>("/api/sites", { signal }), []);
-  const cookiecloud = useLoad<CookieCloudStatus>((signal) => api<CookieCloudStatus>("/api/cookiecloud/status", { signal }), []);
-  const settings = useLoad<RuntimeSettings>((signal) => api<RuntimeSettings>("/api/settings", { signal }), []);
-  const problems = useLoad<LogEvent[]>((signal) => api<LogEvent[]>("/api/logs/events?limit=50&level=WARNING,ERROR", { signal }), []);
+  const sites = useLoad<Site[]>((signal) => api<Site[]>("/api/sites", { signal }), [], undefined, "sites");
+  const cookiecloud = useLoad<CookieCloudStatus>((signal) => api<CookieCloudStatus>("/api/cookiecloud/status", { signal }), [], undefined, "cookiecloud");
+  const settings = useLoad<RuntimeSettings>((signal) => api<RuntimeSettings>("/api/settings", { signal }), [], undefined, "settings");
+  const problems = useLoad<LogEvent[]>((signal) => api<LogEvent[]>("/api/logs/events?limit=50&level=WARNING,ERROR", { signal }), [], undefined, "problems");
 
   const checkedAt = useMemo(() => (services.data ? new Date() : null), [services.data]);
   const checked = Object.values(services.data || {});

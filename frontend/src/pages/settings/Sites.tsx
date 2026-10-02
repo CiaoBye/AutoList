@@ -6,6 +6,7 @@ import { CookieCloudPanel } from "./CookieCloudPanel";
 import type { SettingsHealth } from "./health";
 import { SecretField, SectionHead, SwitchRow, TextField, useAction } from "./shared";
 import { DrawerLayer } from "../../components/DrawerLayer";
+import { VerifyLink } from "../../components/VerifyLink";
 
 const ADAPTER_LABELS: Record<string, string> = {
   mteam: "M-Team API",
@@ -67,19 +68,30 @@ interface SiteForm {
   proxy: boolean;
   enabled: boolean;
   search_enabled: boolean;
+  supplement_only: boolean;
+  limit_interval: string;
+  limit_count: string;
 }
 
 const emptyForm = (): SiteForm => ({
   name: "", base_url: "", api_key: "", cookie: "", user_agent: "", priority: "100", timeout_seconds: "30",
-  rss_url: "", icon_url: "", proxy: false, enabled: true, search_enabled: true,
+  rss_url: "", icon_url: "", proxy: false, enabled: true, search_enabled: true, supplement_only: false,
+  limit_interval: "", limit_count: "",
 });
 
 const formFromSite = (site: Site): SiteForm => ({
   name: site.name, base_url: site.base_url, api_key: "", cookie: "", user_agent: site.user_agent || "",
   priority: String(site.priority ?? 100), timeout_seconds: String(site.timeout_seconds ?? 30), rss_url: "",
   icon_url: site.icon_url && !site.icon_url.startsWith("data:") ? site.icon_url : "", proxy: Boolean(site.proxy),
-  enabled: Boolean(site.enabled), search_enabled: Boolean(site.search_enabled),
+  enabled: Boolean(site.enabled), search_enabled: Boolean(site.search_enabled), supplement_only: Boolean(site.supplement_only),
+  limit_interval: site.limit_interval ? String(site.limit_interval) : "", limit_count: site.limit_count ? String(site.limit_count) : "",
 });
+
+/** 访问频率：留空表示不限（仍按全局每 3 秒一次）；只填秒数时视为两次请求之间的最小间隔。 */
+const positiveOrNull = (value: string): number | null => {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+};
 
 /** 站点保存请求：密钥类字段留空表示保留，清除需显式标记（与服务端 SitePayload 约定一致）。 */
 const sitePayload = (form: SiteForm, site: Site | null, cleared: string[]) => ({
@@ -95,32 +107,33 @@ const sitePayload = (form: SiteForm, site: Site | null, cleared: string[]) => ({
   icon_url: form.icon_url.trim() || (site?.icon_url?.startsWith("data:") ? site.icon_url : ""),
   proxy: form.proxy,
   render: Boolean(site?.render),
-  limit_interval: site?.limit_interval ?? null,
-  limit_count: site?.limit_count ?? null,
+  limit_interval: positiveOrNull(form.limit_interval),
+  limit_count: positiveOrNull(form.limit_interval) ? positiveOrNull(form.limit_count) : null,
   enabled: form.enabled,
   search_enabled: form.search_enabled,
+  supplement_only: form.supplement_only,
   clear_api_key: cleared.includes("api_key") && !form.api_key.trim(),
   clear_cookie: cleared.includes("cookie") && !form.cookie.trim(),
   clear_rss_url: cleared.includes("rss_url") && !form.rss_url.trim(),
 });
 
-/** 检测列的补充说明：失败或搜不到时显示原因，否则显示耗时与检测时间。 */
-const testNote = (site: Site): string => {
-  if (!site.last_tested_at) return "尚未检测";
-  if (site.last_status === "error" || site.last_status === "empty") return site.last_message || "";
-  const seconds = site.last_duration_ms ? `${(site.last_duration_ms / 1000).toFixed(1)} 秒 · ` : "";
-  return `${seconds}${formatTime(site.last_tested_at)}`;
+/** 检测列的补充说明：失败或搜不到时显示原因，否则显示耗时；检测时间放进提示。 */
+const testNote = (site: Site): { text: string; title: string } => {
+  if (!site.last_tested_at) return { text: "尚未检测", title: "" };
+  const when = `检测于 ${formatTime(site.last_tested_at)}`;
+  if (site.last_status === "error" || site.last_status === "empty") return { text: site.last_message || "", title: `${site.last_message || ""}\n${when}` };
+  const seconds = site.last_duration_ms ? `${(site.last_duration_ms / 1000).toFixed(1)} 秒` : "";
+  return { text: seconds, title: when };
 };
 
-/** Cookie 列：来源与更新时间；不在 CookieCloud 中或缺少 Cookie 时提醒。 */
-const cookieNote = (site: Site, missing: string[]): { text: string; warn: boolean } => {
-  if (officialApi(site)) return { text: "官方 API，不需要 Cookie", warn: false };
-  if (site.adapter !== "nexusphp") return { text: "不需要 Cookie", warn: false };
-  if (!site.cookie_configured) return { text: "未配置 Cookie", warn: true };
+/** Cookie 列：来源；更新时间放进提示。不在 CookieCloud 中或缺少 Cookie 时提醒。 */
+const cookieNote = (site: Site, missing: string[]): { text: string; title: string; warn: boolean } => {
+  if (officialApi(site) || site.adapter !== "nexusphp") return { text: "不需要", title: "", warn: false };
+  if (!site.cookie_configured) return { text: "未配置", title: "", warn: true };
   const source = COOKIE_SOURCE_LABELS[site.cookie_source || ""] || "已保存";
-  const when = site.cookie_updated_at ? ` · ${formatTime(site.cookie_updated_at)}` : "";
-  if (missing.includes(site.name)) return { text: `${source}${when} · 不在 CookieCloud 中`, warn: true };
-  return { text: `${source}${when}`, warn: false };
+  const title = site.cookie_updated_at ? `更新于 ${formatTime(site.cookie_updated_at)}` : "";
+  if (missing.includes(site.name)) return { text: "不在 CookieCloud 中", title, warn: true };
+  return { text: source, title, warn: false };
 };
 
 function SiteIcon({ site }: { site: Site | null }) {
@@ -189,7 +202,6 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
 
   const account = site?.account_stats;
   const connection = site ? CONNECTION[site.last_status] || CONNECTION.untested : null;
-  const official_api_site = /official_api_site\.com/.test(form.base_url);
 
   return (
     <DrawerLayer>
@@ -204,9 +216,7 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 {domain(site.base_url)} · {parseLabel(site)} · {connection?.label}
                 {site.last_tested_at && site.last_duration_ms ? ` ${(site.last_duration_ms / 1000).toFixed(1)} 秒` : ""}
               </span>
-            ) : (
-              <span class="muted">协议与解析方式按站点地址自动识别</span>
-            )}
+            ) : null}
           </div>
           <button ref={closeRef} class="btn icon-btn" type="button" aria-label="关闭" onClick={close}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -228,7 +238,12 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                     <small>近 30 天搜索 {site.local_stats.total} 次</small>
                   </span>
                 </div>
-                {site.last_status === "error" || site.last_status === "empty" ? <span class="notice notice-bad">{site.last_message || connection?.label}</span> : null}
+                {site.last_status === "error" || site.last_status === "empty" ? (
+                  <span class="notice notice-bad">
+                    {site.last_message || connection?.label}
+                    {site.verify_url ? <VerifyLink url={site.verify_url} siteId={site.id} onChecked={() => void onSaved(site.id)} /> : null}
+                  </span>
+                ) : null}
                 {site.migration_note ? <span class="notice notice-bad">{site.migration_note}</span> : null}
                 {account?.error ? <span class="muted site-drawer-note">账户统计：{account.error}</span> : null}
               </section>
@@ -271,7 +286,6 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 configured={Boolean(site?.cookie_configured)}
                 cleared={cleared.includes("cookie")}
                 onToggleClear={site ? () => toggleClear("cookie") : undefined}
-                hint="NexusPHP 页面搜索需要；配置 CookieCloud 后会自动更新"
               />
               <SecretField
                 label="API Key"
@@ -280,7 +294,6 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 configured={Boolean(site?.api_key_configured)}
                 cleared={cleared.includes("api_key")}
                 onToggleClear={site ? () => toggleClear("api_key") : undefined}
-                hint={official_api_site ? "填写后改走站点D官方搜索接口，不受网页二次验证影响（在站点控制面板生成）" : "M-Team、Torznab 与站点D官方接口需要"}
               />
               <SecretField
                 label="RSS 地址"
@@ -289,7 +302,6 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 configured={Boolean(site?.rss_url_configured)}
                 cleared={cleared.includes("rss_url")}
                 onToggleClear={site ? () => toggleClear("rss_url") : undefined}
-                hint="只有 RSS、没有 Cookie 的站点按 RSS 订阅搜索；地址里的密钥只保存在服务端"
               />
               <TextField label="User-Agent" value={form.user_agent} onInput={(value) => set("user_agent", value)} placeholder="留空使用 AutoList 默认" />
             </div>
@@ -298,11 +310,35 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
             <div class="field-grid">
               <TextField label="优先级（1 最高）" type="number" value={form.priority} onInput={(value) => set("priority", value)} />
               <TextField label="超时（秒）" type="number" value={form.timeout_seconds} onInput={(value) => set("timeout_seconds", value)} />
+              <TextField
+                label="访问频率：每 N 秒"
+                type="number"
+                value={form.limit_interval}
+                placeholder="不限"
+                hint="搜索有频率限制的站点（如站点J）填 30"
+                onInput={(value) => set("limit_interval", value)}
+              />
+              <TextField
+                label="最多 M 次"
+                type="number"
+                value={form.limit_count}
+                placeholder="1"
+                hint="与左边一起：N 秒内最多搜索 M 次"
+                onInput={(value) => set("limit_count", value)}
+              />
             </div>
             <div class="card site-switches">
-              <SwitchRow label="启用" hint="停用后不参与检测、统计与搜索" checked={form.enabled} onChange={(value) => set("enabled", value)} />
-              <SwitchRow label="参与资源搜索" hint="寻片时搜索这个站点" checked={form.search_enabled} onChange={(value) => set("search_enabled", value)} />
-              <SwitchRow label="经代理访问" hint="需先在“服务连接 · 网络代理”配置代理并允许 PT 站点走代理" checked={form.proxy} onChange={(value) => set("proxy", value)} />
+              <SwitchRow label="启用" checked={form.enabled} onChange={(value) => set("enabled", value)} />
+              <SwitchRow label="参与资源搜索" checked={form.search_enabled} onChange={(value) => set("search_enabled", value)} />
+              {form.search_enabled ? (
+                <SwitchRow
+                  label="仅补缺"
+                  hint="其他站点搜完后，只为可选种子不足 3 个的影片补搜一次"
+                  checked={form.supplement_only}
+                  onChange={(value) => set("supplement_only", value)}
+                />
+              ) : null}
+              <SwitchRow label="经代理访问" checked={form.proxy} onChange={(value) => set("proxy", value)} />
             </div>
           </div>
 
@@ -398,9 +434,7 @@ export function Sites({ health }: { health: SettingsHealth }) {
             </button>
           </>
         }
-      >
-        协议与解析方式按地址自动识别；检测用《The Godfather》做一次真实搜索。点任意一行编辑。
-      </SectionHead>
+      />
 
       <CookieCloudPanel health={health} onSynced={() => void sites.reload()} />
 
@@ -431,45 +465,54 @@ export function Sites({ health }: { health: SettingsHealth }) {
             <thead>
               <tr>
                 <th scope="col">站点</th>
-                <th scope="col" class="site-col-detail">解析方式</th>
                 <th scope="col">检测</th>
                 <th scope="col" class="site-col-detail">近 30 天搜索</th>
                 <th scope="col" class="site-col-detail">分享率</th>
-                <th scope="col" class="site-col-wide">Cookie</th>
+                <th scope="col" class="site-col-detail">Cookie</th>
                 <th scope="col">参与搜索</th>
-                <th scope="col" class="site-col-detail"><span class="visually-hidden">编辑</span></th>
+                <th scope="col" class="site-col-edit"><span class="visually-hidden">编辑</span></th>
               </tr>
             </thead>
             <tbody>
               {list.map((site) => {
                 const connection = CONNECTION[site.last_status] || CONNECTION.untested;
                 const cookie = cookieNote(site, missing);
+                const note = testNote(site);
                 return (
                   <tr key={site.id} class={site.enabled ? undefined : "is-disabled"} onClick={() => setEditing(site.id)}>
                     <td>
                       <span class="site-cell">
                         <SiteIcon site={site} />
                         <span class="site-cell-text">
-                          <button type="button" class="link-button" onClick={(event) => { event.stopPropagation(); setEditing(site.id); }}>
-                            <strong>{site.name}</strong>
-                          </button>
-                          <small>{domain(site.base_url)}{site.enabled ? "" : " · 已停用"}</small>
+                          <a
+                            class="site-name"
+                            href={site.base_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`打开 ${site.name} 官网`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {site.name}
+                          </a>
+                          <small>{officialApi(site) ? "官方 API" : parseLabel(site)} · {domain(site.base_url)}{site.enabled ? "" : " · 已停用"}</small>
                         </span>
                       </span>
                     </td>
-                    <td class="site-col-detail">{officialApi(site) ? <span class="badge st-searching">官方 API</span> : parseLabel(site)}</td>
                     <td>
-                      <span class={`badge ${connection.className}`}>{connection.label}</span>
-                      <small class="site-note">{testNote(site)}</small>
+                      <span class="site-status" title={note.title || undefined}>
+                        <span class={`badge ${connection.className}`}>{site.verify_url ? "需要人机验证" : connection.label}</span>
+                        {site.verify_url ? <VerifyLink url={site.verify_url} siteId={site.id} onChecked={() => void sites.reload()} /> : note.text ? <small class="site-note">{note.text}</small> : null}
+                      </span>
                     </td>
                     <td class="site-col-detail num">
                       {site.local_stats.total ? `${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "—"}
                     </td>
                     <td class="site-col-detail num">{site.account_stats.ratio == null ? "—" : Number(site.account_stats.ratio).toFixed(2)}</td>
-                    <td class="site-col-wide">
-                      <small class={`site-note${cookie.warn ? " text-warn" : ""}`}>{cookie.text}</small>
+                    <td class="site-col-detail">
+                      <small class={`site-note${cookie.warn ? " text-warn" : ""}`} title={cookie.title || undefined}>{cookie.text}</small>
                     </td>
-                    <td onClick={(event) => event.stopPropagation()}>
+                    <td class="site-col-switch" onClick={(event) => event.stopPropagation()}>
+                      {participates(site) && site.supplement_only ? <small class="site-supplement">仅补缺</small> : null}
                       <input
                         class="switch"
                         type="checkbox"
@@ -480,7 +523,9 @@ export function Sites({ health }: { health: SettingsHealth }) {
                         onChange={() => toggleSearch(site)}
                       />
                     </td>
-                    <td class="site-col-detail site-edit">编辑</td>
+                    <td class="site-col-edit">
+                      <button type="button" class="site-edit" onClick={(event) => { event.stopPropagation(); setEditing(site.id); }}>编辑</button>
+                    </td>
                   </tr>
                 );
               })}

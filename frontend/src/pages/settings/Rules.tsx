@@ -1,7 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError } from "../../api";
 import { useLoad } from "../../hooks";
-import { href } from "../../router";
 import type { CandidateAnalysis, ReleaseGroupCatalog } from "../../types";
 import { CardHead, DirtyNote, SectionHead, useAction } from "./shared";
 
@@ -95,7 +94,7 @@ function Trial({ rules, valid, order }: { rules: Policy | null; valid: boolean; 
 
   return (
     <section class="card setting-card rules-trial" aria-labelledby="trial-title">
-      <CardHead id="trial-title" title="标题试算" note="按左侧当前规则，含未保存的修改" />
+      <CardHead id="trial-title" title="标题试算" />
       <div class="setting-card-body">
         <label class="field">
           <span>发布名</span>
@@ -115,9 +114,7 @@ function Trial({ rules, valid, order }: { rules: Policy | null; valid: boolean; 
             <input class="switch" type="checkbox" role="switch" checked={trial.free} onChange={(event) => { const next = (event.target as HTMLInputElement).checked; setTrial((current) => ({ ...current, free: next })); }} />
           </label>
         </div>
-        {!title ? (
-          <p class="muted settings-note">输入一个发布名，结果会随规则的修改自动更新。</p>
-        ) : !valid ? (
+        {!title ? null : !valid ? (
           <p class="notice notice-bad">左侧规则有误，修正后再试算。</p>
         ) : preview?.error ? (
           <p class="notice notice-bad">{preview.error}</p>
@@ -197,15 +194,12 @@ export function Rules() {
 
   return (
     <div class="settings-form">
-      <SectionHead title="入馆标准">
-        先判断能否入馆（硬性排除、允许组合），再给合格资源排序：推荐组合优先于保底 → 站点优先级（数字越小越靠前，在
-        <a href={href("/settings/sites")}>站点</a>里设置）→ 分辨率顺序 → 做种人数多 → 免费与折扣。
-      </SectionHead>
+      <SectionHead title="入馆标准" />
 
       <div class="rules-layout">
         <form class="rules-main" onSubmit={save}>
           <section class="card setting-card" aria-labelledby="rules-exclusions">
-            <CardHead id="rules-exclusions" step={1} title="硬性排除" note="点亮的类型会被排除，不出现在挑选台" />
+            <CardHead id="rules-exclusions" step={1} title="硬性排除" />
             <div class="setting-card-body">
               <div class="rule-tags">
                 {policy.hard_exclusions.map((rule, index) => (
@@ -223,13 +217,13 @@ export function Rules() {
                 ))}
               </div>
               <p class="muted settings-note">
-                普通 BluRay 压制不受影响。另有三条固定规则：0 人做种、制作组未识别、知名制作组与其惯用编码不符（疑似冒用组名，如 Fury 应为 x265、SPM 应为 x264）也会排除。
+                固定排除：0 人做种、制作组未识别、多分辨率合集、制作组与编码不符。
               </p>
             </div>
           </section>
 
           <section class="card setting-card" aria-labelledby="rules-profiles">
-            <CardHead id="rules-profiles" step={2} title="允许组合" note="编码与制作组必须同时命中；推荐直接可选，保底需要你确认" />
+            <CardHead id="rules-profiles" step={2} title="允许组合" />
             {policy.profiles.map((profile, index) => {
               const empty = splitGroups(groupText[profile.id] ?? "").length === 0;
               return (
@@ -278,7 +272,7 @@ export function Rules() {
             <div class="setting-row setting-row-field">
               <span class="setting-row-text">
                 <strong>分辨率优先顺序</strong>
-                <small class={orderValid ? undefined : "text-issue"}>{orderValid ? "不在顺序里的分辨率仍可入馆，排在最后" : "分辨率顺序不能重复"}</small>
+                <small class={orderValid ? undefined : "text-issue"}>{orderValid ? "" : "分辨率顺序不能重复"}</small>
               </span>
               <span class="setting-row-control rules-order">
                 {order.map((value, index) => (
@@ -298,7 +292,6 @@ export function Rules() {
             <div class="setting-row">
               <label class="setting-row-text" for="rules-limit">
                 <strong>每部影片保留候选数</strong>
-                <small>只保留排序靠前的若干个候选，1–20</small>
               </label>
               <span class="setting-row-control setting-row-control-narrow">
                 <input

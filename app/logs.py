@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,18 @@ class JsonLineFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+_TOKEN_QUERY = re.compile(r"([?&]token=)[^&\s\"]+")
+
+
+class RedactTokenFilter(logging.Filter):
+    """访问日志里的请求地址可能带事件密钥（?token=…），写出前遮掉。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_TOKEN_QUERY.sub(r"\1***", arg) if isinstance(arg, str) else arg for arg in record.args)
+        return True
+
+
 def configure_logging() -> None:
     """幂等初始化文件日志；data_dir 变更（测试）后重新指向新目录。"""
     global _configured
@@ -69,6 +82,9 @@ def configure_logging() -> None:
         old_handler.close()
     logger.addHandler(handler)
     logger.propagate = False
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, RedactTokenFilter) for item in access.filters):
+        access.addFilter(RedactTokenFilter())
     _configured = True
 
 

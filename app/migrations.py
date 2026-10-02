@@ -72,6 +72,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "last_status": "TEXT NOT NULL DEFAULT 'untested'",
         "last_message": "TEXT", "last_tested_at": "TEXT", "last_duration_ms": "INTEGER",
         "search_enabled": "INTEGER NOT NULL DEFAULT 1", "migration_note": "TEXT",
+        # 仅补缺：其他站点搜完后，只为可选种子不足的影片按 IMDb 补搜（适合有搜索人机验证、搜索次数有限的站点）。
+        "supplement_only": "INTEGER NOT NULL DEFAULT 0",
         "account_uploaded": "INTEGER", "account_downloaded": "INTEGER",
         "account_ratio": "REAL", "account_bonus": "REAL", "account_seeding": "INTEGER",
         "account_stats_checked_at": "TEXT", "account_stats_error": "TEXT",
@@ -240,6 +242,12 @@ def _sanitize_stored_messages(conn: sqlite3.Connection) -> None:
                 conn.execute(f"UPDATE {table} SET {column}=? WHERE rowid=?", (sanitized, row["_rowid_"]))  # nosec B608
 
 
+def _forget_torrent_media_without_tmdb(conn: sqlite3.Connection) -> None:
+    # 1.86–1.87 只读 MoviePilot 下载历史的 tmdbid，新版 MoviePilot 改为 media_source + media_id，
+    # 缓存里的识别结果都没有 TMDB 编号、对不上片单影片；删掉后下次打开下载页重新识别。
+    conn.execute("DELETE FROM torrent_media WHERE source='moviepilot' AND tmdb_id IS NULL")
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(4, "按 Cookie 与 RSS 重算站点适配器，清空旧的英文账户错误", _recompute_site_adapters),
     Migration(7, "海报改为按原语言挑选，重新挑选 fanart 海报", _reselect_fanart_posters),
@@ -250,6 +258,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(17, "为旧的失败寻片任务补一条日志", _log_legacy_failed_tasks),
     Migration(18, "清理外键未生效时遗留的孤立行", _delete_orphan_rows),
     Migration(19, "脱敏历史错误文本", _sanitize_stored_messages),
+    Migration(20, "重新识别没有 TMDB 编号的 MoviePilot 下载历史缓存", _forget_torrent_media_without_tmdb),
 )
 SCHEMA_VERSION = max(migration.version for migration in MIGRATIONS)
 

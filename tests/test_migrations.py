@@ -19,7 +19,7 @@ class MigrationTests(IsolatedAppTestCase):
         self.assertEqual(SCHEMA_VERSION, max(versions))
 
     def test_only_steps_newer_than_the_database_run(self) -> None:
-        self.assertEqual([step.version for step in migrations.pending(15, before_schema=False)], [16, 17, 18, 19])
+        self.assertEqual([step.version for step in migrations.pending(15, before_schema=False)], [16, 17, 18, 19, 20])
         self.assertEqual([step.version for step in migrations.pending(12, before_schema=True)], [13])
         self.assertEqual(migrations.pending(SCHEMA_VERSION, before_schema=False), [])
 
@@ -34,7 +34,16 @@ class MigrationTests(IsolatedAppTestCase):
         with patch.object(migrations, "MIGRATIONS", steps):
             initialize()
             initialize()
-        self.assertEqual(calls, [18, 19])
+        self.assertEqual(calls, [18, 19, 20])
+
+    def test_existing_database_gets_new_tables_on_startup(self) -> None:
+        # 新表（如下载页的种子识别缓存 torrent_media）由建表语句在启动时补上，不需要迁移步骤。
+        with connect() as conn:
+            conn.execute("DROP TABLE torrent_media")
+        initialize()
+        with connect() as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(torrent_media)")}
+        self.assertTrue({"hash", "title", "year", "tmdb_id", "poster_path", "source", "checked_at"} <= columns)
 
     def test_fresh_database_has_every_added_column(self) -> None:
         with connect() as conn:
@@ -171,6 +180,19 @@ class DatabaseMaintenanceTests(SeededPlaylistTestCase):
         self.assertEqual(task["status"], "archived")
         self.assertIsNotNone(candidate)
         self.assertNotIn(task_id, [item["id"] for item in visible])
+
+    def test_initialize_forgets_moviepilot_media_without_tmdb_id(self) -> None:
+        with connect() as conn:
+            for torrent_hash, tmdb_id, source in (("a" * 40, None, "moviepilot"), ("b" * 40, 548, "moviepilot"), ("c" * 40, None, "none")):
+                conn.execute(
+                    "INSERT INTO torrent_media(hash,title,tmdb_id,source,checked_at) VALUES(?,?,?,?,?)",
+                    (torrent_hash, "片名", tmdb_id, source, utc_now()),
+                )
+            conn.execute("PRAGMA user_version=19")
+        initialize()
+        with connect() as conn:
+            remaining = {row[0] for row in conn.execute("SELECT hash FROM torrent_media")}
+        self.assertEqual(remaining, {"b" * 40, "c" * 40})
 
     async def test_initialize_scrubs_legacy_history(self) -> None:
         with connect() as conn:

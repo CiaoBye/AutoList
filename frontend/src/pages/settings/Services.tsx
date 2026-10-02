@@ -15,7 +15,6 @@ interface ServiceSpec {
   icon: string;
   /** 检测接口里的名称；AI 辅助识别没有检测，按是否配置显示。 */
   provider?: string;
-  description: string;
   fields: string[];
   summary: (settings: RuntimeSettings) => string;
   body: (draft: SettingsDraft) => ComponentChildren;
@@ -41,7 +40,6 @@ const SERVICES: ServiceSpec[] = [
     label: "MoviePilot",
     icon: "/assets/service-moviepilot.svg",
     provider: "moviepilot",
-    description: "负责按分类规则把选定资源提交到 Transmission，是提交下载的必需服务。",
     fields: ["mp_base_url", "mp_api_key", "mp_timeout_seconds"],
     summary: (s) => `${s.mp_base_url || "未填写地址"} · API Key ${saved(s, "mp_api_key")} · 超时 ${s.mp_timeout_seconds} 秒`,
     body: (draft) => (
@@ -57,7 +55,6 @@ const SERVICES: ServiceSpec[] = [
     label: "TMDB",
     icon: "/assets/service-tmdb.svg",
     provider: "tmdb",
-    description: "识别影片、生成搜索关键词与海报。支持 v3 API Key 或 v4 读取令牌。",
     fields: ["tmdb_api_key", "tmdb_language", "mdblist_api_key"],
     summary: (s) => `API Key ${saved(s, "tmdb_api_key")} · 语言 ${s.tmdb_language || "zh-CN"} · MDBList ${saved(s, "mdblist_api_key")}`,
     body: (draft) => (
@@ -73,7 +70,6 @@ const SERVICES: ServiceSpec[] = [
     label: "Fanart.tv",
     icon: "/assets/service-fanart.svg",
     provider: "fanart",
-    description: "配置后海报优先取自 fanart.tv：按 TMDB 语言、英文、无字版的顺序挑选，同语言取点赞最多的一张；fanart.tv 没有的影片仍用 Emby 或 TMDB 海报。与 TMDB 共用代理开关。",
     fields: ["fanart_api_key"],
     summary: (s) => `海报优先来源 · API Key ${saved(s, "fanart_api_key")}`,
     body: (draft) => secret(draft, "fanart_api_key", "Project API Key", "在 fanart.tv 登录后申请"),
@@ -83,7 +79,6 @@ const SERVICES: ServiceSpec[] = [
     label: "Emby",
     icon: "/assets/service-emby.svg",
     provider: "emby",
-    description: "判断影片是否已入馆：只有实体媒体文件算入馆，.strm 视为未完成。",
     fields: ["emby_base_url", "emby_api_key"],
     summary: (s) => `${s.emby_base_url || "未填写地址"} · API Key ${saved(s, "emby_api_key")}`,
     body: (draft) => (
@@ -98,7 +93,6 @@ const SERVICES: ServiceSpec[] = [
     label: "Transmission",
     icon: "/assets/service-transmission.svg",
     provider: "transmission",
-    description: "用于确认下载进度与避免重复下载；下载本身经 MoviePilot 提交。",
     fields: ["tr_base_url", "tr_username", "tr_password"],
     summary: (s) => `${s.tr_base_url || "未填写地址"} · 用户名${saved(s, "tr_username")} · 密码${saved(s, "tr_password")}`,
     body: (draft) => (
@@ -113,7 +107,6 @@ const SERVICES: ServiceSpec[] = [
     key: "ai",
     label: "AI 辅助识别",
     icon: "/assets/service-ai.svg",
-    description: "TMDB 找不到时，用兼容 OpenAI 接口的模型纠正片名后再识别一次。可选。",
     fields: ["ai_base_url", "ai_api_key", "ai_model"],
     summary: (s) => (s.ai_base_url ? `${s.ai_base_url} · 模型 ${s.ai_model || "未填写"} · API Key ${saved(s, "ai_api_key")}` : "TMDB 找不到时用兼容 OpenAI 接口的模型纠正片名"),
     body: (draft) => (
@@ -182,7 +175,6 @@ function ServiceRow({
             void run(draft.save, `${spec.label} 已保存`, () => (spec.provider ? onTest() : undefined));
           }}
         >
-          <p class="muted settings-note">{spec.description}</p>
           {failed ? <p class="notice notice-bad service-row-notice">{String(status?.message || "连接失败")}</p> : null}
           <div class="field-grid">{spec.body(draft)}</div>
           <div class="service-row-actions">
@@ -255,9 +247,7 @@ export function Services({ health }: { health: SettingsHealth }) {
             </button>
           </>
         }
-      >
-        每个服务单独保存、单独检测；检测使用已保存的配置。密钥只保存在服务端，这里只显示是否已设置。
-      </SectionHead>
+      />
       <div class="card service-list">
         {SERVICES.map((spec) => (
           <ServiceRow

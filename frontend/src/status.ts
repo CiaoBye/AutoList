@@ -38,6 +38,8 @@ export const ISSUE_LABELS: Record<FilmIssue, string> = {
   no_eligible: "无合格资源",
   submit_failed: "提交失败",
   context_expired: "候选已过期",
+  organize_failed: "整理失败",
+  download_stalled: "下载停滞",
 };
 
 /** 进度条与图例使用的颜色变量（与徽标文字色一致）。 */
@@ -54,6 +56,9 @@ export const STATUS_BAR_COLOR: Record<FilmStatus, string> = {
 
 export const TRANSFER_LABELS: Record<string, string> = {
   active: "Transmission 下载中",
-  waiting_library: "下载已结束或未在下载，等待整理入库",
+  stalled: "下载停滞",
+  paused: "已在 Transmission 中暂停",
+  error: "Transmission 报错",
+  waiting_library: "等待整理入库",
   unknown: "暂时无法确认 Transmission 状态",
 };

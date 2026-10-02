@@ -9,11 +9,13 @@ import { Settings } from "./pages/Settings";
 import { href, useRoute, type RouteName } from "./router";
 import { applyTheme, readTheme, type Theme } from "./theme";
 import type { ConnectionStatus, SearchTask } from "./types";
+import { Downloads } from "./pages/Downloads";
 
 const NAV: { name: RouteName; label: string; path: string; icon: string }[] = [
   { name: "home", label: "藏馆", path: "/", icon: "M3 10l8-6 8 6v9H3z M9 19v-5h4v5" },
   { name: "films", label: "片单", path: "/films", icon: "M4 5h14M4 11h14M4 17h14" },
   { name: "pick", label: "挑选", path: "/pick", icon: "M5 11l4 4 8-9" },
+  { name: "downloads", label: "下载", path: "/downloads", icon: "M11 3v11 M6 9l5 5 5-5 M4 19h14" },
   { name: "timeline", label: "动态", path: "/timeline", icon: "M11 6v5l3 2 M11 20a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" },
   { name: "settings", label: "设置", path: "/settings", icon: "M11 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M11 2v3M11 17v3M2 11h3M17 11h3" },
 ];
@@ -22,6 +24,7 @@ const PAGE_TITLES: Record<RouteName, string> = {
   home: "藏馆",
   films: "片单",
   pick: "挑选",
+  downloads: "下载",
   timeline: "动态",
   settings: "设置",
   not_found: "页面不存在",
@@ -162,6 +165,9 @@ export function App() {
       break;
     case "pick":
       page = <Pick route={route} />;
+      break;
+    case "downloads":
+      page = <Downloads route={route} />;
       break;
     case "timeline":
       page = <Timeline route={route} />;

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from ..config import APP_VERSION
 from ..parsers import site_proxy
@@ -62,16 +62,31 @@ async def verify(site: dict[str, Any], detail_url: str | None) -> bool | None:
     返回 True 表示仍然存在，False 表示已被站点删除，None 表示这类站点无法确认（官方 API
     站点、没有详情页或详情页不在本站）；Cookie 失效、二次验证、网络故障等抛出异常，由调用方暂缓提交。
     """
+    present, _ = await _details(site, detail_url)
+    return present
+
+
+async def verify_and_refresh(site: dict[str, Any], detail_url: str | None, enclosure: str | None) -> tuple[bool | None, str | None]:
+    """同 ``verify``，并在下载地址带时效签名时从详情页取当前有效的地址（取不到为 None）。"""
+    present, html = await _details(site, detail_url)
+    if not present or not nexusphp.is_signed_download(enclosure):
+        return present, None
+    torrent_id = (parse_qs(urlsplit(str(enclosure)).query).get("id") or [""])[0]
+    base = str(site.get("base_url") or "").rstrip("/") + "/"
+    return present, nexusphp.fresh_signed_download(html or "", torrent_id, base)
+
+
+async def _details(site: dict[str, Any], detail_url: str | None) -> tuple[bool | None, str | None]:
     from ..clients import _search_client
 
     base = str(site.get("base_url") or "").rstrip("/") + "/"
     profile = profile_for(base, has_api_key=bool(str(site.get("api_key") or "").strip()))
     if profile.framework != "nexusphp" or not detail_url:
-        return None
+        return None, None
     url = urljoin(base, detail_url)
     # 请求带着站点 Cookie，只发往站点自己的域名。
     if not _same_site(url, base):
-        return None
+        return None, None
     proxy = site_proxy(site)
     client = _search_client(timeout=to_int(site.get("timeout_seconds") or 30), proxy=proxy)
     response = await safe_request(
@@ -79,10 +94,16 @@ async def verify(site: dict[str, Any], detail_url: str | None) -> bool | None:
         label=f"站点 {site.get('name', '')} 地址", proxy_mode=bool(proxy),
     )
     if nexusphp.torrent_deleted(response.status_code, ""):
-        return False
+        return False, None
     response.raise_for_status()
     nexusphp.detect_interruption(response.url.path or "", response.text)
-    return not nexusphp.torrent_deleted(response.status_code, response.text)
+    return not nexusphp.torrent_deleted(response.status_code, response.text), response.text
+
+
+def search_page_url(base_url: str) -> str:
+    """站点的种子搜索页，需要人机验证时让用户在浏览器里打开它完成验证。"""
+    base = str(base_url or "").rstrip("/") + "/"
+    return urljoin(base, profile_for(base).search_path)
 
 
 async def check(site: dict[str, Any]) -> dict[str, Any]:

@@ -19,12 +19,15 @@ from ..responses import PickPage
 router = APIRouter()
 
 
-PICK_BUCKETS = ("candidates", "selected", "no_eligible")
+PICK_BUCKETS = ("candidates", "selected", "no_eligible", "stalled")
 
 
 def _pick_bucket(film: dict[str, Any]) -> str | None:
     if film["status"] in {"candidates", "selected"}:
         return film["status"]
+    # 下载停滞超过 24 小时：回到挑选台，换一个资源。
+    if film["status"] == "downloading" and "download_stalled" in film["issues"]:
+        return "stalled"
     if film["status"] == "missing" and "no_eligible" in film["issues"]:
         return "no_eligible"
     return None

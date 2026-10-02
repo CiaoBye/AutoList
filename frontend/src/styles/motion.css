@@ -1,0 +1,192 @@
+/*
+ * 动效：统一的缓动与时长（tokens.css），只做轻微的进场、悬停与反馈。
+ * 全部放在“未开启减少动态效果”的条件里；开启后页面保持静态，状态变化即时呈现。
+ */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* 控件：颜色、边框与按下反馈。 */
+  .btn,
+  .chip,
+  .nav-link,
+  .nav-status,
+  .nav-btn,
+  .pill,
+  .tab-link,
+  .settings-nav-link,
+  .rule-tag,
+  .segmented button {
+    transition:
+      background-color var(--dur-1) var(--ease),
+      color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease),
+      box-shadow var(--dur-1) var(--ease),
+      transform var(--dur-1) var(--ease);
+  }
+
+  .btn:active:not(:disabled),
+  .chip:active {
+    transform: scale(0.97);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 4px 12px rgba(154, 52, 18, 0.28);
+  }
+
+  input,
+  select,
+  textarea {
+    transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+  }
+
+  /* 页面进场：切换页面或设置分区时整体轻轻上浮淡入。 */
+  .page:not(:has(.settings-form)),
+  .settings-form {
+    animation: rise-in var(--dur-2) var(--ease) both;
+  }
+
+  /* 待办出现或消失时，进度卡与待决定卡之间的列宽平滑变化。 */
+  .home-grid {
+    transition: grid-template-columns var(--dur-3) var(--ease);
+  }
+
+  /* 卡片与列表：自上而下依次淡入（最多错开 12 项）。 */
+  .home-grid > *,
+  .shelf,
+  .tasks,
+  .overview-card,
+  .setting-card,
+  .service-list,
+  .site-table-card,
+  .download-list,
+  .card.empty {
+    animation: rise-in var(--dur-2) var(--ease) both;
+  }
+
+  .home-grid > :nth-child(2),
+  .shelf:nth-of-type(1) {
+    animation-delay: 30ms;
+  }
+
+  .shelf + .shelf {
+    animation-delay: 60ms;
+  }
+
+  .shelf-row > .film-card,
+  .film-wall > .film-card,
+  .pick-list > *,
+  .download-list > li,
+  .stat-tiles > li {
+    animation: rise-in var(--dur-2) var(--ease) both;
+  }
+
+  .shelf-row > :nth-child(1), .film-wall > :nth-child(1), .pick-list > :nth-child(1), .download-list > :nth-child(1), .stat-tiles > :nth-child(1) { animation-delay: 0ms; }
+  .shelf-row > :nth-child(2), .film-wall > :nth-child(2), .pick-list > :nth-child(2), .download-list > :nth-child(2), .stat-tiles > :nth-child(2) { animation-delay: 16ms; }
+  .shelf-row > :nth-child(3), .film-wall > :nth-child(3), .pick-list > :nth-child(3), .download-list > :nth-child(3), .stat-tiles > :nth-child(3) { animation-delay: 32ms; }
+  .shelf-row > :nth-child(4), .film-wall > :nth-child(4), .pick-list > :nth-child(4), .download-list > :nth-child(4), .stat-tiles > :nth-child(4) { animation-delay: 48ms; }
+  .shelf-row > :nth-child(5), .film-wall > :nth-child(5), .pick-list > :nth-child(5), .download-list > :nth-child(5) { animation-delay: 64ms; }
+  .shelf-row > :nth-child(6), .film-wall > :nth-child(6), .pick-list > :nth-child(6), .download-list > :nth-child(6) { animation-delay: 80ms; }
+  .shelf-row > :nth-child(7), .film-wall > :nth-child(7), .pick-list > :nth-child(7), .download-list > :nth-child(7) { animation-delay: 96ms; }
+  .shelf-row > :nth-child(8), .film-wall > :nth-child(8), .pick-list > :nth-child(8), .download-list > :nth-child(8) { animation-delay: 112ms; }
+  .shelf-row > :nth-child(n + 9), .film-wall > :nth-child(n + 9), .pick-list > :nth-child(n + 9), .download-list > :nth-child(n + 9) { animation-delay: 112ms; }
+
+  /* 海报：悬停轻轻抬起，图片淡入。 */
+  .poster {
+    transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+  }
+
+  .poster img {
+    transition: opacity var(--dur-3) var(--ease), filter var(--dur-2) var(--ease);
+  }
+
+  .film-card:hover .poster,
+  .film-card:focus-visible .poster {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lift);
+  }
+
+  /* 进度：进度条从左向右展开，任务进度与下载进度的变化平滑过渡。 */
+  .stack-bar > span {
+    transform-origin: left center;
+    animation: grow-x 600ms var(--ease) both;
+  }
+
+  .task-bar > span,
+  .transfer-bar > span {
+    transition: width var(--dur-3) var(--ease);
+  }
+
+  .nav-status.is-busy .dot,
+  .badge.st-searching .dot,
+  .badge.st-downloading .dot {
+    animation: pulse-dot 1.6s ease-in-out infinite;
+  }
+
+  /* 浮层：抽屉从右侧滑入，对话框与提示轻轻弹出。 */
+  .drawer-backdrop,
+  .dialog::backdrop {
+    animation: fade-in var(--dur-2) var(--ease) both;
+  }
+
+  .drawer {
+    animation: slide-in-right var(--dur-3) var(--ease) both;
+  }
+
+  .dialog[open] {
+    animation: pop-in var(--dur-2) var(--ease) both;
+  }
+
+  .toast {
+    animation: toast-in var(--dur-2) var(--ease) both;
+  }
+
+  /* 展开的筛选与折叠面板内容淡入。 */
+  details[open] > :not(summary) {
+    animation: fade-in var(--dur-2) var(--ease) both;
+  }
+}

@@ -59,9 +59,10 @@ def _has_nested_quantifier(rule: str) -> bool:
 BUILTIN_RELEASE_GROUP_RULES: tuple[tuple[str, str], ...] = (
     ("ADE", r"ADE"),
     ("FRDS", r"FRDS"),
-    ("HDS", r"HDS(?:ky|TV|Pad|WEB|)"),
+    # HDSPad / CHDPAD 是面向 iPad 的小体积压制，不算正规组发布，不归入 HDS / CHD。
+    ("HDS", r"HDS(?:ky|TV|WEB|)"),
     ("HDS", r"AQLJ"),
-    ("CHD", r"CHD(?:Bits|PAD|HKTV|TV|WEB|)"),
+    ("CHD", r"CHD(?:Bits|HKTV|TV|WEB|)"),
     ("CHD", r"StBOX|OneHD|Lee|xiaopie"),
     ("CMCT", r"CMCT(?:V|)"),
     ("0FF", r"FF(?:(?:A|WE)B|CD|E(?:DU|B)|TV)"),
@@ -280,6 +281,10 @@ def match_release_group(title: str, policy: dict[str, Any]) -> str | None:
     return None
 
 
+# 只认 2160p / 1080i 这类写法；“4K REMASTERED”之类的说明不算分辨率。
+MULTI_RESOLUTION = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480)[PI](?![0-9A-Z])", re.I)
+
+
 def parse_resolution(upper: str) -> str:
     if "2160P" in upper or re.search(r"(?:^|\W)4K(?:$|\W)", upper):
         return "2160p"
@@ -349,6 +354,9 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
     source = parse_source(upper)
     group = match_release_group(title, policy)
     exclusion = hard_exclusion_reason(title, policy)
+    # 同时打包多个分辨率（如 2160p&1080p）体积翻倍且多半是原盘合集，不作为单一资源入馆。
+    if not exclusion and len(set(MULTI_RESOLUTION.findall(title))) >= 2:
+        exclusion = "同时包含多个分辨率版本"
     seeders = to_int(torrent.get("seeders") or torrent.get("seeder"))
     # 0 人做种的资源无法实际下载，直接排除（仅在实际搜索/试算携带种子数据时生效）。
     if torrent and not exclusion and seeders == 0:

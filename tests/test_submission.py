@@ -24,7 +24,37 @@ from app.util import to_int, utc_now
 from tests.support import IsolatedAppTestCase, SeededPlaylistTestCase, task_candidates
 
 
-class MoviePilotGatewayTests(unittest.TestCase):
+class MoviePilotGatewayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_download_falls_back_to_title_when_tmdb_id_is_ambiguous(self) -> None:
+        """同一 TMDB 编号既是电影又是电视剧时 MoviePilot 只凭编号会拒绝；种子名识别出同一部电影则改按种子名提交。"""
+        bodies: list[dict[str, object]] = []
+
+        def respond(body: dict[str, object]) -> Mock:
+            bodies.append(body)
+            response = Mock()
+            response.json.return_value = (
+                {"success": True, "data": {"download_id": "x"}} if "media_id" not in body
+                else {"success": False, "message": "无法识别媒体信息"}
+            )
+            return response
+
+        async def fake_request(_client: object, _method: str, _path: str, **kwargs: object) -> Mock:
+            return respond(kwargs["json"])  # type: ignore[arg-type]
+
+        client = MoviePilotClient()
+        with patch("app.clients.safe_request", new=fake_request), \
+             patch.object(MoviePilotClient, "recognize", new=AsyncMock(return_value={"tmdb_id": 123678, "type": "电影"})):
+            result = await client.download({"tmdb_id": 123678}, {"title": "The Act of Killing 2012 DC"}, downloader="TR")
+        self.assertTrue(result["success"])
+        self.assertEqual(["media_id" in body for body in bodies], [True, False])
+        # 种子名识别出的不是同一部影片时不改道，保持 MoviePilot 的拒绝结果。
+        bodies.clear()
+        with patch("app.clients.safe_request", new=fake_request), \
+             patch.object(MoviePilotClient, "recognize", new=AsyncMock(return_value={"tmdb_id": 1, "type": "电影"})):
+            result = await client.download({"tmdb_id": 123678}, {"title": "Other"}, downloader="TR")
+        self.assertFalse(result["success"])
+        self.assertEqual(len(bodies), 1)
+
     def test_moviepilot_gateway_has_no_search_compatibility_methods(self) -> None:
         client = MoviePilotClient()
         for removed in (
@@ -277,6 +307,15 @@ class SelectionApiTests(SeededPlaylistTestCase):
         self.assertEqual(result["submitted"], 0)
         self.assertEqual(result["skipped"][0]["reason"], "Transmission 正在下载")
         download_mock.assert_not_awaited()
+        # 同一影片的种子停滞超过 24 小时、没有做种者：不再当作“正在下载”，允许换一个资源提交。
+        import time as clock
+
+        stalled = {"name": "Movie.2020.1080p.x265-FRDS", "status": 4, "percentDone": 0, "rateDownload": 0,
+                   "peersSendingToUs": 0, "activityDate": 0, "addedDate": int(clock.time()) - 30 * 3600}
+        with patch.object(MoviePilotClient, "download", new=AsyncMock()), \
+             patch.object(TransmissionClient, "current_downloads", new=AsyncMock(return_value=[stalled])):
+            result = await submit_selection()
+        self.assertEqual(result["skipped"], [], result)
 
 
 class SubmissionWorkflowTests(IsolatedAppTestCase):
@@ -448,21 +487,67 @@ class SubmissionWorkflowTests(IsolatedAppTestCase):
             submitted.append(torrent_in)
             return {"success": True, "hash": "safe-hash"}
 
-        verify = AsyncMock(return_value=True)
-        with patch("app.api.selection.verify_on_site", new=verify), \
+        verify = AsyncMock(return_value=(True, None))
+        with patch("app.api.selection.verify_and_refresh", new=verify), \
              patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
              patch.object(MoviePilotClient, "download", new=download):
             result = await submit_selection()
         self.assertEqual(result["submitted"], 1)
-        site, detail_url = verify.await_args.args
+        site, detail_url, _enclosure = verify.await_args.args
         self.assertEqual((site["name"], site["cookie"], detail_url), ("Alpha", "fresh-cookie", "https://alpha.example/details.php?id=7"))
         self.assertEqual((submitted[0]["site_cookie"], submitted[0]["site_ua"]), ("fresh-cookie", "UA/1"))
         self.assertNotIn(candidate_id, raw_candidates)
 
+    async def test_submit_replaces_expired_signed_download_links(self) -> None:
+        # 站点K的下载地址带时效签名，约一小时后失效：提交时用详情页上的新地址。
+        candidate_id = await self._selected_site_candidate()
+        stale = "https://alpha.example/download.php?id=7&t=1000&sign=old"
+        raw_candidates[candidate_id] = {**raw_candidates[candidate_id], "torrent": {**raw_candidates[candidate_id]["torrent"], "enclosure": stale}}
+        fresh = "https://alpha.example/download.php?id=7&t=2000&sign=new"
+        submitted: list[dict] = []
+
+        async def download(_client: object, _media: dict, torrent_in: dict, downloader: str | None = None) -> dict:
+            submitted.append(torrent_in)
+            return {"success": True, "hash": "safe-hash"}
+
+        verify = AsyncMock(return_value=(True, fresh))
+        with patch("app.api.selection.verify_and_refresh", new=verify), \
+             patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch.object(MoviePilotClient, "download", new=download):
+            result = await submit_selection()
+        self.assertEqual(result["submitted"], 1)
+        self.assertEqual(verify.await_args.args[2], stale)
+        self.assertEqual(submitted[0]["enclosure"], fresh)
+
+    async def test_submit_records_moviepilot_download_id_as_hash(self) -> None:
+        candidate_id = await self._selected_site_candidate()
+        with patch("app.api.selection.verify_and_refresh", new=AsyncMock(return_value=(True, None))), \
+             patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch.object(MoviePilotClient, "download", new=AsyncMock(return_value={"success": True, "data": {"download_id": "ABCDEF123"}})):
+            result = await submit_selection()
+        self.assertEqual(result["submitted"], 1)
+        with connect() as conn:
+            row = conn.execute("SELECT submission_hash FROM download_history WHERE candidate_id=?", (candidate_id,)).fetchone()
+        self.assertEqual(row["submission_hash"], "ABCDEF123")
+
+    async def test_submit_holds_signed_links_without_a_fresh_one(self) -> None:
+        candidate_id = await self._selected_site_candidate()
+        raw_candidates[candidate_id] = {**raw_candidates[candidate_id], "torrent": {
+            **raw_candidates[candidate_id]["torrent"], "enclosure": "https://alpha.example/download.php?id=7&t=1000&sign=old",
+        }}
+        download = AsyncMock()
+        with patch("app.api.selection.verify_and_refresh", new=AsyncMock(return_value=(True, None))), \
+             patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch.object(MoviePilotClient, "download", new=download):
+            result = await submit_selection()
+        download.assert_not_awaited()
+        self.assertIn("下载地址已过期", result["blocked_site"][0]["reason"])
+        self.assertEqual([item["id"] for item in await selection()], [candidate_id])
+
     async def test_submit_removes_torrents_deleted_by_the_site(self) -> None:
         candidate_id = await self._selected_site_candidate()
         download = AsyncMock()
-        with patch("app.api.selection.verify_on_site", new=AsyncMock(return_value=False)), \
+        with patch("app.api.selection.verify_and_refresh", new=AsyncMock(return_value=(False, None))), \
              patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
              patch.object(MoviePilotClient, "download", new=download):
             result = await submit_selection()
@@ -479,7 +564,7 @@ class SubmissionWorkflowTests(IsolatedAppTestCase):
 
         candidate_id = await self._selected_site_candidate()
         download = AsyncMock()
-        with patch("app.api.selection.verify_on_site", new=AsyncMock(side_effect=CookieExpired())), \
+        with patch("app.api.selection.verify_and_refresh", new=AsyncMock(side_effect=CookieExpired())), \
              patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
              patch.object(MoviePilotClient, "download", new=download):
             result = await submit_selection()
@@ -544,15 +629,23 @@ class SubmissionWorkflowTests(IsolatedAppTestCase):
         context.__aenter__.return_value = client
         with patch.object(MoviePilotClient, "_client", return_value=context):
             await MoviePilotClient().download(
-                {"year": "1982"},
+                {"year": "1982", "tmdb_id": 1091, "title": "The Thing"},
                 {"title": "Movie", "volume_factor": 0.5, "publish_time": "2026-07-18"},
                 downloader="Transmission",
             )
+        # 走“添加下载（不含媒体信息）”：只传 TMDB 编号，由 MoviePilot 识别影片与分类（决定下载到哪个分类目录）。
+        self.assertTrue(str(client.post.await_args.args[0]).endswith("/api/v1/download/add"))
         payload = client.post.await_args.kwargs["json"]
+        self.assertEqual((payload["media_source"], payload["media_id"], payload["downloader"]), ("themoviedb", "1091", "Transmission"))
+        self.assertNotIn("media_in", payload)
         self.assertNotIn("volume_factor", payload["torrent_in"])
         self.assertNotIn("publish_time", payload["torrent_in"])
         self.assertEqual(payload["torrent_in"]["downloadvolumefactor"], 0.5)
         self.assertEqual(payload["torrent_in"]["pubdate"], "2026-07-18")
+        # 没有 TMDB 编号时不提交：否则 MoviePilot 无法分类，种子会落在下载目录根下。
+        with patch.object(MoviePilotClient, "_client", return_value=context):
+            with self.assertRaisesRegex(RuntimeError, "缺少 TMDB 编号"):
+                await MoviePilotClient().download({"year": "1982"}, {"title": "Movie"}, downloader="Transmission")
 
 
 class SubmissionGuardTests(IsolatedAppTestCase):
@@ -640,6 +733,52 @@ class ActiveHistoryLookupTests(IsolatedAppTestCase):
         self.assertNotIn(4, matched)
 
 
+class TransferInfoTests(unittest.TestCase):
+    def test_transfer_states_from_transmission_fields(self) -> None:
+        from app.services.history import transfer_info
+
+        base = {"status": 4, "percentDone": 0.623, "rateDownload": 5 * 1024**2, "eta": 3780, "peersSendingToUs": 12, "error": 0}
+        self.assertEqual(transfer_info(base), {
+            "state": "downloading", "percent": 62.3, "rate_bps": 5 * 1024**2, "eta_seconds": 3780, "peers": 12, "error": None,
+            "idle_hours": None,
+        })
+        self.assertEqual(transfer_info({**base, "rateDownload": 0, "peersSendingToUs": 0, "eta": -1})["state"], "stalled")
+        self.assertEqual(transfer_info({**base, "status": 0})["state"], "paused")
+        self.assertEqual(transfer_info({**base, "status": 3})["state"], "queued")
+        errored = transfer_info({**base, "status": 0, "error": 2, "errorString": "Unregistered torrent"})
+        self.assertEqual((errored["state"], errored["error"]), ("error", "Unregistered torrent"))
+        # 旧数据没有速度与做种者字段时不当作停滞。
+        self.assertEqual(transfer_info({"status": 4, "percentDone": 0.4})["state"], "downloading")
+
+    def test_downloading_wins_over_strm_placeholder(self) -> None:
+        from app.services.history import _project_history_state
+
+        row = {"id": 1, "success": 1, "playlist_library_state": "strm", "playlist_library_checked_at": "2026-10-01"}
+        torrent = {"status": 4, "percentDone": 0.5, "rateDownload": 1024, "peersSendingToUs": 3, "eta": 600}
+        downloading = _project_history_state(dict(row), {1: torrent}, set(), False, "2026-10-01")
+        self.assertEqual((downloading["lifecycle_status"], downloading["transfer"]["state"]), ("downloading", "downloading"))
+        # 下载完成（不再是未完成种子）后才显示等待 Emby 实体入库。
+        placeholder = _project_history_state(dict(row), {}, set(), False, "2026-10-01")
+        self.assertEqual(placeholder["lifecycle_status"], "pending_library")
+
+    def test_organize_failure_shows_in_submission_record(self) -> None:
+        from app.services.history import _project_history_state
+
+        row = {"id": 1, "success": 1, "submission_hash": "ABC", "playlist_library_state": "strm", "playlist_library_checked_at": "2026-10-01"}
+        projected = _project_history_state(dict(row), {}, set(), False, "2026-10-01", {"abc": "未识别到媒体信息"})
+        self.assertEqual(projected["lifecycle_status"], "pending_library")
+        self.assertEqual((projected["status_reason"], projected["next_action"]), ("MoviePilot 整理失败：未识别到媒体信息", "在 MoviePilot 手动整理"))
+
+    def test_paused_and_errored_torrents_still_match_their_submission(self) -> None:
+        from app.services.history import _active_history_matches
+
+        histories = [{"id": 1, "success": 1, "submission_hash": "aa", "torrent_name": "Movie.A"}]
+        matched, _ = _active_history_matches(histories, [{"hashString": "aa", "name": "Movie.A", "status": 0, "percentDone": 0.3}])
+        self.assertEqual(list(matched), [1])
+        finished, _ = _active_history_matches(histories, [{"hashString": "aa", "name": "Movie.A", "status": 6, "percentDone": 1}])
+        self.assertEqual(finished, {})
+
+
 class HistoryIdentityTests(IsolatedAppTestCase):
     def create_item(self, title="The Thing", year=1982, library_state="not_found"):
         with connect() as conn:
@@ -702,3 +841,151 @@ class HistoryIdentityTests(IsolatedAppTestCase):
             )
         with patch("app.services.history.TransmissionClient.current_downloads", new=AsyncMock(return_value=[])):
             self.assertEqual(await clear_download_history("submitted"), 1)
+
+
+class MoviePilotDownloaderTests(IsolatedAppTestCase):
+    async def test_submission_uses_moviepilot_transmission_downloader_name(self) -> None:
+        # 用户在 MoviePilot 里把下载器命名为 TR：提交必须用这个名称，不能写死 “Transmission”。
+        self._downloader.stop()
+        try:
+            client = MoviePilotClient()
+            downloaders = [{"name": "QB", "type": "qbittorrent"}, {"name": "TR", "type": "transmission"}]
+            with patch.object(MoviePilotClient, "check", new=AsyncMock(return_value={"ok": True, "configured": True, "downloaders": downloaders})):
+                self.assertEqual(await client.transmission_downloader(), "TR")
+            with patch.object(MoviePilotClient, "check", new=AsyncMock(return_value={"ok": True, "configured": True, "downloaders": downloaders[:1]})):
+                with self.assertRaisesRegex(RuntimeError, "没有启用的 Transmission 下载器"):
+                    await client.transmission_downloader()
+        finally:
+            self._downloader.start()
+
+
+class DownloadsPageTests(IsolatedAppTestCase):
+    async def test_downloads_list_states_films_and_order(self) -> None:
+        from app.services.downloads import downloads_overview
+
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            item_id = to_int(conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_title) VALUES(?,1,'Casablanca',1942,'卡萨布兰卡')",
+                (playlist_id,),
+            ).lastrowid)
+            conn.execute(
+                """INSERT INTO download_history(playlist_item_id,title,torrent_name,site_name,success,message,submission_hash,created_at)
+                   VALUES(?,?,?,?,1,'ok','abc123',?)""",
+                (item_id, "卡萨布兰卡", "Casablanca.1942.2160p-FRDS", "站点A", utc_now()),
+            )
+        torrents = [
+            {"hashString": "zzz", "name": "Other.Seeding", "status": 6, "percentDone": 1, "sizeWhenDone": 100,
+             "leftUntilDone": 0, "rateUpload": 50, "uploadRatio": 1.5, "addedDate": 1700000000, "labels": ["MOVIEPILOT", "站点B"]},
+            {"hashString": "ABC123", "name": "Casablanca.1942.2160p-FRDS", "status": 4, "percentDone": 0.25, "sizeWhenDone": 1000,
+             "leftUntilDone": 750, "rateDownload": 2048, "peersSendingToUs": 4, "eta": 120, "addedDate": 1700000100,
+             "labels": ["MOVIEPILOT", "站点A"]},
+            {"hashString": "q1", "name": "Queued.One", "status": 3, "percentDone": 0, "sizeWhenDone": 10, "leftUntilDone": 10},
+        ]
+        overview = {"torrents": torrents, "download_bps": 2048, "upload_bps": 50, "free_bytes": 10**12}
+        with patch.object(settings, "tr_base_url", "http://tr.example:9091"), \
+             patch("app.services.downloads.TransmissionClient.overview", new=AsyncMock(return_value=overview)):
+            page = await downloads_overview()
+        self.assertEqual([item["state"] for item in page["items"]], ["downloading", "queued", "seeding"])
+        film = page["items"][0]
+        self.assertEqual((film["film_id"], film["film_title"], film["site"], film["downloaded"], film["percent"]),
+                         (item_id, "卡萨布兰卡", "站点A", 250, 25.0))
+        self.assertIsNone(page["items"][1]["film_id"])
+        self.assertEqual(page["items"][2]["ratio"], 1.5)
+        self.assertEqual(page["summary"]["counts"]["queued"], 1)
+        self.assertEqual(page["web_url"], "http://tr.example:9091/transmission/web/")
+
+    async def test_downloads_match_renamed_torrents_by_title_and_year(self) -> None:
+        from app.services.downloads import downloads_overview
+
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            item_id = to_int(conn.execute(
+                """INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_title,tmdb_original_title,tmdb_year)
+                   VALUES(?,1,'Some Like It Hot',1959,'热情如火','Some Like It Hot',1959)""",
+                (playlist_id,),
+            ).lastrowid)
+            # 提交记录里是站点显示的标题，Transmission 里是种子文件名，MoviePilot 也没有返回 hash。
+            conn.execute(
+                """INSERT INTO download_history(playlist_item_id,title,torrent_name,site_name,success,message,created_at)
+                   VALUES(?,'热情如火','Some Like It Hot 1959 2160p UHD BluRay x265 DV HDR mUHD-FRDS 【热情如火】','站点B',1,'ok',?)""",
+                (item_id, utc_now()),
+            )
+        torrents = [
+            {"hashString": "h1", "name": "热情如火.Some.Like.It.Hot.1959.UHD.BluRay.2160p.x265-FRDS", "status": 4,
+             "percentDone": 0.2, "labels": ["MOVIEPILOT", "已整理"]},
+            {"hashString": "h2", "name": "Unrelated.Movie.2020.1080p", "status": 6, "percentDone": 1, "labels": ["MOVIEPILOT"]},
+        ]
+        with patch.object(settings, "tr_base_url", "http://tr.example:9091"), \
+             patch("app.services.downloads.TransmissionClient.overview", new=AsyncMock(return_value={
+                 "torrents": torrents, "download_bps": 0, "upload_bps": 0, "free_bytes": None})):
+            page = await downloads_overview()
+        by_hash = {item["hash"]: item for item in page["items"]}
+        self.assertEqual((by_hash["h1"]["film_id"], by_hash["h1"]["site"]), (item_id, "站点B"))
+        self.assertEqual((by_hash["h2"]["film_id"], by_hash["h2"]["site"]), (None, None))
+
+    async def test_downloads_report_transmission_errors(self) -> None:
+        from app.services.downloads import downloads_overview
+
+        with patch.object(settings, "tr_base_url", "http://tr.example:9091"), \
+             patch("app.services.downloads.TransmissionClient.overview", new=AsyncMock(side_effect=RuntimeError("boom"))):
+            page = await downloads_overview()
+        self.assertTrue(page["configured"])
+        self.assertIn("无法读取 Transmission", page["error"])
+        self.assertEqual(page["items"], [])
+
+
+class DownloadIdentifyTests(IsolatedAppTestCase):
+    async def test_unlisted_torrents_are_identified_through_moviepilot_and_cached(self) -> None:
+        from app.services.downloads import downloads_overview, tmdb_poster_path
+
+        self.assertEqual(tmdb_poster_path("https://image.tmdb.org/t/p/original/7S5ut0iDmuevbGc0hDBxFJLthEd.jpg"), "/7S5ut0iDmuevbGc0hDBxFJLthEd.jpg")
+        self.assertEqual(tmdb_poster_path("/oGycVojde8AEF5gGTdGtYTKeEOW.jpg"), "/oGycVojde8AEF5gGTdGtYTKeEOW.jpg")
+        self.assertIsNone(tmdb_poster_path("https://evil.example/x.jpg?y"))
+        known, recognized, unknown = "a" * 40, "b" * 40, "c" * 40
+        # 《罗生门》在片单里但不是经 AutoList 提交的：识别出 TMDB 编号后对上片单影片。
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            rashomon_id = to_int(conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,tmdb_title) VALUES(?,1,'Rashomon',1950,548,'罗生门')",
+                (playlist_id,),
+            ).lastrowid)
+        torrents = [
+            {"hashString": known, "name": "A.Separation.2011.1080p.BluRay.x265-ADE", "status": 6, "percentDone": 1},
+            {"hashString": recognized, "name": "Rashomon.1950.CC.1080p.BluRay.x265.10bit.FLAC.1.0-ADE", "status": 6, "percentDone": 1},
+            {"hashString": unknown, "name": "Some.Random.Thing", "status": 6, "percentDone": 1},
+        ]
+        overview = AsyncMock(return_value={"torrents": torrents, "download_bps": 0, "upload_bps": 0, "free_bytes": None})
+        history = AsyncMock(return_value=[{
+            "download_hash": known.upper(), "title": "一次别离", "year": "2011", "poster": "/oGycVojde8AEF5gGTdGtYTKeEOW.jpg",
+            "media_source": "themoviedb", "media_id": "60243",
+        }])
+
+        recognized_titles: list[str] = []
+
+        async def recognize(_client: object, title: str) -> dict | None:
+            recognized_titles.append(title)
+            if title.startswith("Rashomon"):
+                return {"title": "罗生门", "year": "1950", "tmdb_id": 548, "poster_path": "https://image.tmdb.org/t/p/original/7S5ut0iDmuevbGc0hDBxFJLthEd.jpg"}
+            return None
+
+        with patch.object(settings, "tr_base_url", "http://tr.example:9091"), \
+             patch.object(settings, "mp_base_url", "http://mp.example:3000"), \
+             patch.object(settings, "mp_api_key", "key"), \
+             patch("app.services.downloads.TransmissionClient.overview", new=overview), \
+             patch("app.services.downloads.MoviePilotClient.download_history", new=history), \
+             patch("app.services.downloads.MoviePilotClient.recognize", new=recognize):
+            page = await downloads_overview()
+            again = await downloads_overview()
+        by_hash = {item["hash"]: item for item in page["items"]}
+        self.assertEqual((by_hash[known]["film_title"], by_hash[known]["film_year"], by_hash[known]["film_id"]), ("一次别离", 2011, None))
+        self.assertEqual(by_hash[known]["poster_url"], f"/api/downloads/{known}/poster")
+        with connect() as conn:
+            self.assertEqual(conn.execute("SELECT tmdb_id FROM torrent_media WHERE hash=?", (known,)).fetchone()[0], 60243)
+        self.assertEqual((by_hash[recognized]["film_title"], by_hash[recognized]["film_year"]), ("罗生门", 1950))
+        self.assertEqual(by_hash[recognized]["film_id"], rashomon_id)
+        self.assertIsNone(by_hash[unknown]["film_title"])
+        # 历史里有的不再识别；第二次刷新全部走缓存（认不出的 7 天内不重试）。
+        self.assertEqual(len(recognized_titles), 2)
+        self.assertEqual(history.await_count, 1)
+        self.assertEqual({item["hash"]: item["film_title"] for item in again["items"]}[recognized], "罗生门")

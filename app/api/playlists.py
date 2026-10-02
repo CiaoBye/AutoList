@@ -30,7 +30,7 @@ from ..domain.titles import item_identity_keys
 from ..services.history import playlist_item_snapshot
 from ..services.imports import normalize_import_items, resolve_import
 from ..services.library import run_library_scan
-from ..state import poster_cache, remember_poster
+from ..state import fetch_once, poster_cache, remember_poster
 from ..tasks import LIBRARY, RECOGNITION, active_playlist_task, cancel_playlist_tasks
 from ..util import raster_image_media_type, to_int
 from ..responses import AutomationStarted, ImportPreview, PlaylistImported, PlaylistRow, PlaylistSynced
@@ -53,15 +53,25 @@ async def playlist_item_poster(playlist_item_id: int, tag: str = "") -> Response
         content, media_type = poster_cache[cache_key]
     else:
         try:
-            content, _ = await EmbyClient().poster(emby_item_id)
-        except httpx.HTTPStatusError as exc:
-            status = 404 if exc.response.status_code == 404 else 502
-            raise HTTPException(status, "Emby 海报读取失败") from exc
-        except Exception as exc:
-            raise HTTPException(502, f"Emby 海报读取失败：{safe_error(exc)}") from exc
-        media_type = raster_image_media_type(content) or ""
-        if not media_type or len(content) > 8 * 1024 * 1024:
-            raise HTTPException(422, "Emby 返回的海报格式无效")
+            try:
+                content, _ = await fetch_once(cache_key, lambda: EmbyClient().poster(emby_item_id))
+            except httpx.HTTPStatusError as exc:
+                status = 404 if exc.response.status_code == 404 else 502
+                raise HTTPException(status, "Emby 海报读取失败") from exc
+            except Exception as exc:
+                raise HTTPException(502, f"Emby 海报读取失败：{safe_error(exc)}") from exc
+            media_type = raster_image_media_type(content) or ""
+            if not media_type or len(content) > 8 * 1024 * 1024:
+                raise HTTPException(422, "Emby 返回的海报格式无效")
+        except HTTPException:
+            # Emby 里只有 .strm 占位的影片有图片标记，取图却返回 500：改用 TMDB 海报，缓存时间较短。
+            if not settings.tmdb_api_key:
+                raise
+            from .images import FALLBACK_POSTER_CACHE, playlist_item_tmdb_poster
+
+            response = await playlist_item_tmdb_poster(playlist_item_id)
+            response.headers["Cache-Control"] = FALLBACK_POSTER_CACHE
+            return response
         remember_poster(cache_key, (content, media_type))
     return Response(
         content=content, media_type=media_type,

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Mapping
 
-from ..clients import TransmissionClient
+from ..clients import MoviePilotClient, TransmissionClient
+from ..config import settings
 from ..database import connect
 from ..security import sanitize_sensitive_text
 from ..util import first_value, rows_to_dicts, utc_now
@@ -81,13 +83,115 @@ def _history_torrent_matches(row: dict[str, Any], torrent: dict[str, Any]) -> bo
     return bool(item and strict_torrent_matches_item(item, str(first_value(torrent, ("name", "torrent_name"), ""))))
 
 
+def _unfinished(torrent: dict[str, Any]) -> bool:
+    """Transmission 里还没下完的种子，包括暂停、出错与排队的（已完成做种的不算）。"""
+    try:
+        return float(torrent.get("percentDone") or 0) < 1
+    except (TypeError, ValueError):
+        return is_transmission_downloading(torrent)
+
+
+def transfer_info(torrent: dict[str, Any]) -> dict[str, Any]:
+    """一个未完成种子的下载状况：状态、进度、速度、剩余时间与连接的做种者（只读 Transmission）。"""
+    def number(key: str) -> int:
+        try:
+            return int(float(torrent.get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    status = number("status")
+    error_text = str(torrent.get("errorString") or "").strip()
+    rate, peers = number("rateDownload"), number("peersSendingToUs")
+    if number("error") and error_text:
+        state = "error"
+    elif status == 0:
+        state = "paused"
+    elif status in (1, 2):
+        state = "checking"
+    elif status == 3:
+        state = "queued"
+    elif torrent.get("isStalled") or ("rateDownload" in torrent and "peersSendingToUs" in torrent and rate == 0 and peers == 0):
+        state = "stalled"
+    else:
+        state = "downloading"
+    try:
+        percent = round(float(torrent.get("percentDone") or 0) * 100, 1)
+    except (TypeError, ValueError):
+        percent = 0.0
+    eta = number("eta")
+    # 多久没有数据传输：从最后一次传输（从未传输时从加入时间）算起；没有这两个字段时不判断。
+    reference = max(number("activityDate"), number("addedDate"))
+    idle_hours = round((time.time() - reference) / 3600, 1) if reference > 0 else None
+    return {
+        "state": state, "percent": percent, "rate_bps": rate,
+        "eta_seconds": eta if eta > 0 else None, "peers": peers,
+        "error": sanitize_sensitive_text(error_text, 200) if state == "error" else None,
+        "idle_hours": idle_hours,
+    }
+
+
+# 停滞超过这个时长（小时）提示换一个资源，并允许为同一影片再提交。
+STALLED_ALERT_HOURS = 24
+
+
+def long_stalled(torrent: dict[str, Any]) -> bool:
+    """没有做种者、长时间没有数据传输的未完成种子：多半下不完了。"""
+    info = transfer_info(torrent)
+    return info["state"] == "stalled" and info["idle_hours"] is not None and info["idle_hours"] >= STALLED_ALERT_HOURS
+
+
+# MoviePilot 整理失败的种子（hash → 失败原因），短时缓存，避免每次读片单都请求 MoviePilot。
+ORGANIZE_CACHE_SECONDS = 300
+ORGANIZE_HISTORY_PAGES = 3
+_organize_cache: tuple[float, dict[str, str]] | None = None
+
+
+async def organize_failures(force: bool = False) -> dict[str, str]:
+    """MoviePilot 整理历史里最近一次整理失败的种子；之后整理成功（如手动整理）的不算。读取失败时返回空。"""
+    global _organize_cache
+    if not force and _organize_cache and time.monotonic() - _organize_cache[0] < ORGANIZE_CACHE_SECONDS:
+        return _organize_cache[1]
+    if not settings.mp_base_url or not settings.mp_api_key:
+        return {}
+    latest: dict[str, dict[str, Any]] = {}
+    try:
+        client = MoviePilotClient()
+        for page in range(1, ORGANIZE_HISTORY_PAGES + 1):
+            records = await asyncio.wait_for(client.transfer_history(page, 100), timeout=10)
+            for record in records:
+                torrent_hash = str(record.get("download_hash") or "").strip().casefold()
+                if torrent_hash and torrent_hash not in latest:
+                    latest[torrent_hash] = record
+            if len(records) < 100:
+                break
+    except Exception:
+        return _organize_cache[1] if _organize_cache else {}
+    failures = {
+        torrent_hash: sanitize_sensitive_text(str(record.get("errmsg") or "整理失败"), 200)
+        for torrent_hash, record in latest.items() if not record.get("status")
+    }
+    _organize_cache = (time.monotonic(), failures)
+    return failures
+
+
+TRANSFER_REASONS = {
+    "downloading": "Transmission 正在下载",
+    "queued": "在 Transmission 中排队等待下载",
+    "checking": "Transmission 正在校验文件",
+    "stalled": "下载停滞：暂时没有可连接的做种者",
+    "paused": "已在 Transmission 中暂停",
+    "error": "Transmission 报错",
+}
+
+
 def _active_history_matches(
     histories: list[dict[str, Any]], torrents: list[dict[str, Any]],
-) -> tuple[set[int], set[int]]:
-    matched: set[int] = set()
+) -> tuple[dict[int, dict[str, Any]], set[int]]:
+    """提交记录与 Transmission 未完成种子的对应关系：{记录编号: 种子}，以及无法唯一对应的记录。"""
+    matched: dict[int, dict[str, Any]] = {}
     ambiguous: set[int] = set()
     eligible = [row for row in histories if bool(row.get("success"))]
-    active_torrents = [torrent for torrent in torrents if is_transmission_downloading(torrent)]
+    active_torrents = [torrent for torrent in torrents if _unfinished(torrent)]
     if not eligible or not active_torrents:
         return matched, ambiguous
 
@@ -106,7 +210,7 @@ def _active_history_matches(
         if torrent_hash and torrent_hash in by_hash:
             hash_matches = by_hash[torrent_hash]
             if len(hash_matches) == 1:
-                matched.add(int(hash_matches[0]["id"]))
+                matched[int(hash_matches[0]["id"])] = torrent
                 continue
             if len(hash_matches) > 1:
                 ambiguous.update(int(row["id"]) for row in hash_matches)
@@ -115,24 +219,26 @@ def _active_history_matches(
         if name and name in by_name:
             name_matches = by_name[name]
             if len(name_matches) == 1:
-                matched.add(int(name_matches[0]["id"]))
+                matched[int(name_matches[0]["id"])] = torrent
                 continue
             if len(name_matches) > 1:
                 ambiguous.update(int(row["id"]) for row in name_matches)
                 continue
         identity_matches = [row for row in eligible if _history_torrent_matches(row, torrent)]
         if len(identity_matches) == 1:
-            matched.add(int(identity_matches[0]["id"]))
+            # 已经按 hash 或名称对上的种子不被片名相近的另一个种子（如换资源前的旧种子）顶掉。
+            matched.setdefault(int(identity_matches[0]["id"]), torrent)
         elif len(identity_matches) > 1:
             ambiguous.update(int(row["id"]) for row in identity_matches)
     return matched, ambiguous
 
 
 def _project_history_state(
-    row: dict[str, Any], matched_ids: set[int], ambiguous_ids: set[int],
-    transmission_error: bool, checked_at: str,
+    row: dict[str, Any], matched_ids: dict[int, dict[str, Any]], ambiguous_ids: set[int],
+    transmission_error: bool, checked_at: str, failures: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     history_id = int(row["id"])
+    transfer = None
     library_state = str(row.get("playlist_library_state") or "unknown")
     if not bool(row.get("success")):
         lifecycle_status, source, reason, next_action = (
@@ -144,16 +250,31 @@ def _project_history_state(
             "organized", "Emby", "Emby 已找到实体媒体", "无需操作",
         )
         status_checked_at = row.get("playlist_library_checked_at") or checked_at
+    elif history_id in matched_ids:
+        transfer = transfer_info(matched_ids[history_id])
+        reason = TRANSFER_REASONS[transfer["state"]]
+        if transfer["error"]:
+            reason = f"{reason}：{transfer['error']}"
+        next_action = {
+            "error": "到 Transmission 或 MoviePilot 处理", "paused": "在 Transmission 中继续",
+            "stalled": "等待做种者上线或换一个站点的资源",
+        }.get(transfer["state"], "等待下载完成")
+        lifecycle_status, source = "downloading", "Transmission"
+        status_checked_at = checked_at
+        if transfer["state"] == "stalled" and (transfer.get("idle_hours") or 0) >= STALLED_ALERT_HOURS:
+            reason = f"下载停滞超过 {STALLED_ALERT_HOURS} 小时：没有可连接的做种者"
+            next_action = "在挑选台换一个资源"
+    elif str(row.get("submission_hash") or "").strip().casefold() in (failures or {}):
+        lifecycle_status, source = "pending_library", "MoviePilot"
+        reason = f"MoviePilot 整理失败：{(failures or {})[str(row.get('submission_hash')).strip().casefold()]}"
+        next_action = "在 MoviePilot 手动整理"
+        status_checked_at = checked_at
+    # Emby 里只有 .strm 占位时，Transmission 正在下载的优先显示下载进度。
     elif library_state == "strm":
         lifecycle_status, source, reason, next_action = (
             "pending_library", "Emby", "Emby 已找到 .strm，实体媒体尚未确认", "刷新 Emby 状态",
         )
         status_checked_at = row.get("playlist_library_checked_at") or checked_at
-    elif history_id in matched_ids:
-        lifecycle_status, source, reason, next_action = (
-            "downloading", "Transmission", "Transmission 正在下载", "等待下游确认",
-        )
-        status_checked_at = checked_at
     elif transmission_error or history_id in ambiguous_ids or (
         library_state in {"not_found", "unknown"} and row.get("playlist_library_checked_at")
     ):
@@ -180,6 +301,7 @@ def _project_history_state(
     item["status_reason"] = sanitize_sensitive_text(str(reason), 500)
     item["status_checked_at"] = status_checked_at
     item["next_action"] = next_action
+    item["transfer"] = transfer
     if item.get("message"):
         item["message"] = sanitize_sensitive_text(item["message"])
     return item
@@ -221,8 +343,12 @@ async def projected_download_history(limit: int = 200, *, before_id: int | None 
         torrents = []
         transmission_error = True
     matched_ids, ambiguous_ids = _active_history_matches(histories, torrents)
+    failures = await organize_failures()
     checked_at = utc_now()
-    return [_project_history_state(row, matched_ids, ambiguous_ids, transmission_error, checked_at) for row in histories]
+    return [
+        _project_history_state(row, matched_ids, ambiguous_ids, transmission_error, checked_at, failures)
+        for row in histories
+    ]
 
 
 async def clear_download_history(status: str) -> int:

@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import state
+from .api import downloads as download_routes
+from .api import sync as sync_routes
 from .api import films as film_routes
 from .api import history as history_routes
 from .api import home as home_routes
@@ -76,6 +78,8 @@ app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), na
 system_routes.APP_VERSION = app.version
 
 app.include_router(system_routes.router)
+app.include_router(download_routes.router)
+app.include_router(sync_routes.router)
 app.include_router(site_routes.router)
 app.include_router(playlist_routes.router)
 app.include_router(search_routes.router)
@@ -181,7 +185,8 @@ async def access_token_middleware(request: Request, call_next):  # type: ignore[
         return await call_next(request)
     path = request.url.path
     # 健康检查与静态入口公开；所有受保护路径必须先通过强令牌检查，再考虑签名媒体豁免。
-    if path in AUTH_EXEMPT_PATHS or path.startswith("/assets/"):
+    # 三方推送事件的路径用自己的事件密钥校验（见 api/sync.py）。
+    if path in AUTH_EXEMPT_PATHS or path.startswith("/assets/") or path.startswith("/api/sync/events/"):
         return await call_next(request)
     if access_token_strength_enforced() and not access_token_is_strong():
         # 只返回统一提示，不泄露 configured/validation 等鉴权配置细节（审计 3-12）。

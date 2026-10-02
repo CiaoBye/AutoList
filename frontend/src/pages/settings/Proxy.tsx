@@ -46,11 +46,10 @@ export function ProxySettings({ health }: { health: SettingsHealth }) {
               void run(save, "代理设置已保存", () => setOpen(false));
             }}
           >
-            <p class="muted settings-note">出站代理用于访问 TMDB、fanart.tv、片单来源或 PT 站点。</p>
             <div class="setting-row setting-row-field">
               <label class="setting-row-text" for="proxy-url">
                 <strong>代理地址</strong>
-                <small>{clearing ? "保存后删除已保存的地址" : "不支持在地址里写用户名或密码；留空保存即保留当前代理"}</small>
+                <small>{clearing ? "保存后删除已保存的地址" : ""}</small>
               </label>
               <span class="setting-row-control">
                 <input
@@ -71,13 +70,11 @@ export function ProxySettings({ health }: { health: SettingsHealth }) {
             </div>
             <SwitchRow
               label="TMDB / Fanart 走代理"
-              hint="TMDB、fanart.tv 与片单来源（TMDB / MDBList / Letterboxd / IMDb）的请求经代理"
               checked={Boolean(form.tmdb_proxy_enabled)}
               onChange={(value) => set("tmdb_proxy_enabled", value)}
             />
             <SwitchRow
               label="PT 站点允许走代理"
-              hint="开启后，站点里勾选“经代理访问”的站点才会走代理"
               checked={Boolean(form.pt_proxy_enabled)}
               onChange={(value) => set("pt_proxy_enabled", value)}
             />

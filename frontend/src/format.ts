@@ -1,12 +1,10 @@
 export const formatSize = (bytes: number | null | undefined): string => {
   if (!bytes) return "—";
   const gb = bytes / 1024 ** 3;
-  if (gb >= 1024) {
-    const tb = gb / 1024;
-    return `${tb >= 100 ? tb.toFixed(0) : tb.toFixed(1)} TB`;
-  }
-  if (gb >= 1) return `${gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)} GB`;
-  return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
+  // 与站点上显示的体积一致（两位小数），不四舍五入成整数。
+  if (gb >= 1024) return `${(gb / 1024).toFixed(2)} TB`;
+  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  return `${Math.max(0.01, bytes / 1024 ** 2).toFixed(2)} MB`;
 };
 
 export const formatTime = (value: string | null | undefined): string => {
@@ -19,6 +17,21 @@ export const formatTime = (value: string | null | undefined): string => {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+};
+
+/** 传输速度：B/s、KB/s、MB/s。 */
+export const formatRate = (bytesPerSecond: number): string => {
+  if (bytesPerSecond >= 1024 ** 2) return `${(bytesPerSecond / 1024 ** 2).toFixed(1)} MB/s`;
+  if (bytesPerSecond >= 1024) return `${Math.round(bytesPerSecond / 1024)} KB/s`;
+  return `${bytesPerSecond} B/s`;
+};
+
+/** 剩余时间（Transmission 的 eta 秒数）；未知时返回 null。 */
+export const formatEta = (seconds: number | null | undefined): string | null => {
+  if (seconds == null || seconds < 0) return null;
+  if (seconds >= 86400) return `剩余约 ${Math.round(seconds / 86400)} 天`;
+  if (seconds >= 3600) return `剩余 ${Math.floor(seconds / 3600)} 小时 ${Math.round((seconds % 3600) / 60)} 分`;
+  return `剩余 ${Math.max(1, Math.round(seconds / 60))} 分钟`;
 };
 
 export const percent = (part: number, whole: number): number => (whole > 0 ? (part / whole) * 100 : 0);

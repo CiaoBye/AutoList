@@ -152,6 +152,25 @@ CREATE TABLE IF NOT EXISTS candidate_contexts (
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS torrent_media (
+  hash TEXT PRIMARY KEY,
+  title TEXT,
+  year INTEGER,
+  tmdb_id INTEGER,
+  poster_path TEXT,
+  source TEXT NOT NULL,
+  checked_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sync_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  hash TEXT,
+  tmdb_id INTEGER,
+  fields_json TEXT,
+  received_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_events_received ON sync_events(received_at);
 CREATE TABLE IF NOT EXISTS selection_items (
   candidate_id TEXT PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
   selected_at TEXT NOT NULL
@@ -214,6 +233,7 @@ CREATE TABLE IF NOT EXISTS pt_sites (
   limit_interval INTEGER,
   limit_count INTEGER,
   search_enabled INTEGER NOT NULL DEFAULT 1,
+  supplement_only INTEGER NOT NULL DEFAULT 0,
   migration_note TEXT,
   last_status TEXT NOT NULL DEFAULT 'untested',
   last_message TEXT,
@@ -351,6 +371,9 @@ def cleanup_old_data() -> int:
         ).rowcount
         total += conn.execute(
             "DELETE FROM notifications WHERE datetime(created_at) < datetime('now', '-30 days')"
+        ).rowcount
+        total += conn.execute(
+            "DELETE FROM sync_events WHERE datetime(received_at) < datetime('now', '-30 days')"
         ).rowcount
         return total
 

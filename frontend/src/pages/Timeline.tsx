@@ -51,6 +51,7 @@ export function Timeline({ route }: { route: Route }) {
     [kind],
     // 有进行中的寻片或识别时 10 秒刷新一次，否则 60 秒。
     (data) => (data?.items.some((event) => /进行中|排队中/.test(event.detail)) ? 10000 : 60000),
+    `timeline:${kind}`,
   );
 
   const groups: { key: string; items: TimelineEvent[] }[] = [];
@@ -74,7 +75,7 @@ export function Timeline({ route }: { route: Route }) {
 
   if (view === "history") {
     return (
-      <main class="page page-reading">
+      <main class="page">
         <div class="page-head">
           <h1>动态</h1>
           <span class="grow" />
@@ -86,7 +87,7 @@ export function Timeline({ route }: { route: Route }) {
   }
 
   return (
-    <main class="page page-reading">
+    <main class="page">
       <div class="page-head">
         <h1>动态</h1>
         <span class="grow" />
@@ -112,7 +113,6 @@ export function Timeline({ route }: { route: Route }) {
       {events.data && !events.data.items.length ? (
         <div class="card empty">
           <strong>还没有动态</strong>
-          <span>寻片、提交下载与入馆后，记录会按时间出现在这里。</span>
         </div>
       ) : null}
 

@@ -8,13 +8,29 @@
 from __future__ import annotations
 
 import json
+import re
+from email.utils import parsedate_to_datetime
 from typing import Any
 
+from ..candidate_policy import normalized_policy
+from ..database import config_values
 from ..state import raw_candidates
 from ..domain.releases import ReleaseClusters
 from ..util import resource_fingerprint, rows_to_dicts, to_int, volume_factor_value
 from ..outbound import safe_detail_url
 from .films import current_candidate_tasks
+
+
+def publish_date(value: Any) -> str | None:
+    """站点给出的发布时间统一成日期（YYYY-MM-DD）；RSS 的 RFC 822 时间也换算，认不出时不显示。"""
+    text = str(value or "").strip()
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if match:
+        return match.group(0)
+    try:
+        return parsedate_to_datetime(text).date().isoformat() if text else None
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -63,12 +79,14 @@ def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any
         ))
         primary = dict(options[0])
         primary["site_count"] = len(options)
+        primary["publish_date"] = publish_date(primary["metadata"].get("publish_time"))
         primary["site_options"] = [{
             "id": option["id"], "site_name": option.get("site_name"), "seeders": option.get("seeders"),
             "size": option.get("size"), "is_free": option["is_free"], "site_priority": option["site_priority"],
             "volume_factor": option["volume_factor"], "labels": option["metadata"].get("labels", []),
             "in_selection": option.get("in_selection", 0), "context_available": option["context_available"],
             "detail_url": safe_detail_url(option.get("detail_url")), "publish_time": option["metadata"].get("publish_time"),
+            "publish_date": publish_date(option["metadata"].get("publish_time")),
             "title": option["title"],
         } for option in options]
         factor_label = "免费" if primary["volume_factor"] == 0 else (f"下载 {to_int(primary['volume_factor'] * 100)}%" if primary["volume_factor"] < 1 else "普通")
@@ -108,6 +126,14 @@ def latest_candidate_rows(conn: Any, item_ids: list[int]) -> dict[int, list[dict
     return grouped
 
 
+def resolution_order() -> list[str]:
+    try:
+        raw = json.loads(config_values().get("candidate_policy") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        raw = {}
+    return list(normalized_policy(raw)["resolution_order"])
+
+
 def candidate_view(rows: list[dict[str, Any]], site_rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Split one film's candidates into selectable ones and a summary of exclusion reasons."""
     grouped = present_candidates(rows, site_rows)
@@ -116,8 +142,17 @@ def candidate_view(rows: list[dict[str, Any]], site_rows: list[dict[str, Any]]) 
         if candidate.get("eligibility") == "excluded":
             reason = str(candidate.get("exclusion_reason") or "其他原因")
             excluded[reason] = excluded.get(reason, 0) + 1
+    selectable = [candidate for candidate in grouped if candidate.get("eligibility") != "excluded"]
+    # 分辨率优先顺序以外的资源（720p、未识别分辨率）只在没有顺序内分辨率可选时显示；已选定的照常显示。
+    order = set(resolution_order())
+    preferred = [candidate for candidate in selectable if candidate.get("resolution") in order]
+    visible = [
+        candidate for candidate in selectable
+        if not preferred or candidate.get("resolution") in order or candidate.get("in_selection")
+    ]
     return {
-        "candidates": [candidate for candidate in grouped if candidate.get("eligibility") != "excluded"],
+        "candidates": visible,
+        "hidden_low_resolution": len(selectable) - len(visible),
         "excluded_summary": [
             {"reason": reason, "count": count} for reason, count in sorted(excluded.items(), key=lambda pair: -pair[1])
         ],

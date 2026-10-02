@@ -21,7 +21,9 @@ SENSITIVE_QUERY_KEY = re.compile(
     re.I,
 )
 MEDIA_SIGNATURE_TTL_SECONDS = 5 * 60
-MEDIA_PATH = re.compile(r"^/api/(?:sites/\d+/icon|playlist-items/\d+/(?:poster|tmdb-poster|fanart-poster|backdrop))$")
+MEDIA_PATH = re.compile(
+    r"^/api/(?:sites/\d+/icon|playlist-items/\d+/(?:poster|tmdb-poster|fanart-poster|backdrop)|downloads/[0-9a-f]{40}/poster)$"
+)
 
 
 def sanitize_sensitive_text(value: Any, limit: int = 500) -> str:

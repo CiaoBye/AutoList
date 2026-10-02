@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
-import { formatTime } from "../format";
+import { formatEta, formatRate, formatTime } from "../format";
 import { useLoad } from "../hooks";
 import { useAction } from "./settings/shared";
 import type { HistoryCleared, HistoryRecord } from "../types";
@@ -24,9 +24,47 @@ const STATUS_CLASS: Record<string, string> = {
 };
 const PAGE_SIZE = 30;
 
+type Transfer = NonNullable<HistoryRecord["transfer"]>;
+
+const TRANSFER_STATE: Record<Transfer["state"], { label: string; className: string }> = {
+  downloading: { label: "下载中", className: "is-ok" },
+  queued: { label: "排队中", className: "" },
+  checking: { label: "校验中", className: "" },
+  stalled: { label: "停滞", className: "is-warn" },
+  paused: { label: "已暂停", className: "is-warn" },
+  error: { label: "出错", className: "is-bad" },
+};
+
+/** 下载中的提交：进度条、速度、剩余时间与连接的做种者；停滞、暂停与出错单独标出。 */
+function TransferProgress({ transfer }: { transfer: Transfer }) {
+  const state = TRANSFER_STATE[transfer.state];
+  const parts = [
+    `${transfer.percent}%`,
+    transfer.state === "downloading" ? formatRate(transfer.rate_bps) : null,
+    transfer.state === "downloading" ? formatEta(transfer.eta_seconds) : null,
+    `${transfer.peers} 个做种者`,
+  ].filter(Boolean);
+  return (
+    <span class={`transfer ${state.className}`}>
+      <span class="transfer-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={transfer.percent} aria-label="下载进度">
+        <span style={{ width: `${Math.min(100, Math.max(0, transfer.percent))}%` }} />
+      </span>
+      <span class="transfer-text">
+        <strong>{state.label}</strong> <span class="mono">{parts.join(" · ")}</span>
+      </span>
+    </span>
+  );
+}
+
 /** 提交记录：按 MoviePilot、Transmission 与 Emby 的状态投影出每次提交当前走到哪一步。 */
 export function History() {
-  const history = useLoad<HistoryRecord[]>((signal) => api<HistoryRecord[]>("/api/history", { signal }), []);
+  // 有正在下载的提交时每 15 秒刷新一次进度。
+  const history = useLoad<HistoryRecord[]>(
+    (signal) => api<HistoryRecord[]>("/api/history", { signal }),
+    [],
+    (data) => (data?.some((row) => row.transfer) ? 15000 : null),
+    "history",
+  );
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const { busy, run } = useAction();
@@ -72,7 +110,6 @@ export function History() {
       {history.data && !rows.length ? (
         <div class="card empty">
           <strong>{history.data.length ? "这一组没有记录" : "还没有提交记录"}</strong>
-          <span>在挑选台提交入馆后，这里会跟踪每一次提交的下载与入库进度。</span>
         </div>
       ) : null}
       {visible.length ? (
@@ -95,6 +132,7 @@ export function History() {
                   <td class="title-cell">
                     <strong>{row.title}</strong>
                     <span>{row.torrent_name}</span>
+                    {row.transfer ? <TransferProgress transfer={row.transfer} /> : null}
                     <span>
                       {row.status_reason}
                       {row.next_action && row.next_action !== "无需操作" ? ` · 下一步：${row.next_action}` : ""}

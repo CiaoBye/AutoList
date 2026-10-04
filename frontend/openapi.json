@@ -719,6 +719,21 @@
             "title": "Leechers",
             "type": "integer"
           },
+          "media_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "movie",
+                  "tv"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -804,6 +819,7 @@
         "required": [
           "hash",
           "name",
+          "media_type",
           "film_id",
           "film_title",
           "film_year",

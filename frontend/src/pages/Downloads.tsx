@@ -32,13 +32,22 @@ const FILTERS: { id: Filter; label: string; states: State[] }[] = [
   { id: "completed", label: "已完成", states: ["completed"] },
 ];
 
+type Kind = "movie" | "tv";
+const KINDS: { id: Kind; label: string }[] = [
+  { id: "movie", label: "影片" },
+  { id: "tv", label: "剧集" },
+];
+// 电影与剧集分开列：剧集不在片单里，也不参与入馆；认不出类型的先放在“影片”里。
+const kindOf = (item: DownloadItem): Kind => (item.media_type === "tv" ? "tv" : "movie");
+
 const PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
 
 /** 不在片单的种子没有影片编号，用 hash 换一个稳定的海报占位色。 */
 const posterSeed = (hash: string): number => parseInt(hash.slice(0, 6), 16) || 0;
 
-const matches = (item: DownloadItem, filter: Filter, query: string): boolean => {
+const matches = (item: DownloadItem, filter: Filter, kind: Kind, query: string): boolean => {
+  if (kindOf(item) !== kind) return false;
   const states = FILTERS.find((entry) => entry.id === filter)?.states || [];
   if (states.length && !states.includes(item.state)) return false;
   if (!query) return true;
@@ -85,10 +94,13 @@ function DownloadRow({ item }: { item: DownloadItem }) {
             <span>
               <strong>{item.film_title}</strong>
               {item.film_year ? <span class="muted"> · {item.film_year}</span> : null}
-              <span class="download-tag">不在片单</span>
+              <span class="download-tag">{item.media_type === "tv" ? "剧集" : "不在片单"}</span>
             </span>
           ) : (
-            <strong class="mono download-name">{item.name}</strong>
+            <span>
+              <strong class="mono download-name">{item.name}</strong>
+              {item.media_type === "tv" ? <span class="download-tag">剧集</span> : null}
+            </span>
           )}
           <span class={`download-state ${state.className}`}>{state.label}</span>
         </div>
@@ -110,6 +122,7 @@ function DownloadRow({ item }: { item: DownloadItem }) {
 /** 下载：Transmission 里全部种子的实时状态（只读），不用切到 Transmission 查看。 */
 export function Downloads({ route }: { route: Route }) {
   const filter = (FILTERS.find((entry) => entry.id === route.query.get("state"))?.id || "all") as Filter;
+  const kind: Kind = route.query.get("kind") === "tv" ? "tv" : "movie";
   const query = route.query.get("q") || "";
   const sizeParam = Number(route.query.get("size"));
   const pageSize = PAGE_SIZES.includes(sizeParam) ? sizeParam : DEFAULT_PAGE_SIZE;
@@ -126,23 +139,28 @@ export function Downloads({ route }: { route: Route }) {
   );
   const data = page.data;
   const items = data?.items || [];
-  const filtered = items.filter((item) => matches(item, filter, query));
+  const filtered = items.filter((item) => matches(item, filter, kind, query));
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const current = Math.min(pageParam, pages);
   const visible = filtered.slice((current - 1) * pageSize, current * pageSize);
   // 筛选、查找、每页数量与页码都写在地址里，刷新与前进后退可以恢复；改筛选时回到第一页。
-  const link = (changes: { state?: Filter; q?: string; page?: number; size?: number }) => {
+  const link = (changes: { state?: Filter; kind?: Kind; q?: string; page?: number; size?: number }) => {
     const nextState = changes.state ?? filter;
+    const nextKind = changes.kind ?? kind;
     const nextSize = changes.size ?? pageSize;
     return href("/downloads", {
       state: nextState === "all" ? null : nextState,
+      kind: nextKind === "movie" ? null : nextKind,
       q: (changes.q ?? query).trim() || null,
       size: nextSize === DEFAULT_PAGE_SIZE ? null : nextSize,
       page: changes.page && changes.page > 1 ? changes.page : null,
     });
   };
   const counts = data?.summary?.counts || {};
-  const countFor = (entry: (typeof FILTERS)[number]) => (entry.states.length ? entry.states.reduce((sum, state) => sum + (counts[state] || 0), 0) : items.length);
+  const kindItems = items.filter((item) => kindOf(item) === kind);
+  const kindCount = (id: Kind) => items.filter((item) => kindOf(item) === id).length;
+  const countFor = (entry: (typeof FILTERS)[number]) =>
+    entry.states.length ? kindItems.filter((item) => entry.states.includes(item.state)).length : kindItems.length;
   const attention = (counts.stalled || 0) + (counts.error || 0) + (counts.paused || 0);
 
   const setQuery = (value: string) => {
@@ -212,6 +230,23 @@ export function Downloads({ route }: { route: Route }) {
       ) : null}
 
       {data?.summary ? (
+        <div class="chips download-kinds" role="tablist" aria-label="影片与剧集">
+          {KINDS.map((entry) => (
+            <a
+              key={entry.id}
+              class="chip"
+              role="tab"
+              aria-selected={kind === entry.id}
+              aria-current={kind === entry.id ? "true" : undefined}
+              href={link({ kind: entry.id, state: "all", page: 1 })}
+            >
+              {entry.label} <span class="count">{kindCount(entry.id)}</span>
+            </a>
+          ))}
+        </div>
+      ) : null}
+
+      {data?.summary ? (
         <div class="download-toolbar">
           <div class="chips" role="group" aria-label="按下载状态筛选">
             {FILTERS.map((entry) => (
@@ -240,7 +275,7 @@ export function Downloads({ route }: { route: Route }) {
 
       {data?.summary && !filtered.length ? (
         <div class="card empty">
-          <strong>{items.length ? "没有符合条件的下载" : "Transmission 里还没有种子"}</strong>
+          <strong>{items.length ? (kindItems.length ? "没有符合条件的下载" : kind === "tv" ? "没有剧集下载" : "没有影片下载") : "Transmission 里还没有种子"}</strong>
         </div>
       ) : null}
 

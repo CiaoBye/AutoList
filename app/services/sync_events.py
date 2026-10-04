@@ -21,7 +21,7 @@ from ..logs import event_logger
 from ..queries import downloads as download_queries
 from ..queries import films as film_queries
 from ..security import safe_error, token_matches
-from ..util import to_int, utc_now
+from ..util import looks_like_series, media_kind, to_int, utc_now
 from . import sync
 from .library import recheck_library_states
 
@@ -49,6 +49,7 @@ class Hint:
     hash: str | None = None
     tmdb_id: int | None = None
     keys: list[str] | None = None
+    media_type: str | None = None  # movie / tv；事件里的 TMDB 编号要带上类型才可靠
 
 
 _failures: dict[str, list[float]] = {}
@@ -137,6 +138,7 @@ def parse(source: str, raw: bytes, query: dict[str, str]) -> Hint | None:
         return Hint(
             source, kind, _hash(payload.get("download_hash") or payload.get("hash")),
             to_int(_find(media, ("tmdb_id",))) or None if isinstance(media, dict) else None, sorted(payload)[:12],
+            media_kind(_find(media, ("type", "media_type"))) if isinstance(media, dict) else None,
         )
     if source == "transmission":
         kind = {"added": "added", "done": "done"}.get(str(data.get("event") or "").strip().casefold())
@@ -221,6 +223,7 @@ def handle(hint: Hint) -> None:
         with connect() as conn:
             download_queries.remember_torrent_media(
                 conn, hint.hash, title=None, year=None, tmdb_id=hint.tmdb_id, poster_path=None, source="moviepilot",
+                media_type=hint.media_type,
             )
     if hint.source == "emby" and hint.tmdb_id:
         _after_emby(hint.tmdb_id)

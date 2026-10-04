@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..clients import EmbyClient, MoviePilotClient, TransmissionClient
@@ -19,12 +21,14 @@ from ..logs import event_logger
 from ..queries import films as film_queries
 from ..security import safe_error, sanitize_sensitive_text
 from ..util import utc_now
-from .downloads import identify_torrents
-from .films import project_films, replaced_stalled_torrents
+from .downloads import enrich_torrent_media, identify_torrents
+from .films import items_with_usable_candidates, project_films, replaced_stalled_torrents
 from .history import organize_failures
 from .library import library_recheck_due, recheck_library_states
-from .search import _current_downloads_cached, invalidate_downloads_snapshot
+from .search import _current_downloads_cached, begin_search_task_slot, invalidate_downloads_snapshot, run_search
 from .sites import test_site_config
+from ..queries.search import insert_search_task, item_in_active_search
+from ..queries.sites import searchable_site_ids
 from ..tasks import SEARCH
 
 # 定时同步的间隔；打开首页时若距上次同步不足这个间隔就不重复触发。
@@ -137,6 +141,60 @@ async def remove_replaced_stalled(pending: list[dict[str, Any]]) -> int:
     return removed
 
 
+# 下载停滞、而且手上的候选都已过期（或根本没有）的影片，自动重新寻片一次：每次同步最多启动几部，同一部影片隔这么久才再试。
+STALLED_RESEARCH_PER_RUN = 3
+STALLED_RESEARCH_COOLDOWN = timedelta(hours=24)
+
+
+def _recently_researched(conn: Any) -> set[int]:
+    cutoff = (datetime.now(timezone.utc) - STALLED_RESEARCH_COOLDOWN).isoformat()
+    ids: set[int] = set()
+    for row in conn.execute("SELECT item_ids_json FROM search_tasks WHERE trigger='stalled' AND created_at>=?", (cutoff,)).fetchall():
+        try:
+            ids.update(int(value) for value in json.loads(row["item_ids_json"] or "[]"))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+async def research_stalled(projected: list[dict[str, Any]], pending: list[dict[str, Any]]) -> int:
+    """停滞的下载没有可用的候选可换时，自动为这部影片重新寻片；返回启动的任务数。"""
+    stalled = {film["id"] for film in projected if film["status"] == "downloading" and "download_stalled" in film["issues"]}
+    if not stalled:
+        return 0
+    items = [item for item in pending if item["id"] in stalled]
+    usable = items_with_usable_candidates(items)
+    started = 0
+    for item in items:
+        if started >= STALLED_RESEARCH_PER_RUN:
+            break
+        item_id = int(item["id"])
+        if item_id in usable:
+            continue
+        try:
+            with connect() as conn:
+                if item_id in _recently_researched(conn) or item_in_active_search(conn, item["playlist_id"], item_id):
+                    continue
+                begin_search_task_slot(conn)
+                site_ids = searchable_site_ids(conn)
+                if not site_ids:
+                    return started
+                rank = int(item.get("rank_no") or 0)
+                task_id = insert_search_task(
+                    conn, item["playlist_id"], range_start=rank, range_end=rank, trigger="stalled", site_ids=site_ids, item_ids=[item_id],
+                )
+        except Exception as exc:  # 已达并发上限等：下一次同步再试
+            event_logger().info("sync_stalled_research_skipped", extra={"error": safe_error(exc)})
+            break
+        SEARCH.start(task_id, run_search(task_id))
+        started += 1
+        event_logger().info(
+            "sync_stalled_research",
+            extra={"detail": f"下载停滞且没有可用候选，已自动重新寻片：{sanitize_sensitive_text(str(item.get('original_title') or ''), 80)}", "task_id": task_id},
+        )
+    return started
+
+
 async def _run() -> dict[str, Any]:
     started = time.monotonic()
     # 缓存在原地刷新：先读到新数据再替换，同时到达的页面请求读到的永远是完整的缓存，不必自己再去读一遍。
@@ -156,6 +214,10 @@ async def _run() -> dict[str, Any]:
         unknown = [torrent for torrent in torrents if str(torrent.get("hashString") or "").strip().casefold() not in known]
         try:
             await asyncio.wait_for(identify_torrents(unknown), timeout=IDENTIFY_TIMEOUT_SECONDS)
+            await asyncio.wait_for(
+                enrich_torrent_media([str(torrent.get("hashString") or "").strip().casefold() for torrent in unknown]),
+                timeout=IDENTIFY_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             event_logger().warning("sync_identify_failed", extra={"error": safe_error(exc)})
 
@@ -173,6 +235,8 @@ async def _run() -> dict[str, Any]:
         if sources["transmission"]["ok"]:
             removed = await remove_replaced_stalled(pending)
         projected = await project_films(pending)
+        if sources["transmission"]["ok"]:
+            await research_stalled(projected, pending)
         downloading_ids = [film["id"] for film in projected if film["status"] == "downloading"]
         downloading = len(downloading_ids)
         # 正在下载的影片每次都向 Emby 复查；其余未入馆的影片按全量复查的间隔。

@@ -241,6 +241,12 @@ class TMDBClient:
         _, params = self._auth()
         return (await self._get(f"/movie/{int(tmdb_id)}", {"language": settings.tmdb_language, **params})).json()
 
+    async def tv_details(self, tmdb_id: int) -> dict[str, Any]:
+        if not settings.tmdb_api_key:
+            raise RuntimeError("请先在设置中填写 TMDB API Key")
+        _, params = self._auth()
+        return (await self._get(f"/tv/{int(tmdb_id)}", {"language": settings.tmdb_language, **params})).json()
+
     async def poster_image(self, poster_path: str, size: str = "w342") -> tuple[bytes, str]:
         """Download one TMDB poster; the caller validates ``poster_path`` against TMDB's path shape."""
         proxy = settings.outbound_proxy_url if settings.tmdb_proxy_enabled and settings.outbound_proxy_url else None

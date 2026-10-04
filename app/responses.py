@@ -304,6 +304,7 @@ class DownloadItem(Model):
     """Transmission 里的一个种子；能对上提交记录时附上片单影片。"""
     hash: str
     name: str
+    media_type: Literal["movie", "tv"] | None
     film_id: int | None
     film_title: str | None
     film_year: int | None

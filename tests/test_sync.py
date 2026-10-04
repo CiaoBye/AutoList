@@ -300,3 +300,95 @@ class StalledRemovalTests(IsolatedAppTestCase):
         with patch("app.services.sync.replaced_stalled_torrents", new=AsyncMock(return_value=entries)), \
              patch("app.services.sync.TransmissionClient.remove_torrents", new=AsyncMock(side_effect=RuntimeError("拒绝"))):
             self.assertEqual(await sync.remove_replaced_stalled([]), 0)
+
+
+class StalledResearchTests(IsolatedAppTestCase):
+    def _film(self) -> dict:
+        with connect() as conn:
+            playlist_id = conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid
+            item_id = conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,library_state) VALUES(?,1,'Stalled Film',2020,'not_found')",
+                (playlist_id,),
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,enabled,search_enabled,created_at) VALUES('站点','nexusphp','https://s.example',1,1,?)",
+                (utc_now(),),
+            )
+            row = conn.execute("SELECT * FROM playlist_items WHERE id=?", (item_id,)).fetchone()
+        return dict(row)
+
+    async def test_stalled_film_without_a_usable_candidate_is_searched_again_once(self) -> None:
+        item = self._film()
+        projected = [{"id": item["id"], "status": "downloading", "issues": ["download_stalled"]}]
+        started: list[object] = []
+
+        async def fake_search(task_id: int) -> None:
+            return None
+
+        with patch.object(sync, "run_search", fake_search), patch.object(sync.SEARCH, "start", lambda task_id, work: (started.append(task_id), work.close())):
+            self.assertEqual(await sync.research_stalled(projected, [item]), 1)
+            # 刚启动过：冷却期内不再重复，也不会因为任务还没跑完而叠加。
+            self.assertEqual(await sync.research_stalled(projected, [item]), 0)
+        self.assertEqual(len(started), 1)
+        with connect() as conn:
+            row = conn.execute("SELECT trigger,item_ids_json FROM search_tasks").fetchone()
+        self.assertEqual((row["trigger"], json.loads(row["item_ids_json"])), ("stalled", [item["id"]]))
+
+    async def test_a_healthy_download_is_left_alone(self) -> None:
+        item = self._film()
+        projected = [{"id": item["id"], "status": "downloading", "issues": []}]
+        self.assertEqual(await sync.research_stalled(projected, [item]), 0)
+        with connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM search_tasks").fetchone()[0], 0)
+
+
+class EnrichTorrentMediaTests(IsolatedAppTestCase):
+    async def test_a_recognised_torrent_without_title_or_poster_is_filled_from_tmdb_once(self) -> None:
+        from app.services import downloads
+
+        downloads._enrich_tried.clear()
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO torrent_media(hash,tmdb_id,source,checked_at,media_type) VALUES(?,?,?,?,'movie')", ("a" * 40, 1144107, "moviepilot", utc_now()),
+            )
+        details = AsyncMock(return_value={"title": "罗小黑战记 2", "release_date": "2025-09-12", "poster_path": "/abc.jpg"})
+        with patch.object(settings, "tmdb_api_key", "k"), patch("app.services.downloads.TMDBClient") as client:
+            client.return_value.movie_details = details
+            self.assertEqual(await downloads.enrich_torrent_media(["a" * 40]), 1)
+            self.assertEqual(await downloads.enrich_torrent_media(["a" * 40]), 0)
+        with connect() as conn:
+            row = conn.execute("SELECT title,year,poster_path FROM torrent_media").fetchone()
+        self.assertEqual((row["title"], row["year"], row["poster_path"]), ("罗小黑战记 2", 2025, "/abc.jpg"))
+        self.assertEqual(details.await_count, 1)
+
+    async def test_a_series_is_filled_from_the_tv_endpoint_not_the_movie_one(self) -> None:
+        from app.services import downloads
+
+        downloads._enrich_tried.clear()
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO torrent_media(hash,tmdb_id,source,checked_at,media_type) VALUES(?,?,?,?,'tv')", ("b" * 40, 1398, "moviepilot", utc_now()),
+            )
+        movie = AsyncMock(return_value={"title": "潜行者"})
+        tv = AsyncMock(return_value={"name": "黑道家族", "first_air_date": "1999-01-10", "poster_path": "/s.jpg"})
+        with patch.object(settings, "tmdb_api_key", "k"), patch("app.services.downloads.TMDBClient") as client:
+            client.return_value.movie_details = movie
+            client.return_value.tv_details = tv
+            await downloads.enrich_torrent_media(["b" * 40])
+        with connect() as conn:
+            row = conn.execute("SELECT title,year,media_type FROM torrent_media").fetchone()
+        self.assertEqual((row["title"], row["year"], row["media_type"]), ("黑道家族", 1999, "tv"))
+        self.assertEqual((movie.await_count, tv.await_count), (0, 1))
+
+    def test_an_event_that_only_knows_the_id_keeps_what_the_history_already_said(self) -> None:
+        from app.queries import downloads as queries
+
+        with connect() as conn:
+            queries.remember_torrent_media(conn, "c" * 40, title="绝命毒师", year=2008, tmdb_id=1396, poster_path="/p.jpg", source="moviepilot", media_type="tv")
+            queries.remember_torrent_media(conn, "c" * 40, title=None, year=None, tmdb_id=1396, poster_path=None, source="moviepilot")
+            row = conn.execute("SELECT title,year,poster_path,media_type FROM torrent_media").fetchone()
+            self.assertEqual((row["title"], row["year"], row["poster_path"], row["media_type"]), ("绝命毒师", 2008, "/p.jpg", "tv"))
+            # 换了 TMDB 编号就是另一部影片：整条替换，不留旧片名。
+            queries.remember_torrent_media(conn, "c" * 40, title=None, year=None, tmdb_id=550, poster_path=None, source="moviepilot", media_type="movie")
+            row = conn.execute("SELECT title,tmdb_id,media_type FROM torrent_media").fetchone()
+            self.assertEqual((row["title"], row["tmdb_id"], row["media_type"]), (None, 550, "movie"))

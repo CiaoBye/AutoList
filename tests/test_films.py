@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import unittest
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -947,7 +948,7 @@ class ExternalDownloadTests(IsolatedAppTestCase):
                    "addedDate": int(time.time())}
         with connect() as conn:
             conn.execute(
-                "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at) VALUES(?,?,?,?,?,?)",
+                "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at,media_type) VALUES(?,?,?,?,?,?,'movie')",
                 (torrent["hashString"], "篮球梦", 1994, 50, "moviepilot", utc_now()),
             )
         films = await self._films([torrent])
@@ -957,6 +958,37 @@ class ExternalDownloadTests(IsolatedAppTestCase):
             conn.execute("UPDATE torrent_media SET tmdb_id=999 WHERE hash=?", (torrent["hashString"],))
         films = await self._films([{**torrent, "name": "Hoop.Dreams.1994.1080p"}])
         self.assertEqual(films[self.hoop]["status"], "missing")
+
+
+    async def test_a_series_never_matches_a_movie_that_shares_its_tmdb_id(self) -> None:
+        # 电影与剧集的 TMDB 编号各成一套：剧集（编号 50）不能让片单里编号 50 的电影变成“下载中”。
+        torrent = {"hashString": "d" * 40, "name": "Some.Series.1999.1080p.BluRay", "status": 4, "percentDone": 0.1,
+                   "addedDate": int(time.time())}
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at,media_type) VALUES(?,?,?,?,?,?,'tv')",
+                (torrent["hashString"], "某剧", 1999, 50, "moviepilot", utc_now()),
+            )
+        self.assertEqual((await self._films([torrent]))[self.hoop]["status"], "missing")
+        # 类型还没识别出来的编号同样不对；名字带剧集标记的种子也不按片名去对。
+        with connect() as conn:
+            conn.execute("UPDATE torrent_media SET media_type=NULL WHERE hash=?", (torrent["hashString"],))
+        self.assertEqual((await self._films([torrent]))[self.hoop]["status"], "missing")
+        series = {"hashString": "e" * 40, "name": "Hoop.Dreams.1994.S01.1080p.BluRay", "status": 4, "percentDone": 0.1,
+                  "addedDate": int(time.time())}
+        self.assertEqual((await self._films([series]))[self.hoop]["status"], "missing")
+
+
+class MediaKindTests(unittest.TestCase):
+    def test_kinds_and_series_marks(self) -> None:
+        from app.util import looks_like_series, media_kind
+
+        self.assertEqual([media_kind(value) for value in ("电影", "电视剧", "movie", "MediaType.TV", "tv", "", None, "其他")],
+                         ["movie", "tv", "movie", "tv", "tv", None, None, None])
+        for name in ("The.Sopranos.S01-S06.1080p", "Twin.Peaks.S03.2017", "黑道家族S01-S06", "Show.Season.2.1080p", "某剧 第二季 1080p", "X档案.全11集"):
+            self.assertTrue(looks_like_series(name), name)
+        for name in ("Rashomon.1950.CC.1080p", "Scenes.from.a.Marriage.1973.TV.CC.Blu-ray", "Dekalog.1989.1080p", "Stalker.1979.S.Edition"):
+            self.assertFalse(looks_like_series(name), name)
 
 
 class SwappedResourceTests(IsolatedAppTestCase):
@@ -1019,7 +1051,7 @@ class ExternalDuplicateTests(IsolatedAppTestCase):
             )
             for torrent_hash in ("a" * 40, "b" * 40):
                 conn.execute(
-                    "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at) VALUES(?,?,?,?,?,?)",
+                    "INSERT INTO torrent_media(hash,title,year,tmdb_id,source,checked_at,media_type) VALUES(?,?,?,?,?,?,'movie')",
                     (torrent_hash, "Dup Film", 2020, 300, "moviepilot", utc_now()),
                 )
         stalled = {"hashString": "a" * 40, "name": "Dup.Film.2020.OLD", "status": 4, "percentDone": 0.0, "rateDownload": 0,

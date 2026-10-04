@@ -5,6 +5,7 @@ import { DrawerSkeleton } from "../components/Skeleton";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
 import { formatTime } from "../format";
 import { useLoad, useToast } from "../hooks";
+import { href } from "../router";
 import { TRANSFER_LABELS } from "../status";
 import { CandidateRow } from "../components/CandidateRow";
 import type { FilmDetail, TmdbMatch } from "../types";
@@ -307,6 +308,21 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 <span class="actions">
                   <button class="btn btn-primary" type="button" disabled={busy} onClick={() => void search()}>
                     {data.search ? "重新寻片" : "寻片"}
+                  </button>
+                </span>
+              </section>
+            ) : null}
+
+            {data.status === "downloading" && data.issues.includes("download_stalled") ? (
+              <section class="panel">
+                <h3>下载停滞，可以换一个资源</h3>
+                <span class="muted">超过 24 小时没有做种者。换资源提交后，停滞的旧任务会在下一次同步时自动清理。</span>
+                <span class="actions">
+                  <a class="btn btn-primary" href={href("/pick", { status: "stalled", playlist: data.playlist_id })}>
+                    去换资源
+                  </a>
+                  <button class="btn" type="button" disabled={busy} onClick={() => void search()}>
+                    重新寻片
                   </button>
                 </span>
               </section>

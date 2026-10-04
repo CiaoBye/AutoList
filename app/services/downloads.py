@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..clients import MoviePilotClient, TransmissionClient
+from ..clients import MoviePilotClient, TMDBClient, TransmissionClient
 from ..config import settings
 from ..database import connect
 from ..domain.titles import normalized_download_name, strict_torrent_matches_item
 from ..queries import downloads as queries
 from ..security import sanitize_sensitive_text, signed_media_url
-from ..util import to_int, utc_now
+from ..util import looks_like_series, media_kind, to_int, utc_now
 from .films import poster_url
 from .history import transfer_info
 from .recognition import TMDB_POSTER_PATH
@@ -122,7 +123,8 @@ def _needs_lookup(cached: dict[str, Any] | None, now: datetime) -> bool:
     if cached is None:
         return True
     if cached["source"] != "none":
-        return False
+        # 只有编号、不知道是电影还是剧集的（旧缓存、只带编号的事件）要再识别一次，补上类型。
+        return bool(cached.get("tmdb_id")) and not cached.get("media_type")
     try:
         return now - datetime.fromisoformat(cached["checked_at"]) > UNKNOWN_RETRY
     except (TypeError, ValueError):
@@ -153,6 +155,7 @@ async def identify_torrents(torrents: list[dict[str, Any]]) -> None:
                             conn, torrent_hash, title=str(record["title"]), year=_year(record.get("year")),
                             tmdb_id=_history_tmdb_id(record), poster_path=tmdb_poster_path(record.get("poster")),
                             source="moviepilot",
+                            media_type=media_kind(record.get("type")) or ("tv" if looks_like_series(record.get("torrent_name") or wanted.get(torrent_hash)) else None),
                         )
                     wanted.pop(torrent_hash)
             if not wanted or len(records) < HISTORY_PAGE_SIZE:
@@ -174,9 +177,64 @@ async def identify_torrents(torrents: list[dict[str, Any]]) -> None:
                 tmdb_id=to_int(media.get("tmdb_id")) or None if media else None,
                 poster_path=tmdb_poster_path(media.get("poster_path")) if media else None,
                 source="recognize" if media else "none",
+                media_type=(media_kind(media.get("type")) or ("tv" if looks_like_series(name) else None)) if media else None,
             )
 
     await asyncio.gather(*(recognize(torrent_hash, name) for torrent_hash, name in list(wanted.items())[:RECOGNIZE_PER_REQUEST]))
+
+
+# 只知道 TMDB 编号、缺片名或海报的种子（如 MoviePilot 推送的事件只带编号）：向 TMDB 补齐，同一部影片只查一次。
+ENRICH_PER_REQUEST = 6
+ENRICH_RETRY_SECONDS = 3600.0
+_enrich_tried: dict[tuple[str, int], float] = {}
+
+
+async def enrich_torrent_media(hashes: list[str]) -> int:
+    """补齐已识别种子缺的片名、年份与海报，返回补了几部影片。TMDB 没有海报的影片一小时内不重复查。"""
+    if not settings.tmdb_api_key or not hashes:
+        return 0
+    with connect() as conn:
+        gaps = queries.torrent_media_gaps(conn, hashes)
+    now = time.monotonic()
+    wanted = [key for key in gaps if now - _enrich_tried.get(key, -ENRICH_RETRY_SECONDS) >= ENRICH_RETRY_SECONDS]
+    slots = asyncio.Semaphore(3)
+    filled = 0
+
+    async def fetch(key: tuple[str, int]) -> None:
+        nonlocal filled
+        kind, tmdb_id = key
+        _enrich_tried[key] = time.monotonic()
+        async with slots:
+            try:
+                # 电影与剧集的 TMDB 编号各成一套：必须按类型查，否则会查到同号的另一部。
+                details = await (TMDBClient().tv_details(tmdb_id) if kind == "tv" else TMDBClient().movie_details(tmdb_id))
+            except Exception:
+                return
+        title = str(details.get("name") or details.get("title") or details.get("original_name") or details.get("original_title") or "").strip() or None
+        with connect() as conn:
+            queries.fill_torrent_media(
+                conn, gaps[key], title=title, year=_year(details.get("first_air_date") or details.get("release_date")),
+                poster_path=tmdb_poster_path(details.get("poster_path")),
+            )
+        filled += 1
+
+    await asyncio.gather(*(fetch(key) for key in wanted[:ENRICH_PER_REQUEST]))
+    return filled
+
+
+def _listed_movie(listed: dict[int, dict[str, Any]], entry: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not entry or entry.get("media_type") != "movie":
+        return None
+    return listed.get(to_int(entry.get("tmdb_id")))
+
+
+def _kind(torrent: dict[str, Any], film: dict[str, Any] | None, media: dict[str, Any] | None) -> str | None:
+    """下载页的类型：对上片单影片的是电影；识别缓存里有类型用缓存的；认不出时按种子名的剧集标记判断。"""
+    if film:
+        return "movie"
+    if media and media.get("media_type") in ("movie", "tv"):
+        return str(media["media_type"])
+    return "tv" if looks_like_series(torrent.get("name")) else None
 
 
 def download_item(torrent: dict[str, Any], film: dict[str, Any] | None, media: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -190,6 +248,7 @@ def download_item(torrent: dict[str, Any], film: dict[str, Any] | None, media: d
     return {
         "hash": str(torrent.get("hashString") or ""),
         "name": str(torrent.get("name") or ""),
+        "media_type": _kind(torrent, film, media),
         "film_id": to_int(film["id"]) if film else None,
         "film_title": str(film.get("tmdb_title") or film.get("chinese_title") or film.get("original_title")) if film
         else (str(known["title"]) if known else None),
@@ -231,12 +290,19 @@ async def downloads_overview() -> dict[str, Any]:
         await asyncio.wait_for(identify_torrents(unknown), timeout=IDENTIFY_TIMEOUT_SECONDS)
     except Exception:
         pass
+    try:
+        await asyncio.wait_for(enrich_torrent_media([str(torrent.get("hashString") or "").lower() for torrent in unknown]), timeout=IDENTIFY_TIMEOUT_SECONDS)
+    except Exception:
+        pass
     with connect() as conn:
         media = queries.torrent_media(conn, [str(torrent.get("hashString") or "").lower() for torrent in unknown])
         # 不是经 AutoList 提交、但识别出的影片就在片单里（如手动下载的）：同样对上片单影片。
-        listed = queries.films_by_tmdb(conn, sorted({to_int(entry["tmdb_id"]) for entry in media.values() if entry.get("tmdb_id")}))
+        # 只有电影的 TMDB 编号才能对上片单影片；剧集的编号与电影的编号会重号。
+        listed = queries.films_by_tmdb(conn, sorted({
+            to_int(entry["tmdb_id"]) for entry in media.values() if entry.get("tmdb_id") and entry.get("media_type") == "movie"
+        }))
     matched = [
-        (torrent, film or listed.get(to_int((media.get(str(torrent.get("hashString") or "").lower()) or {}).get("tmdb_id"))))
+        (torrent, film or _listed_movie(listed, media.get(str(torrent.get("hashString") or "").lower())))
         for torrent, film in matched
     ]
     items = [

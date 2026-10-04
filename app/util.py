@@ -20,6 +20,30 @@ def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+# 种子名里的剧集标记：S01、S01-S05、S01E02、Season 2、第二季、全 10 集。
+_SERIES_NAME = re.compile(
+    r"(?<![A-Za-z0-9])(?:S\d{1,2}(?:[-~.]?(?:E\d{1,3}|S?\d{1,2}))?|Season[ ._-]?\d+|E\d{2,3}[-~]E?\d{2,3})(?![A-Za-z0-9])|第[一二三四五六七八九十\d]{1,3}季|全\d{1,3}集",
+    re.I,
+)
+
+
+def media_kind(value: Any) -> str | None:
+    """MoviePilot 给的媒体类型（电影 / 电视剧，或 movie / tv）归一为 ``movie`` / ``tv``，认不出返回 None。"""
+    text = str(value or "").strip().casefold()
+    if not text:
+        return None
+    if "电视剧" in text or text.endswith("tv") or text in {"tv", "series", "show"}:
+        return "tv"
+    if "电影" in text or "movie" in text:
+        return "movie"
+    return None
+
+
+def looks_like_series(name: Any) -> bool:
+    """种子名带剧集标记（S01、第二季……）时多半是剧集。"""
+    return bool(_SERIES_NAME.search(str(name or "")))
+
+
 def to_int(value: Any, default: int = 0) -> int:
     """Convert a DB/API value to int; invalid or missing input falls back to ``default``."""
     try:

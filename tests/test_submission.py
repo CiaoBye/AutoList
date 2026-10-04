@@ -958,7 +958,7 @@ class DownloadIdentifyTests(IsolatedAppTestCase):
         overview = AsyncMock(return_value={"torrents": torrents, "download_bps": 0, "upload_bps": 0, "free_bytes": None})
         history = AsyncMock(return_value=[{
             "download_hash": known.upper(), "title": "一次别离", "year": "2011", "poster": "/oGycVojde8AEF5gGTdGtYTKeEOW.jpg",
-            "media_source": "themoviedb", "media_id": "60243",
+            "media_source": "themoviedb", "media_id": "60243", "type": "电影",
         }])
 
         recognized_titles: list[str] = []
@@ -966,7 +966,7 @@ class DownloadIdentifyTests(IsolatedAppTestCase):
         async def recognize(_client: object, title: str) -> dict | None:
             recognized_titles.append(title)
             if title.startswith("Rashomon"):
-                return {"title": "罗生门", "year": "1950", "tmdb_id": 548, "poster_path": "https://image.tmdb.org/t/p/original/7S5ut0iDmuevbGc0hDBxFJLthEd.jpg"}
+                return {"title": "罗生门", "year": "1950", "tmdb_id": 548, "type": "电影", "poster_path": "https://image.tmdb.org/t/p/original/7S5ut0iDmuevbGc0hDBxFJLthEd.jpg"}
             return None
 
         with patch.object(settings, "tr_base_url", "http://tr.example:9091"), \
@@ -989,3 +989,29 @@ class DownloadIdentifyTests(IsolatedAppTestCase):
         self.assertEqual(len(recognized_titles), 2)
         self.assertEqual(history.await_count, 1)
         self.assertEqual({item["hash"]: item["film_title"] for item in again["items"]}[recognized], "罗生门")
+
+
+class SeriesInDownloadsTests(IsolatedAppTestCase):
+    async def test_a_series_shows_as_a_series_and_never_links_to_the_movie_with_the_same_id(self) -> None:
+        from app.services.downloads import downloads_overview
+
+        series = "f" * 40
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
+            conn.execute(
+                "INSERT INTO playlist_items(playlist_id,rank_no,original_title,year,tmdb_id,tmdb_title) VALUES(?,1,'Stalker',1979,1398,'潜行者')",
+                (playlist_id,),
+            )
+        torrents = [{"hashString": series, "name": "黑道家族S01-S06.The.Sopranos.1999-2006.1080p.Blu-ray", "status": 4, "percentDone": 0.1}]
+        overview = AsyncMock(return_value={"torrents": torrents, "download_bps": 0, "upload_bps": 0, "free_bytes": None})
+        history = AsyncMock(return_value=[{
+            "download_hash": series, "title": "黑道家族", "year": "1999", "type": "电视剧", "poster": "/oGycVojde8AEF5gGTdGtYTKeEOW.jpg",
+            "media_source": "themoviedb", "media_id": "1398",
+        }])
+        with patch.object(settings, "tr_base_url", "http://tr.example:9091"), patch.object(settings, "mp_base_url", "http://mp.example:3000"), \
+             patch.object(settings, "mp_api_key", "key"), patch("app.services.downloads.TransmissionClient.overview", new=overview), \
+             patch("app.services.downloads.MoviePilotClient.download_history", new=history):
+            page = await downloads_overview()
+        item = page["items"][0]
+        self.assertEqual((item["media_type"], item["film_id"], item["film_title"], item["film_year"]), ("tv", None, "黑道家族", 1999))
+        self.assertTrue(item["poster_url"])

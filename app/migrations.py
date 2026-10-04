@@ -93,6 +93,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "playlist_item_snapshot_json": "TEXT",
         "resource_key": "TEXT",
     },
+    # 种子识别的结果是电影（movie）还是剧集（tv）；NULL = 未识别出类型。电影与剧集的 TMDB 编号各成一套，必须带上类型。
+    "torrent_media": {"media_type": "TEXT"},
     "recognition_tasks": {
         # missing = 只识别未识别的影片；verify = 按 IMDb / 来源编号校准整份片单。
         "mode": "TEXT NOT NULL DEFAULT 'missing'",
@@ -248,6 +250,12 @@ def _forget_torrent_media_without_tmdb(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM torrent_media WHERE source='moviepilot' AND tmdb_id IS NULL")
 
 
+def _forget_untyped_torrent_media(conn: sqlite3.Connection) -> None:
+    # 种子识别缓存没有记录“电影还是剧集”，剧集的 TMDB 编号被当成同号的电影（黑道家族 → 潜行者）；
+    # 缓存只是识别结果，全部删除后带类型重新识别。
+    conn.execute("DELETE FROM torrent_media")
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(4, "按 Cookie 与 RSS 重算站点适配器，清空旧的英文账户错误", _recompute_site_adapters),
     Migration(7, "海报改为按原语言挑选，重新挑选 fanart 海报", _reselect_fanart_posters),
@@ -259,6 +267,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(18, "清理外键未生效时遗留的孤立行", _delete_orphan_rows),
     Migration(19, "脱敏历史错误文本", _sanitize_stored_messages),
     Migration(20, "重新识别没有 TMDB 编号的 MoviePilot 下载历史缓存", _forget_torrent_media_without_tmdb),
+    Migration(21, "种子识别缓存带上电影 / 剧集类型，清空旧缓存重新识别", _forget_untyped_torrent_media),
 )
 SCHEMA_VERSION = max(migration.version for migration in MIGRATIONS)
 

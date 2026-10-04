@@ -1,11 +1,13 @@
-# AutoList · 电影藏馆
+<p align="center"><img src="app/static/logo.svg" alt="AutoList" width="72" height="72"></p>
+
+<h1 align="center">AutoList · 电影藏馆</h1>
 
 [![CI](https://github.com/CiaoBye/AutoList/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CiaoBye/AutoList/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**给一份电影片单，自动补齐你的私人影库。**
+<p align="center"><b>给一份电影片单，自动补齐你的私人影库。</b></p>
 
-当前版本：`2.38`
+当前版本：`2.42`
 
 你只管维护想收藏的片单；AutoList 负责对照 Emby 找出缺哪些、去你自己的站点寻片、按你的标准挑出合格的资源，交给 MoviePilot 下载，并一直盯到影片入库。
 

@@ -159,7 +159,8 @@ CREATE TABLE IF NOT EXISTS torrent_media (
   tmdb_id INTEGER,
   poster_path TEXT,
   source TEXT NOT NULL,
-  checked_at TEXT NOT NULL
+  checked_at TEXT NOT NULL,
+  media_type TEXT
 );
 CREATE TABLE IF NOT EXISTS sync_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

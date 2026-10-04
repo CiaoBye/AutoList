@@ -26,7 +26,7 @@ from ..domain.titles import (
 from ..queries import downloads as download_queries
 from ..security import signed_media_url
 from ..state import raw_candidates
-from ..util import to_int, utc_now
+from ..util import looks_like_series, to_int, utc_now
 from .history import _active_history_matches, _unfinished, long_stalled, organize_failures, transfer_info
 from .search import _current_downloads_cached
 
@@ -264,9 +264,12 @@ def _external_matches(
     torrent: dict[str, Any], entry: dict[str, Any] | None, items: list[dict[str, Any]], by_tmdb: dict[int, list[int]],
 ) -> list[int]:
     """一个种子对应片单里的哪些影片：先看识别出的 TMDB 编号，识别不出时按片名与年份，且只认唯一的一部。"""
-    if entry and entry.get("tmdb_id"):
-        return by_tmdb.get(to_int(entry["tmdb_id"]), [])
     name = str(torrent.get("name") or "")
+    if entry and entry.get("media_type") == "tv" or looks_like_series(name):
+        return []  # 剧集不是片单里的影片；它的 TMDB 编号与电影的编号重号，不能拿来对影片
+    if entry and entry.get("tmdb_id"):
+        # 只有确认是电影的编号才可信；类型未知（还没识别出）时先不对，等识别出类型后再对。
+        return by_tmdb.get(to_int(entry["tmdb_id"]), []) if entry.get("media_type") == "movie" else []
     found = [item for item in items if _name_matches.get(_match_key(name, item))]
     if len({to_int(item.get("tmdb_id")) or to_int(item["id"]) for item in found}) != 1:
         return []
@@ -295,6 +298,7 @@ async def _attach_external(
         _match_key(name, item): (name, item)
         for torrent in unknown
         if not (entry := media.get(_torrent_hash(torrent))) or not entry.get("tmdb_id")
+        if not looks_like_series(torrent.get("name"))
         if _unfinished(torrent) or to_int(torrent.get("addedDate")) >= cutoff
         for name in [str(torrent.get("name") or "")]
         for item in items
@@ -439,6 +443,18 @@ async def project_films(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         signals = _collect_signals(conn, items)
     await _attach_transmission(signals, {to_int(item["id"]): item for item in items})
     return [film_summary(item, *_resolve(item, signals)) for item in items]
+
+
+def items_with_usable_candidates(items: list[dict[str, Any]]) -> set[int]:
+    """这些影片里，哪些还有一个下载上下文没过期的合格候选（过期的候选提交不了，要重新寻片）。"""
+    if not items:
+        return set()
+    with connect() as conn:
+        signals = _collect_signals(conn, items)
+    return {
+        item_id for item_id, candidate_ids in signals.eligible.items()
+        if any(candidate_id in signals.contexts for candidate_id in candidate_ids)
+    }
 
 
 async def replaced_stalled_torrents(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

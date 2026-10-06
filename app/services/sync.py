@@ -25,7 +25,7 @@ from .downloads import enrich_torrent_media, identify_torrents
 from .films import items_with_usable_candidates, project_films, replaced_stalled_torrents
 from .history import organize_failures
 from .library import library_recheck_due, recheck_library_states
-from .search import _current_downloads_cached, begin_search_task_slot, invalidate_downloads_snapshot, run_search
+from .search import begin_search_task_slot, fetch_downloads_now, invalidate_downloads_snapshot, run_search
 from .sites import test_site_config
 from ..queries.search import insert_search_task, item_in_active_search
 from ..queries.sites import searchable_site_ids
@@ -58,9 +58,13 @@ def _failed(name: str, exc: Exception) -> dict[str, Any]:
 async def _check_transmission() -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not TransmissionClient().base_url:
         return _source(False, False, "未配置 Transmission"), []
-    torrents, state = await _current_downloads_cached(force=True)
-    if state == "unknown":
-        return _source(True, False, "无法读取 Transmission 的下载列表"), []
+    try:
+        torrents = await fetch_downloads_now()
+    except Exception as exc:
+        # 读不到实时数据时本轮不做依赖它的自动操作（删除被取代的停滞任务、自动重新寻片）；
+        # 页面展示仍可沿用最近一次的结果。
+        reason = "读取超时" if isinstance(exc, TimeoutError) or not str(exc) else safe_error(exc)
+        return _source(True, False, f"无法读取 Transmission 的下载列表：{reason}"), []
     return _source(True, True), torrents
 
 
@@ -114,9 +118,9 @@ async def retest_failing_sites() -> int:
     return recovered
 
 
-async def remove_replaced_stalled(pending: list[dict[str, Any]]) -> int:
+async def remove_replaced_stalled(pending: list[dict[str, Any]], torrents: list[dict[str, Any]]) -> int:
     """删掉已被新资源取代的停滞旧种子（Transmission 里的任务）；文件只在与新种子不是同一发布时一并删除。"""
-    replaced = await replaced_stalled_torrents(pending)
+    replaced = await replaced_stalled_torrents(pending, torrents)
     if not replaced:
         return 0
     client = TransmissionClient()
@@ -233,7 +237,7 @@ async def _run() -> dict[str, Any]:
         with connect() as conn:
             pending = [item for item in film_queries.playlist_items(conn, None) if item.get("library_state") != "in_library"]
         if sources["transmission"]["ok"]:
-            removed = await remove_replaced_stalled(pending)
+            removed = await remove_replaced_stalled(pending, torrents)
         projected = await project_films(pending)
         if sources["transmission"]["ok"]:
             await research_stalled(projected, pending)

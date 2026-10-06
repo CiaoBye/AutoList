@@ -36,5 +36,12 @@ export const formatEta = (seconds: number | null | undefined): string | null => 
 
 export const percent = (part: number, whole: number): number => (whole > 0 ? (part / whole) * 100 : 0);
 
+/** 百分比的显示文字：最多一位小数，整数不带小数点（2.8、68、<0.1），避免浮点误差露出 2.8000000000000003。 */
+export const percentLabel = (part: number, whole: number): string => {
+  const value = percent(part, whole);
+  if (value > 0 && value < 0.1) return "<0.1";
+  return String(Math.round(value * 10) / 10);
+};
+
 /** 按影片编号稳定选取海报占位色，同一部电影每次颜色一致。 */
 export const posterTone = (id: number): number => (Math.abs(id) % 6) + 1;

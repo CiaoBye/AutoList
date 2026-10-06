@@ -1209,3 +1209,21 @@ class SearchCaptchaLinkTests(IsolatedAppTestCase):
             )
         links = {site["name"]: site["verify_url"] for site in await sites()}
         self.assertEqual(links, {"站点J": "https://tracker-j.example/torrents.php", "其他": None})
+
+
+class CookieCloudFailureMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_connection_test_never_returns_the_user_key(self) -> None:
+        from fastapi import HTTPException
+
+        from app.services import cookiecloud
+
+        key = "SyntheticKey_abc123"
+        request = httpx.Request("GET", f"http://cc.example:8088/cookiecloud/get/{key}")
+        response = httpx.Response(503, request=request)
+        with patch.object(settings, "cookiecloud_url", "http://cc.example:8088/cookiecloud"), \
+             patch.object(settings, "cookiecloud_key", key), patch.object(settings, "cookiecloud_password", "pw"), \
+             patch("app.services.cookiecloud.safe_request", new=AsyncMock(return_value=response)):
+            with self.assertRaises(HTTPException) as raised:
+                await cookiecloud.fetch_cookiecloud()
+        self.assertNotIn(key, str(raised.exception.detail))
+        self.assertIn("503", str(raised.exception.detail))

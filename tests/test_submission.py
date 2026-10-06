@@ -530,6 +530,59 @@ class SubmissionWorkflowTests(IsolatedAppTestCase):
             row = conn.execute("SELECT submission_hash FROM download_history WHERE candidate_id=?", (candidate_id,)).fetchone()
         self.assertEqual(row["submission_hash"], "ABCDEF123")
 
+    async def test_a_moviepilot_timeout_is_confirmed_in_transmission_and_recorded_as_success(self) -> None:
+        import time
+
+        import httpx
+
+        candidate_id = await self._selected_site_candidate()
+        added = [{"hashString": "A" * 40, "name": "Workflow.Movie.2020.2160p.BluRay.x265-FRDS", "status": 4, "addedDate": int(time.time()) + 2}]
+        slow = AsyncMock(side_effect=httpx.ReadTimeout(""))
+        with patch("app.api.selection.verify_and_refresh", new=AsyncMock(return_value=(True, None))), \
+             patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.api.selection.fetch_downloads_now", new=AsyncMock(return_value=added)), \
+             patch("app.api.selection.CONFIRM_WAIT_SECONDS", 0), \
+             patch.object(MoviePilotClient, "download", new=slow):
+            result = await submit_selection()
+        self.assertEqual(result["submitted"], 1)
+        self.assertEqual(result["tasks"][0]["hash"], "a" * 40)
+        with connect() as conn:
+            row = conn.execute("SELECT success,submission_hash,message FROM download_history WHERE candidate_id=?", (candidate_id,)).fetchone()
+        self.assertEqual((row["success"], row["submission_hash"]), (1, "a" * 40))
+        self.assertIn("已在 Transmission 里确认", row["message"])
+        self.assertEqual(await selection(), [])
+
+    async def test_a_moviepilot_timeout_without_a_new_torrent_stays_a_failure(self) -> None:
+        import httpx
+
+        candidate_id = await self._selected_site_candidate()
+        slow = AsyncMock(side_effect=httpx.ReadTimeout(""))
+        with patch("app.api.selection.verify_and_refresh", new=AsyncMock(return_value=(True, None))), \
+             patch("app.api.selection.library_details", AsyncMock(return_value=("not_found", None, None))), \
+             patch("app.api.selection.fetch_downloads_now", new=AsyncMock(return_value=[])), \
+             patch("app.api.selection.CONFIRM_WAIT_SECONDS", 0), \
+             patch.object(MoviePilotClient, "download", new=slow):
+            result = await submit_selection()
+        self.assertEqual(result["submitted"], 0)
+        with connect() as conn:
+            row = conn.execute("SELECT success,message FROM download_history WHERE candidate_id=?", (candidate_id,)).fetchone()
+        self.assertEqual(row["success"], 0)
+        self.assertIn("响应超时", row["message"])
+        self.assertEqual([item["id"] for item in await selection()], [candidate_id])
+
+    async def test_the_selection_marks_a_film_that_transmission_is_already_downloading(self) -> None:
+        import time
+
+        await self._selected_site_candidate()
+        running = {"hashString": "c" * 40, "name": "Workflow.Movie.2020.2160p.BluRay.x265-FRDS", "status": 4, "percentDone": 0.3,
+                   "peersSendingToUs": 5, "rateDownload": 100000, "activityDate": int(time.time()), "addedDate": int(time.time()) - 600}
+        with patch("app.api.selection._current_downloads_cached", new=AsyncMock(return_value=([running], "known_present"))):
+            marked = await selection()
+        with patch("app.api.selection._current_downloads_cached", new=AsyncMock(return_value=([], "known_empty"))):
+            unmarked = await selection()
+        self.assertEqual([item["downloading"] for item in marked], [True])
+        self.assertEqual([item["downloading"] for item in unmarked], [False])
+
     async def test_submit_holds_signed_links_without_a_fresh_one(self) -> None:
         candidate_id = await self._selected_site_candidate()
         raw_candidates[candidate_id] = {**raw_candidates[candidate_id], "torrent": {
@@ -708,6 +761,29 @@ class SubmissionGuardTests(IsolatedAppTestCase):
         self.assertEqual(raised.exception.status_code, 503)
         download.assert_not_awaited()
         self.assertEqual([item["id"] for item in await selection()], ["transmission-unknown"])
+
+    async def test_submission_needs_a_live_download_list_and_never_a_stale_one(self) -> None:
+        from app.services import search as search_module
+
+        settings.tr_base_url = "http://transmission.example:9091"
+        listed = [{"hashString": "a" * 40, "name": "Movie.2020.1080p", "status": 4}]
+        with patch.object(TransmissionClient, "current_downloads", new=AsyncMock(return_value=listed)):
+            self.assertEqual(await search_module.downloads_for_submit(), listed)
+        # 第一次读取超时、重试成功：用重试读到的新数据（里面有刚加入的下载），而不是刚才那份旧的。
+        newer = listed + [{"hashString": "b" * 40, "name": "Added.Just.Now.2020", "status": 4}]
+        flaky = AsyncMock(side_effect=[TimeoutError(), newer])
+        with patch.object(TransmissionClient, "current_downloads", new=flaky):
+            self.assertEqual(await search_module.downloads_for_submit(), newer)
+        self.assertEqual(flaky.await_count, 2)
+        # 两次都读不出来：不管之前有没有读到过，都不能提交。
+        busy = AsyncMock(side_effect=TimeoutError())
+        with patch.object(TransmissionClient, "current_downloads", new=busy), self.assertRaises(RuntimeError):
+            await search_module.downloads_for_submit()
+        # 页面展示仍可沿用最近一次的结果，不会因为一次超时就整体变成“未知”。
+        search_module._last_good_downloads = (__import__("time").monotonic() - 30, listed)
+        with patch.object(TransmissionClient, "current_downloads", new=busy):
+            torrents, state = await search_module._current_downloads_cached(force=True)
+        self.assertEqual((torrents, state), (listed, "known_present"))
 
 
 class ActiveHistoryLookupTests(IsolatedAppTestCase):
@@ -933,6 +1009,28 @@ class DownloadsPageTests(IsolatedAppTestCase):
         self.assertTrue(page["configured"])
         self.assertIn("无法读取 Transmission", page["error"])
         self.assertEqual(page["items"], [])
+
+    async def test_a_timeout_says_so_and_a_recent_result_is_shown_marked_as_old(self) -> None:
+        from app.services.downloads import downloads_overview
+
+        torrents = [{"hashString": "a" * 40, "name": "Some.Movie.2020.1080p", "status": 4, "percentDone": 0.5, "sizeWhenDone": 100, "leftUntilDone": 50}]
+        ok = AsyncMock(return_value={"torrents": torrents, "download_bps": 1, "upload_bps": 0, "free_bytes": None})
+        slow = AsyncMock(side_effect=TimeoutError())
+        with patch.object(settings, "tr_base_url", "http://tr.example:9091"):
+            # 没有任何旧结果可展示：错误原因要写明是超时，不能是空的。
+            with patch("app.services.downloads.TransmissionClient.overview", new=slow):
+                first = await downloads_overview()
+            self.assertIn("读取超时", first["error"])
+            self.assertEqual(first["items"], [])
+            with patch("app.services.downloads.TransmissionClient.overview", new=ok):
+                good = await downloads_overview()
+            # 之后读取超时：展示上一次的结果，并提示它是旧数据。
+            with patch("app.services.downloads.TransmissionClient.overview", new=slow):
+                stale = await downloads_overview()
+        self.assertEqual(len(stale["items"]), 1)
+        self.assertEqual(stale["checked_at"], good["checked_at"])
+        self.assertIn("读取超时", stale["error"])
+        self.assertIn("仅供查看", stale["error"])
 
 
 class DownloadIdentifyTests(IsolatedAppTestCase):

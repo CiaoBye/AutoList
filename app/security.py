@@ -11,6 +11,8 @@ SENSITIVE_ASSIGNMENT = re.compile(
     r"(?i)([\"']?\b(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|token|cookie|passkey|authorization|password|passwd|secret)\b[\"']?\s*[:=]\s*)([\"']?)([^\s,&}\]#\"']+|[^\"']+)(\2)"
 )
 BEARER_TOKEN = re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]+")
+# CookieCloud 的用户 KEY 在请求地址的路径里（…/get/<KEY>），不是查询参数，单独脱敏。
+COOKIECLOUD_KEY_PATH = re.compile(r"(?i)(/get/)[A-Za-z0-9_\-]{5,128}")
 URL_USERINFO = re.compile(r"(?i)(https?://)([^/@\s:]+):([^/@\s]+)@")
 SENSITIVE_HEADER_LINE = re.compile(r"(?im)^(\s*(?:Authorization|Cookie|Set-Cookie)\s*:\s*).+$")
 # 站点下载/详情链接常用裸 key= 携带 passkey 类秘密，在 URL 上下文中统一脱敏（保留参数名）。
@@ -29,6 +31,7 @@ MEDIA_PATH = re.compile(
 def sanitize_sensitive_text(value: Any, limit: int = 500) -> str:
     """Return a user-safe diagnostic string without credentials or tracker secrets."""
     text = str(value or "")
+    text = COOKIECLOUD_KEY_PATH.sub(r"\1***", text)
     text = URL_USERINFO.sub(r"\1***:***@", text)
     def redact_url(match: re.Match[str]) -> str:
         def redact_parameter(parameter: re.Match[str]) -> str:

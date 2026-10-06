@@ -150,9 +150,16 @@ def candidate_view(rows: list[dict[str, Any]], site_rows: list[dict[str, Any]]) 
         candidate for candidate in selectable
         if not preferred or candidate.get("resolution") in order or candidate.get("in_selection")
     ]
+    # 保底（CMCT 的 x264）每部影片只留做种最多的一条；已选定的保底照常保留。
+    fallbacks = [candidate for candidate in visible if candidate.get("recommendation") == "fallback"]
+    if len(fallbacks) > 1:
+        best = max((candidate for candidate in fallbacks if not candidate.get("in_selection")), key=lambda item: to_int(item.get("seeders") or 0), default=None)
+        keep = {id(candidate) for candidate in fallbacks if candidate.get("in_selection")}
+        if not keep and best is not None:
+            keep = {id(best)}
+        visible = [candidate for candidate in visible if candidate.get("recommendation") != "fallback" or id(candidate) in keep]
     return {
         "candidates": visible,
-        "hidden_low_resolution": len(selectable) - len(visible),
         "excluded_summary": [
             {"reason": reason, "count": count} for reason, count in sorted(excluded.items(), key=lambda pair: -pair[1])
         ],

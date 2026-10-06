@@ -620,11 +620,30 @@ class TitleIdentityRegressionTests(IsolatedAppTestCase):
             }
 
         view = candidate_view([row("a", "1080p"), row("b", "720p")], [])
-        self.assertEqual(([item["id"] for item in view["candidates"]], view["hidden_low_resolution"]), (["a"], 1))
+        self.assertEqual([item["id"] for item in view["candidates"]], ["a"])
         only_low = candidate_view([row("b", "720p")], [])
-        self.assertEqual(([item["id"] for item in only_low["candidates"]], only_low["hidden_low_resolution"]), (["b"], 0))
+        self.assertEqual([item["id"] for item in only_low["candidates"]], ["b"])
         selected = candidate_view([row("a", "1080p"), row("b", "720p", in_selection=1)], [])
         self.assertEqual(sorted(item["id"] for item in selected["candidates"]), ["a", "b"])
+
+    async def test_only_the_best_fallback_is_kept_per_film(self) -> None:
+        from app.services.candidates import candidate_view
+
+        sizes = {"p": 6, "f1": 9, "f2": 12}  # 体积相差超过 1% 才是不同的发布，不会折叠成一条
+
+        def row(cid: str, recommendation: str, seeders: int, *, in_selection: int = 0) -> dict:
+            return {
+                "id": cid, "playlist_item_id": 1, "rank_no": 1, "title": f"Movie 2020 1080p BluRay {cid}", "site_name": "s",
+                "size": sizes[cid] * 1024**3, "seeders": seeders, "group_name": "CMCT" if cid != "p" else "FRDS", "resolution": "1080p", "ranking": 0,
+                "eligibility": "eligible", "recommendation": recommendation, "metadata_json": "{}", "score_breakdown": "[]",
+                "detail_url": None, "in_selection": in_selection,
+            }
+
+        view = candidate_view([row("p", "preferred", 5), row("f1", "fallback", 4), row("f2", "fallback", 127)], [])
+        self.assertEqual(sorted(item["id"] for item in view["candidates"]), ["f2", "p"])
+        # 已选定的保底照常保留，不会因为另一条做种更多而消失。
+        picked = candidate_view([row("f1", "fallback", 4, in_selection=1), row("f2", "fallback", 127)], [])
+        self.assertEqual([item["id"] for item in picked["candidates"]], ["f1"])
 
     def test_publish_date_is_normalized(self) -> None:
         from app.services.candidates import publish_date
@@ -1024,6 +1043,25 @@ class SiteSafetyAndSupplementTests(IsolatedAppTestCase):
         self.assertEqual(sum(1 for row in rows if row["playlist_item_id"] == alpha), 3)
         self.assertEqual((task["status"], task["completed"], task["matched"]), ("completed", 2, 4))
         self.assertEqual(sorted(json.loads(task["done_item_ids_json"])), sorted([alpha, beta]))
+
+
+class SharedSiteSlotTests(IsolatedAppTestCase):
+    async def test_two_search_tasks_never_overlap_requests_to_the_same_site(self) -> None:
+        from app.services import search as search_module
+
+        running = peak = 0
+
+        async def one_request() -> None:
+            nonlocal running, peak
+            # 每个任务各自有一份“全任务名额”，但同一站点的名额是进程里共享的一份。
+            async with search_module._search_slot(search_module._site_request_slot(7), asyncio.Semaphore(5)):
+                running += 1
+                peak = max(peak, running)
+                await asyncio.sleep(0.05)
+                running -= 1
+
+        await asyncio.gather(one_request(), one_request(), one_request())
+        self.assertEqual(peak, 1)
 
 
 class SearchQueueGuardTests(IsolatedAppTestCase):

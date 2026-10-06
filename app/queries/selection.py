@@ -38,8 +38,9 @@ def same_release_selected(conn: sqlite3.Connection, playlist_item_id: int, site_
 
 def selection_items(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return rows_to_dicts(conn.execute(
-        """SELECT c.id, c.title, c.site_name, c.size, c.resolution, c.library_state, c.detail_url,
-                  p.original_title, p.rank_no, p.chinese_title, p.tmdb_title, p.tmdb_original_title, p.tmdb_year, p.year
+        """SELECT c.id, c.title, c.site_name, c.size, c.resolution, p.library_state, c.detail_url,
+                  p.original_title, p.rank_no, p.chinese_title, p.tmdb_title, p.tmdb_original_title, p.tmdb_year, p.year,
+                  p.id AS playlist_item_id, p.imdb_id, p.tmdb_id, p.tmdb_imdb_id
            FROM selection_items sel JOIN candidates c ON c.id=sel.candidate_id
            JOIN playlist_items p ON p.id=c.playlist_item_id ORDER BY sel.selected_at"""
     ).fetchall())

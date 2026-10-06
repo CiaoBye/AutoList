@@ -61,8 +61,11 @@ export function Films({ route }: { route: Route }) {
 
   useEffect(() => setDraft(query), [query]);
 
-  // 路由参数变了（点了别的片单 / 筛选 / 页面）或离开本页：作废还没触发的搜索输入，免得它把刚完成的导航拉回来。
-  useEffect(() => () => window.clearTimeout(debounce.current), [playlist, status, query, page, view]);
+  // 离开本页时作废还没触发的搜索输入，免得它把刚完成的导航拉回来。
+  // 页内的路由参数变了（切视图、换筛选）则不取消：延迟触发时读取最新的参数，输入框与地址里的搜索词才始终一致。
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  useEffect(() => () => window.clearTimeout(debounce.current), []);
 
   // 记住的片单已被删除：忘掉它，回到默认。
   useEffect(() => {
@@ -85,7 +88,7 @@ export function Films({ route }: { route: Route }) {
     setDraft(value);
     window.clearTimeout(debounce.current);
     debounce.current = window.setTimeout(() => {
-      navigate(href("/films", { ...params, q: value.trim() || null, page: null }), true);
+      navigate(href("/films", { ...paramsRef.current, q: value.trim() || null, page: null }), true);
     }, 300);
   };
 

@@ -63,15 +63,25 @@
   padding-bottom: 160px;
 }
 
+/* 待入馆清单：浮在页面底部的一张卡片，左右与上面的影片卡片对齐，用与页面一致的配色。 */
 .tray {
   position: fixed;
   right: 0;
   bottom: 0;
   left: 0;
   z-index: 44;
-  background: var(--ink);
-  color: var(--paper);
+  pointer-events: none;
+}
+
+.tray-panel {
+  width: min(100% - 2 * var(--page-gutter), var(--content-max) - 2 * var(--page-gutter));
+  margin: 0 auto var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  color: var(--ink);
   box-shadow: var(--shadow-pop);
+  pointer-events: auto;
 }
 
 .tray-bar {
@@ -79,9 +89,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3) var(--space-4);
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: var(--space-3) var(--page-gutter);
+  padding: var(--space-3) var(--space-4);
 }
 
 .tray-summary {
@@ -93,26 +101,15 @@
 }
 
 .tray-summary span {
-  color: color-mix(in srgb, var(--paper) 75%, transparent);
+  color: var(--muted);
   font-size: var(--fs-s);
 }
 
-.tray-btn {
-  border-color: color-mix(in srgb, var(--paper) 40%, transparent);
-  background: transparent;
-  color: var(--paper);
-}
-
-.tray-btn:hover {
-  color: var(--paper);
-}
-
 .tray-list {
-  max-width: var(--content-max);
   max-height: 40vh;
-  margin: 0 auto;
+  margin: 0;
   overflow-y: auto;
-  padding: var(--space-2) var(--page-gutter) 0;
+  padding: var(--space-2) var(--space-4) 0;
   list-style: none;
 }
 
@@ -121,13 +118,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--paper) 18%, transparent);
-}
-
-.tray-list .btn {
-  border-color: color-mix(in srgb, var(--paper) 40%, transparent);
-  background: transparent;
-  color: var(--paper);
+  border-bottom: 1px solid var(--line);
 }
 
 .tray-item-text {
@@ -138,7 +129,7 @@
 }
 
 .tray-item-text span {
-  color: color-mix(in srgb, var(--paper) 75%, transparent);
+  color: var(--muted);
   font-size: var(--fs-s);
 }
 
@@ -160,4 +151,9 @@
   .tray-bar .btn-large {
     flex: 1 1 auto;
   }
+}
+
+/* 从别的页面回来时滚到最近选定的影片，留出顶栏的高度。 */
+.pick-group {
+  scroll-margin-top: calc(var(--nav-height) + var(--space-4));
 }

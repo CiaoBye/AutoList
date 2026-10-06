@@ -25,7 +25,7 @@ from ..domain.titles import (
 )
 from ..queries import downloads as download_queries
 from ..security import signed_media_url
-from ..state import raw_candidates
+from ..state import forget_raw_candidate, raw_candidates
 from ..util import looks_like_series, to_int, utc_now
 from .history import _active_history_matches, _unfinished, long_stalled, organize_failures, transfer_info
 from .search import _current_downloads_cached
@@ -224,8 +224,11 @@ def _torrent_hash(torrent: dict[str, Any]) -> str:
     return str(torrent.get("hashString") or "").strip().casefold()
 
 
-async def _attach_transmission(signals: _Signals, items_by_id: dict[int, dict[str, Any]]) -> None:
-    torrents, state = await _current_downloads_cached()
+async def _attach_transmission(
+    signals: _Signals, items_by_id: dict[int, dict[str, Any]], live: list[dict[str, Any]] | None = None,
+) -> None:
+    """``live`` 给出时（本轮刚实时读到的列表）直接用它，不再读缓存；缓存读取失败时会沿用旧结果，只适合展示。"""
+    torrents, state = (live, "known_present" if live else "known_empty") if live is not None else await _current_downloads_cached()
     signals.transmission_state = state
     if state == "unknown":
         return
@@ -341,7 +344,8 @@ def _resolve(item: dict[str, Any], signals: _Signals) -> tuple[str, list[str], s
         issues.append("submit_failed")
     library_state = str(item.get("library_state") or "unknown")
     if library_state == "in_library":
-        return "in_library", issues, None
+        # 已经入馆：过去那次提交失败（常见是 MoviePilot 提交超时，但种子其实已加入并下完）已不再是待处理的问题。
+        return "in_library", [], None
     if item_id in signals.submitted or item_id in signals.external:
         if item_id not in signals.submitted:
             # 已有下载在进行（手动添加的），之前那次提交失败不再是待处理的问题。
@@ -457,13 +461,13 @@ def items_with_usable_candidates(items: list[dict[str, Any]]) -> set[int]:
     }
 
 
-async def replaced_stalled_torrents(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def replaced_stalled_torrents(items: list[dict[str, Any]], live: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """换了资源之后留在 Transmission 里的停滞旧种子：同一部影片已有更晚加入、没停滞的下载。
 
     ``keep_data`` 为真表示旧种子与新种子是同一个发布名（跨站点的同一资源共用同样的文件），删任务时不能删文件。"""
     with connect() as conn:
         signals = _collect_signals(conn, items)
-    await _attach_transmission(signals, {to_int(item["id"]): item for item in items})
+    await _attach_transmission(signals, {to_int(item["id"]): item for item in items}, live)
     replaced: dict[str, dict[str, Any]] = {}
     for item_id, torrents in signals.active.items():
         newest = signals.newest_healthy.get(item_id)
@@ -514,15 +518,25 @@ def reidentify_item(item_id: int, media: dict[str, Any], fallback_imdb: str | No
 
     values = tmdb_item_values(media, fallback_imdb)
     with connect() as conn:
+        old = conn.execute("SELECT tmdb_id FROM playlist_items WHERE id=?", (item_id,)).fetchone()
+        changed = bool(old and old["tmdb_id"] is not None and to_int(old["tmdb_id"]) != to_int(values[0]))
         conn.execute(
             """UPDATE playlist_items
                SET tmdb_id=?,tmdb_title=?,tmdb_original_title=?,tmdb_year=?,tmdb_imdb_id=?,tmdb_checked_at=?,
                    tmdb_poster_path=?,tmdb_original_language=?,fanart_poster_url=NULL,
                    fanart_backdrop_url=NULL,tmdb_backdrop_path=NULL,
+                   tmdb_alt_titles_json=CASE WHEN tmdb_id IS ? THEN tmdb_alt_titles_json ELSE NULL END,
                    emby_item_id=NULL,emby_image_tag=NULL,library_state='unknown',library_checked_at=NULL
                WHERE id=?""",
-            (*values, tmdb_poster_path(media), tmdb_original_language(media), item_id),
+            (*values, tmdb_poster_path(media), tmdb_original_language(media), values[0], item_id),
         )
+        stale: list[str] = []
+        if changed:
+            # 换成了另一部影片：之前为旧影片搜到的候选、选定与下载上下文都不再适用，整部作废，需要重新寻片。
+            stale = [row["id"] for row in conn.execute("SELECT id FROM candidates WHERE playlist_item_id=?", (item_id,)).fetchall()]
+            conn.execute("DELETE FROM candidates WHERE playlist_item_id=?", (item_id,))
+    for candidate_id in stale:
+        forget_raw_candidate(candidate_id)
 
 
 def store_library_state(item_id: int, state: str, emby_item_id: str | None, image_tag: str | None) -> None:

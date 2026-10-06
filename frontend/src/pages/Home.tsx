@@ -5,7 +5,7 @@ import { ImportDialog } from "../components/ImportDialog";
 import { Poster } from "../components/Poster";
 import { SyncButton } from "../components/SyncButton";
 import { HomeSkeleton } from "../components/Skeleton";
-import { percent } from "../format";
+import { percent, percentLabel } from "../format";
 import { useFitCount, useLoad, useShelfCardWidth, useToast } from "../hooks";
 import { href, navigate } from "../router";
 import { STATUS_LABELS } from "../status";
@@ -297,7 +297,7 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
               <div key={status} class="score" data-status={status}>
                 <span class="score-label">{STATUS_LABELS[status]}</span>
                 <span class="score-num num">{counts[status]}</span>
-                <span class="score-sub num">{percent(counts[status], counts.all)}%</span>
+                <span class="score-sub num">{percentLabel(counts[status], counts.all)}%</span>
               </div>
             ))}
           </div>

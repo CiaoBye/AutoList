@@ -1176,11 +1176,6 @@
             "title": "Excluded Summary",
             "type": "array"
           },
-          "hidden_low_resolution": {
-            "default": 0,
-            "title": "Hidden Low Resolution",
-            "type": "integer"
-          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/FilmHistoryRecord"
@@ -2019,11 +2014,6 @@
             },
             "title": "Excluded Summary",
             "type": "array"
-          },
-          "hidden_low_resolution": {
-            "default": 0,
-            "title": "Hidden Low Resolution",
-            "type": "integer"
           },
           "id": {
             "title": "Id",
@@ -3472,8 +3462,17 @@
             "title": "Context Available",
             "type": "boolean"
           },
+          "downloading": {
+            "default": false,
+            "title": "Downloading",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "library_state": {
+            "title": "Library State",
             "type": "string"
           },
           "original_title": {
@@ -3571,6 +3570,7 @@
           "site_name",
           "size",
           "resolution",
+          "library_state",
           "rank_no",
           "original_title",
           "chinese_title",

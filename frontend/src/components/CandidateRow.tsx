@@ -64,7 +64,7 @@ export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candida
   const toggleId = selected ? (primary?.in_selection ? candidate.id : selectedOther?.id ?? candidate.id) : candidate.id;
   const panelId = `sites-${candidate.id}`;
   return (
-    <div class={`candidate${expanded ? " is-expanded" : ""}`}>
+    <div class={`candidate${expanded ? " is-expanded" : ""}${selected ? " is-selected" : ""}`}>
       <div class="candidate-main">
         <span style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           <span class={`badge ${candidate.recommendation === "preferred" ? "st-candidates" : "st-missing"}`}>{label}</span>

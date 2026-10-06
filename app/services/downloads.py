@@ -273,15 +273,35 @@ def download_item(torrent: dict[str, Any], film: dict[str, Any] | None, media: d
     }
 
 
+# Transmission 正忙（大量下载、磁盘写入）时一次读取可能要二十多秒；读不出来时短时间内展示上一次的结果，并说明数据的时间。
+OVERVIEW_TIMEOUT_SECONDS = 30
+OVERVIEW_STALE_SECONDS = 600
+_last_overview: tuple[float, dict[str, Any]] | None = None
+
+
+def _read_failure(exc: Exception) -> str:
+    """读取失败的原因：超时的异常没有文字，要明确写出来。"""
+    text = str(exc).strip()
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) or not text:
+        return "读取超时（Transmission 响应太慢，可能正在忙）"
+    return sanitize_sensitive_text(text, 200)
+
+
 async def downloads_overview() -> dict[str, Any]:
+    global _last_overview
     client = TransmissionClient()
     if not client.base_url:
         return {"configured": False, "error": "未配置 Transmission", "items": [], "summary": None, "web_url": None,
                 "checked_at": utc_now()}
     try:
-        data = await asyncio.wait_for(client.overview(), timeout=10)
+        data = await asyncio.wait_for(client.overview(), timeout=OVERVIEW_TIMEOUT_SECONDS)
     except Exception as exc:
-        return {"configured": True, "error": sanitize_sensitive_text(f"无法读取 Transmission：{exc}", 300), "items": [],
+        reason = _read_failure(exc)
+        if _last_overview is not None and time.monotonic() - _last_overview[0] <= OVERVIEW_STALE_SECONDS:
+            age = int(time.monotonic() - _last_overview[0])
+            # 展示上一次读到的结果（checked_at 保持当时的时间），并提示它是旧数据。
+            return {**_last_overview[1], "error": f"无法读取 Transmission：{reason}。下面是 {age} 秒前的数据，仅供查看。"}
+        return {"configured": True, "error": f"无法读取 Transmission：{reason}", "items": [],
                 "summary": None, "web_url": client.web_url(), "checked_at": utc_now()}
     by_hash, by_name, films = _film_index()
     matched = [(torrent, _match_film(torrent, by_hash, by_name, films)) for torrent in data["torrents"]]
@@ -311,7 +331,7 @@ async def downloads_overview() -> dict[str, Any]:
     ]
     items.sort(key=lambda item: (STATE_ORDER[item["state"]], -(datetime.fromisoformat(item["added_at"]).timestamp() if item["added_at"] else 0)))
     counts = {state: sum(1 for item in items if item["state"] == state) for state in STATES}
-    return {
+    result = {
         "configured": True, "error": None, "items": items, "web_url": client.web_url(), "checked_at": utc_now(),
         "summary": {
             "total": len(items), "counts": counts,
@@ -319,3 +339,5 @@ async def downloads_overview() -> dict[str, Any]:
             "free_bytes": to_int(data["free_bytes"]) if data["free_bytes"] is not None else None,
         },
     }
+    _last_overview = (time.monotonic(), result)
+    return result

@@ -127,7 +127,6 @@ class FilmDetail(Film):
     library_checked_at: str | None
     candidates: list[Candidate]
     # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
-    hidden_low_resolution: int = 0
     excluded_summary: list[ExcludedReason]
     excluded_count: int
     history: list[FilmHistoryRecord]
@@ -192,7 +191,6 @@ class PickItem(Film):
     bucket: Literal["candidates", "selected", "no_eligible", "stalled"]
     candidates: list[Candidate]
     # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
-    hidden_low_resolution: int = 0
     excluded_summary: list[ExcludedReason]
     excluded_count: int
 
@@ -239,6 +237,10 @@ class SelectionItem(Model):
     site_name: str | None
     size: Number | None
     resolution: str | None
+    # 所属影片当前的入馆状态（不是候选当时的）：已入馆的影片，清单里的这条提交时会被跳过。
+    library_state: str
+    # Transmission 里已经有这部影片的活动下载：提交时会被跳过。
+    downloading: bool = False
     rank_no: int | None
     original_title: str
     chinese_title: str | None

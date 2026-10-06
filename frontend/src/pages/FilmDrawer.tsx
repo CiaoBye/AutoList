@@ -6,6 +6,7 @@ import { IssueBadges, StatusBadge } from "../components/StatusBadge";
 import { formatTime } from "../format";
 import { useLoad, useToast } from "../hooks";
 import { href } from "../router";
+import { rememberLastPick } from "../lastPick";
 import { TRANSFER_LABELS } from "../status";
 import { CandidateRow } from "../components/CandidateRow";
 import type { FilmDetail, TmdbMatch } from "../types";
@@ -193,8 +194,10 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const data = film.data;
   const [failedBackdrop, setFailedBackdrop] = useState<string | null>(null);
   const search = () => act(() => api(`/api/films/${id}/search`, { method: "POST" }), "已开始寻片");
-  const toggle = (candidateId: string) =>
-    act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
+  const toggle = (candidateId: string) => {
+    if (!data?.candidates.some((candidate) => candidate.site_options.some((option) => option.id === candidateId && option.in_selection))) rememberLastPick(id);
+    return act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
+  };
 
   return (
     <DrawerLayer>
@@ -356,7 +359,6 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                     </button>
                   </div>
                 ) : null}
-                {data.hidden_low_resolution ? <p class="muted candidate-hidden">另有 {data.hidden_low_resolution} 个低分辨率资源未显示</p> : null}
                 {data.status === "selected" ? (
                   <span class="actions">
                     <a class="btn btn-primary" href="#/pick?status=selected">

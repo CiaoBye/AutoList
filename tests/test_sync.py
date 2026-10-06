@@ -26,7 +26,7 @@ class SyncTests(IsolatedAppTestCase):
             patch.object(settings, "mp_base_url", "http://mp"), patch.object(settings, "mp_api_key", "k"),
             patch.object(settings, "emby_base_url", "http://emby"), patch.object(settings, "emby_api_key", "k"),
             patch("app.services.sync.TransmissionClient", return_value=type("T", (), {"base_url": "http://tr"})()),
-            patch("app.services.sync._current_downloads_cached", new=AsyncMock(return_value=([{"hashString": "a" * 40}], "known_present"))),
+            patch("app.services.sync.fetch_downloads_now", new=AsyncMock(return_value=[{"hashString": "a" * 40}])),
             patch("app.services.sync.MoviePilotClient.transfer_history", new=AsyncMock(return_value=[])),
             patch("app.services.sync.EmbyClient.check", new=AsyncMock(return_value={"ok": True})),
         ]
@@ -286,7 +286,7 @@ class StalledRemovalTests(IsolatedAppTestCase):
         remove = AsyncMock()
         with patch("app.services.sync.replaced_stalled_torrents", new=AsyncMock(return_value=entries)), \
              patch("app.services.sync.TransmissionClient.remove_torrents", new=remove):
-            self.assertEqual(await sync.remove_replaced_stalled([]), 2)
+            self.assertEqual(await sync.remove_replaced_stalled([], []), 2)
         calls = {tuple(call.args[0]): call.kwargs["delete_data"] for call in remove.await_args_list}
         self.assertEqual(calls, {("b" * 40,): False, ("a" * 40,): True})
 
@@ -294,12 +294,27 @@ class StalledRemovalTests(IsolatedAppTestCase):
         remove = AsyncMock()
         with patch("app.services.sync.replaced_stalled_torrents", new=AsyncMock(return_value=[])), \
              patch("app.services.sync.TransmissionClient.remove_torrents", new=remove):
-            self.assertEqual(await sync.remove_replaced_stalled([]), 0)
+            self.assertEqual(await sync.remove_replaced_stalled([], []), 0)
         remove.assert_not_awaited()
         entries = [{"item_id": 1, "hash": "a" * 40, "name": "Old", "keep_data": False}]
         with patch("app.services.sync.replaced_stalled_torrents", new=AsyncMock(return_value=entries)), \
              patch("app.services.sync.TransmissionClient.remove_torrents", new=AsyncMock(side_effect=RuntimeError("拒绝"))):
-            self.assertEqual(await sync.remove_replaced_stalled([]), 0)
+            self.assertEqual(await sync.remove_replaced_stalled([], []), 0)
+
+
+class LiveReadOnlyDeletionTests(IsolatedAppTestCase):
+    async def test_an_unreadable_transmission_blocks_every_automatic_action_even_with_a_recent_snapshot(self) -> None:
+        import time
+
+        from app.services import search as search_module
+
+        # 5 分钟内读到过一份列表（里面有停滞旧任务与新任务），但这一轮实时读取失败：不能据此删除任何任务。
+        search_module._last_good_downloads = (time.monotonic() - 60, [{"hashString": "a" * 40, "name": "Old", "status": 4}])
+        with patch("app.services.sync.TransmissionClient", return_value=type("T", (), {"base_url": "http://tr"})()), \
+             patch("app.services.sync.fetch_downloads_now", new=AsyncMock(side_effect=TimeoutError())):
+            source, torrents = await sync._check_transmission()
+        self.assertEqual((source["ok"], torrents), (False, []))
+        self.assertIn("读取超时", source["message"])
 
 
 class StalledResearchTests(IsolatedAppTestCase):

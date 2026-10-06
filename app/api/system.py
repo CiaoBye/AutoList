@@ -142,7 +142,8 @@ async def connection(force_refresh: bool = False) -> dict[str, Any]:
         return _connection_cache[1]
     async def check_one(name: str, client: Any) -> tuple[str, dict[str, Any]]:
         try:
-            return name, await asyncio.wait_for(client.check(), timeout=6)
+            # Transmission 在大量下载时 RPC 响应慢，多给一些时间，免得顶栏动不动就报“异常”。
+            return name, await asyncio.wait_for(client.check(), timeout=15 if name == "transmission" else 6)
         except TimeoutError:
             return name, {"ok": False, "configured": True, "message": "连接检测超时"}
         except Exception as exc:

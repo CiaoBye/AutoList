@@ -85,6 +85,10 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
         cookiecloud_module.reset_pull_clock()
         from app.services import search as search_module
         search_module._transmission_snapshot_cache.clear()
+        search_module._last_good_downloads = None
+        from app.services import downloads as downloads_module
+
+        downloads_module._last_overview = None
         search_module._site_request_times.clear()
         search_module._site_rate_locks.clear()
         from app.clients import close_search_clients

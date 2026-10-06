@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Moviepilot下载推送
 // @namespace    http://tampermonkey.net/
-// @version      2.10.2
+// @version      2.10.3
 // @description  moviepilots名称测试（使用API Key），深度适配各大PT站，融合Emby自动检测，单行紧凑UI排版
 // @author       yubanmeiqin9048 & Kiro & Optimized
 // @match        https://*/detail/*
@@ -30,6 +30,10 @@
 
   /*
    * 更新日志
+   * 2.10.3
+   * - 修复朋友站中文主标题配英文多季副标题时识别失败，识别与推送保留完整发布名
+   * - 搜索兜底正确去掉季集范围，避免残留连字符干扰片名搜索
+   * - TTG 按下载链接定位详情表格，等待标题与链接就绪，并兼容“尺寸”字段
    * 2.10.2
    * - 推送携带 MoviePilot 站点的代理设置，避免已开启代理的站点仍被直连下载种子
    * - 预加载与点击推送复用同一站点请求，避免请求未完成时重复获取
@@ -490,8 +494,8 @@
   // 去掉 S01 / S01E02 / Season 1 等季集标记，避免带着它们去搜 TMDB。
   function stripSeasonMarks(text) {
     return text
-      .replace(/\bS\d{1,2}(?:\s*-?\s*E\d{1,3})?\b/gi, " ")
-      .replace(/\bSeason[\s.]*\d{1,2}\b/gi, " ")
+      .replace(/\bS\d{1,2}(?:\s*[-–]\s*S?\d{1,2})?(?:\s*[-–]?\s*E\d{1,3}(?:\s*[-–]\s*E?\d{1,3})?)?\b/gi, " ")
+      .replace(/\bSeason[\s.]*\d{1,2}(?:\s*[-–]\s*(?:Season[\s.]*)?\d{1,2})?\b/gi, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
@@ -744,6 +748,18 @@
     });
   }
 
+  function getRecognizeInput(title, subtitle) {
+    if (!/^[【「]/.test(title)) return { title, subtitle };
+    const cleaned = title.replace(/^[【「][^】」]*[】」]\s*/, "").trim();
+    // 保留季集、年份和画质信息，供 MoviePilot 同时识别片名与下载分类。
+    const englishRelease = /^[A-Za-z0-9][A-Za-z0-9\s\-–'’\.:&+()]*?\s+(?:19|20)\d{2}\b/;
+    if (englishRelease.test(cleaned))
+      return { title: cleaned, subtitle: cleaned };
+    if (englishRelease.test((subtitle || "").trim()))
+      return { title: subtitle.trim(), subtitle };
+    return { title, subtitle };
+  }
+
   function creatRecognizeRow(
     row,
     ptype,
@@ -757,37 +773,16 @@
       "<span style='color:#666;'>MoviePilot 识别中...</span>",
     );
     getSite().catch((err) => logError("getSite 预加载失败:", err));
+    const { title: recogTitle, subtitle: recogSub } = getRecognizeInput(
+      torrent_name,
+      torrent_description,
+    );
     const pushCtx = {
-      title: torrent_name,
-      description: torrent_description,
+      title: recogTitle,
+      description: recogSub,
       link: download_link,
       size: torrent_size,
     };
-    // 当 h1 标题以【或「开头（中文描述性标题），清洗后尝试提取英文片名提高识别率
-    let recogTitle = torrent_name;
-    let recogSub = torrent_description;
-    if (/^[【「]/.test(torrent_name)) {
-      const cleaned = torrent_name
-        .replace(/^[【「][^】」]*[】」]\s*/, "")
-        .trim();
-      // 优先从清洗后的标题中提取英文名（如 TTG: 「...」The Lion King 1994...）
-      const engFromTitle = cleaned.match(
-        /^([A-Za-z][A-Za-z\s\-'\.:0-9]*?)\s+\d{4}\b/,
-      );
-      if (engFromTitle) {
-        recogTitle = engFromTitle[1].trim();
-        recogSub = cleaned;
-      } else if (torrent_description) {
-        // 后备：从副标题中提取（如 KEEPFRDS 副标题含英文名）
-        const engFromDesc = torrent_description.match(
-          /^([A-Za-z][A-Za-z\s\-'\.:]*?)\s+\d{4}\b/,
-        );
-        if (engFromDesc) {
-          recogTitle = engFromDesc[1].trim();
-          recogSub = torrent_description;
-        }
-      }
-    }
     recognize(recogTitle, recogSub)
       .then(async (data) => {
         if (data.media_info) {
@@ -1077,19 +1072,21 @@
         );
       }),
     "totheglory.im": () =>
-      waitForElements(["body"]).then(() => {
+      waitForElements(["h1", 'a[href*="/dl/"]']).then(([, links]) => {
         ptype = "common";
         const titleEl =
           document.querySelector("h1#top") || document.querySelector("h1");
         let name = titleEl ? titleEl.innerText.trim() : "";
         name = name.replace(/^\[.*?\]\./, "").trim();
-        const dlA =
-          document.querySelector('a[href*="/dl/"]') ||
-          document.querySelector('a[href^="/dl/"]');
+        const dlA = links[0];
         const link = dlA?.href || "";
+        // 公告和导航也使用 table，只在下载链接所属的详情表格中插入。
+        const tbody = dlA?.closest("tbody");
         let desc = "",
           sizeStr = "";
-        document.querySelectorAll("td, th, div, span").forEach((n) => {
+        Array.from(tbody?.rows || []).forEach((row) => {
+          const n = row.cells[0];
+          if (!n) return;
           const t = (n.innerText || "").trim();
           if (
             !desc &&
@@ -1099,9 +1096,10 @@
           if (
             !sizeStr &&
             (t === "大小" ||
+              t === "尺寸" ||
               t === "Size" ||
-              t.includes("大小") ||
-              t.includes("Size"))
+              t === "大小：" ||
+              t === "Size:")
           )
             sizeStr = n.nextElementSibling?.innerText?.trim() || "";
         });
@@ -1112,16 +1110,9 @@
               document.querySelector(".subtitle") ||
               document.querySelector(".small")
             )?.innerText?.trim() || "";
-        const table =
-          document.querySelector("#form_torrent table") ||
-          document.querySelector("table.mainouter table") ||
-          document.querySelector("table");
-        const tbody = table
-          ? table.tBodies[0] || table.querySelector("tbody")
-          : null;
         if (tbody && name && link)
           creatRecognizeRow(
-            tbody.insertRow(2),
+            tbody.insertRow(Math.min(2, tbody.rows.length)),
             ptype,
             name,
             desc,

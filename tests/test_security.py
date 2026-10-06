@@ -637,3 +637,18 @@ class TokenFailureRateLimitTests(IsolatedAppTestCase):
 
         # 另一合法 IP 不受影响
         self.assertFalse(_token_failure_rate_limited(good_ip))
+
+
+class CookieCloudKeyRedactionTests(unittest.TestCase):
+    def test_the_user_key_in_the_request_path_is_never_shown(self) -> None:
+        import httpx
+
+        from app.security import safe_error
+
+        key = "SyntheticKey_abc123"
+        response = httpx.Response(503, request=httpx.Request("GET", f"http://cc.example:8088/cookiecloud/get/{key}"))
+        with self.assertRaises(httpx.HTTPStatusError) as raised:
+            response.raise_for_status()
+        message = safe_error(raised.exception)
+        self.assertNotIn(key, message)
+        self.assertIn("503", message)

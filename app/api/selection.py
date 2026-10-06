@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
+
+import httpx
 
 from fastapi import APIRouter, HTTPException
 
@@ -16,7 +19,7 @@ from ..security import safe_error, sanitize_sensitive_text
 from ..services.history import long_stalled, playlist_item_snapshot
 from ..services.library import library_details
 from ..services.cookiecloud import with_cookie_refresh
-from ..services.search import wait_for_site_rate_limit
+from ..services.search import _current_downloads_cached, downloads_for_submit, fetch_downloads_now, wait_for_site_rate_limit
 from ..sites.engine import verify_and_refresh
 from ..sites.nexusphp import is_signed_download
 from ..logs import event_logger
@@ -65,6 +68,40 @@ def _submission_torrent(torrent: dict[str, Any], site: dict[str, Any] | None) ->
     return payload
 
 
+def _is_timeout(exc: BaseException) -> bool:
+    """MoviePilot 那一步是不是超时（读超时、连接超时、整体超时）。"""
+    return isinstance(exc, (TimeoutError, asyncio.TimeoutError, httpx.TimeoutException))
+
+
+CONFIRM_ATTEMPTS = 3
+CONFIRM_WAIT_SECONDS = 6
+
+
+async def _confirm_added_in_transmission(
+    film: dict[str, Any], candidate: Any, known_hashes: set[str], submit_started: float,
+) -> str | None:
+    """MoviePilot 提交超时后，到 Transmission 里找这次新添加的种子，找到返回它的 hash。
+
+    判据：提交开始之后才出现的种子（hash 不在提交前的列表里、加入时间不早于提交开始），
+    且种子名与候选标题一致，或名字能对上这部影片。读取 Transmission 本身也可能很慢，所以最多试几次、每次隔几秒。"""
+    candidate_name = normalized_download_name(candidate["title"])
+    for attempt in range(CONFIRM_ATTEMPTS):
+        if attempt:
+            await asyncio.sleep(CONFIRM_WAIT_SECONDS)
+        try:
+            torrents = await fetch_downloads_now()
+        except Exception:
+            continue
+        for torrent in torrents:
+            torrent_hash = str(torrent.get("hashString") or "").casefold()
+            if not torrent_hash or torrent_hash in known_hashes or to_int(torrent.get("addedDate")) < submit_started - 60:
+                continue
+            name = str(first_value(torrent, ("name", "torrent_name"), ""))
+            if (candidate_name and normalized_download_name(name) == candidate_name) or torrent_matches_item(film, name):
+                return torrent_hash
+    return None
+
+
 def _matches_active_torrent(candidate: Any, item: dict[str, Any], active_torrents: list[dict[str, Any]]) -> bool:
     """Return True when the candidate's release already has an active Transmission task."""
     candidate_name = normalized_download_name(candidate["title"])
@@ -104,9 +141,22 @@ async def selection() -> list[dict[str, Any]]:
     prune_raw_candidates()
     with connect() as conn:
         items = queries.selection_items(conn)
+    # 影片已在 Transmission 里下载：提交时会被跳过，清单里标出来（读取只用于展示，读不到就不标）。
+    try:
+        torrents, _state = await _current_downloads_cached()
+    except Exception:
+        torrents = []
+    active = [torrent for torrent in torrents if is_transmission_downloading(torrent) and not long_stalled(torrent)]
     for item in items:
         item["detail_url"] = safe_detail_url(item.get("detail_url"))
         item["context_available"] = item["id"] in raw_candidates
+        film = {
+            "id": item["playlist_item_id"], "imdb_id": item["imdb_id"], "original_title": item["original_title"],
+            "chinese_title": item["chinese_title"], "year": item["year"], "tmdb_id": item["tmdb_id"],
+            "tmdb_title": item["tmdb_title"], "tmdb_original_title": item["tmdb_original_title"],
+            "tmdb_year": item["tmdb_year"], "tmdb_imdb_id": item["tmdb_imdb_id"],
+        }
+        item["downloading"] = bool(active) and item["library_state"] != "in_library" and _matches_active_torrent(item, film, active)
     return items
 
 @router.post("/api/selection/submit", response_model=SubmitResult)
@@ -119,11 +169,13 @@ async def submit_selection() -> dict[str, Any]:
             rows = queries.selection_for_submission(conn)
         if not rows:
             raise HTTPException(422, "待入馆清单为空")
-        transmission = TransmissionClient()
         try:
-            current_torrents = await asyncio.wait_for(transmission.current_downloads(), timeout=6)
+            current_torrents = await downloads_for_submit()
         except Exception as exc:
-            raise HTTPException(503, "无法确认 Transmission 当前下载任务，已暂停提交") from exc
+            raise HTTPException(503, "无法确认 Transmission 当前下载任务（可能正忙），已暂停提交，请稍后再试") from exc
+        # 提交前 Transmission 里已有的种子：MoviePilot 响应超时后，靠“新出现的种子”确认它到底有没有添加成功。
+        known_hashes = {str(torrent.get("hashString") or "").casefold() for torrent in current_torrents}
+        submit_started = time.time()
         # 停滞超过 24 小时、没有做种者的种子不算“正在下载”：允许为同一影片换一个资源再提交。
         active_torrents = [
             torrent for torrent in current_torrents if is_transmission_downloading(torrent) and not long_stalled(torrent)
@@ -156,6 +208,9 @@ async def submit_selection() -> dict[str, Any]:
                 "library_checked_at": candidate["playlist_library_checked_at"],
             })
             raw = raw_candidates.get(candidate["id"])
+            # 寻片之后影片被改识别成另一部：这条候选是为旧影片搜到的，不能再以新影片的身份提交。
+            if raw and raw.get("tmdb_id") and candidate["playlist_tmdb_id"] and to_int(raw["tmdb_id"]) != to_int(candidate["playlist_tmdb_id"]):
+                raw = None
             if not raw:
                 needs_research += 1
                 expired_items.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"]})
@@ -254,6 +309,15 @@ async def submit_selection() -> dict[str, Any]:
                 message = sanitize_sensitive_text(message) if message else None
             except Exception as exc:
                 success, message, submission_hash = False, safe_error(exc), None
+                if _is_timeout(exc):
+                    message = "MoviePilot 响应超时（Transmission 可能正忙）"
+                    # 超时只说明没等到答复，种子往往其实已经添加成功：去 Transmission 里确认一下。
+                    found = await _confirm_added_in_transmission(playlist_item, candidate, known_hashes, submit_started)
+                    if found:
+                        success, submission_hash = True, found
+                        message = "MoviePilot 响应超时，已在 Transmission 里确认任务已添加"
+                        known_hashes.add(found)
+                        submitted_tasks.append({"candidate_id": candidate["id"], "hash": submission_hash, "mode": "moviepilot"})
             with connect() as conn:
                 queries.record_submission(
                     conn, candidate, snapshot_json=json_value(item_snapshot), resource_key=resource_key,

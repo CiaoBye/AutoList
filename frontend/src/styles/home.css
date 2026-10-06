@@ -70,7 +70,14 @@
 }
 
 .score-main {
-  flex: 1.3 1 0;
+  flex: 2 1 0;
+}
+
+/* “共 N 部 · 还差 M 部”保持一行：宁可截断，也不拆成两行。 */
+.score-main .score-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .score:first-child {

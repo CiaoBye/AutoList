@@ -173,9 +173,11 @@
   background: var(--surface);
 }
 
-.candidate-hidden {
-  margin: 0;
-  font-size: var(--fs-xs);
+/* 已选定的候选：淡淡的强调色底与左侧一道细线，不抢标题的风头。 */
+.candidate.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .candidate-main {

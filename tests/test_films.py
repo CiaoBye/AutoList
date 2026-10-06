@@ -27,6 +27,7 @@ from app.security import is_signed_media_path
 from app.services import films as film_service
 from app.services.recognition import persist_tmdb_item
 from app.util import to_int, utc_now
+from app import state
 from tests.support import FilmFixture, IsolatedAppTestCase, SeededPlaylistTestCase
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -53,6 +54,15 @@ class FilmStatusTests(FilmFixture):
         self.assertEqual(result["counts"]["all"], 10)
         self.assertEqual(result["counts"]["missing"], 4)
         self.assertEqual(result["counts"]["issue:no_eligible"], 1)
+
+    async def test_a_film_already_in_the_library_carries_no_leftover_submit_failure(self) -> None:
+        # 提交时 MoviePilot 超时记成了失败，种子其实已加入、下完并入馆：这部影片不该再带“提交失败”。
+        with connect() as conn:
+            conn.execute("UPDATE playlist_items SET library_state='in_library' WHERE id=?", (self.items["submit_failed"],))
+        result = await self._films()
+        film = next(item for item in result["items"] if item["id"] == self.items["submit_failed"])
+        self.assertEqual((film["status"], film["issues"]), ("in_library", []))
+        self.assertEqual(result["counts"].get("issue:submit_failed", 0), 0)
 
     async def test_unknown_library_state_is_never_reported_as_missing(self) -> None:
         result = await self._films(status="unchecked")
@@ -1082,3 +1092,43 @@ class ExternalDuplicateTests(IsolatedAppTestCase):
         self.assertEqual(await replaced([stalled, healthy]), ["a" * 40])
         # 只有停滞的仍然报告。
         self.assertEqual(await issues([stalled]), ["download_stalled"])
+
+
+class IdentityChangeTests(FilmFixture):
+    def _media(self, tmdb_id: int) -> dict:
+        return {"id": tmdb_id, "title": "另一部", "original_title": "Another", "release_date": "2001-01-01"}
+
+    def _counts(self) -> tuple[int, int]:
+        with connect() as conn:
+            return (
+                conn.execute("SELECT COUNT(*) FROM candidates WHERE playlist_item_id=?", (self.items["selected"],)).fetchone()[0],
+                conn.execute("SELECT COUNT(*) FROM selection_items").fetchone()[0],
+            )
+
+    async def test_changing_to_another_film_discards_its_old_candidates_and_selection(self) -> None:
+        candidate_id = self.candidate_ids["selected"]
+        state.raw_candidates[candidate_id] = {"media": {}, "torrent": {}, "tmdb_id": 106}
+        self.assertEqual(self._counts(), (1, 1))
+        # 只是用同一个 TMDB 编号重新识别：候选与选定都保留。
+        film_service.reidentify_item(self.items["selected"], self._media(106))
+        self.assertEqual(self._counts(), (1, 1))
+        self.assertIn(candidate_id, state.raw_candidates)
+        # 换成另一部影片：为旧影片搜到的候选、选定与下载上下文整部作废。
+        film_service.reidentify_item(self.items["selected"], self._media(999))
+        self.assertEqual(self._counts(), (0, 0))
+        self.assertNotIn(candidate_id, state.raw_candidates)
+
+    async def test_a_candidate_context_from_another_identity_is_never_submitted(self) -> None:
+        from app.api.selection import submit_selection
+
+        candidate_id = self.candidate_ids["selected"]
+        # 寻片时影片是 TMDB 999，之后改识别成了 106：这条候选对不上当前身份。
+        state.raw_candidates[candidate_id] = {"media": {"title": "x"}, "torrent": {"title": "Old.Movie"}, "tmdb_id": 999}
+        settings.tr_base_url = "http://transmission.example:9091"
+        with patch("app.api.selection.downloads_for_submit", new=AsyncMock(return_value=[])), \
+             patch("app.api.selection.MoviePilotClient.transmission_downloader", new=AsyncMock(return_value="TR")), \
+             patch("app.api.selection.MoviePilotClient.download", new=AsyncMock()) as download:
+            with self.assertRaises(HTTPException) as raised:
+                await submit_selection()
+        download.assert_not_awaited()
+        self.assertEqual(raised.exception.status_code, 409)

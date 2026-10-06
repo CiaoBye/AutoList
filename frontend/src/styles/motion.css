@@ -87,7 +87,8 @@
   /* 页面进场：切换页面或设置分区时整体轻轻上浮淡入。 */
   .page:not(:has(.settings-form)),
   .settings-form {
-    animation: rise-in var(--dur-2) var(--ease) both;
+    /* 只在开始前套用起始帧：结束后不保留 transform，否则它会成为内部 position: fixed 元素（如待入馆清单）的定位参照。 */
+    animation: rise-in var(--dur-2) var(--ease) backwards;
   }
 
   /* 待办出现或消失时，进度卡与待决定卡之间的列宽平滑变化。 */

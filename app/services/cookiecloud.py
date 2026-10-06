@@ -52,6 +52,15 @@ def reset_pull_clock() -> None:
     _last_pull_monotonic = None
 
 
+def _reason(exc: Exception, key: str) -> str:
+    """错误原因：CookieCloud 的用户 KEY 在请求地址的路径里（/get/<KEY>），异常文字带着完整地址，通用脱敏器不认路径，
+    所以状态码错误只写状态码，其余文字里的 KEY 一律替换掉。"""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"服务器返回 HTTP {exc.response.status_code}"
+    text = safe_error(exc)
+    return text.replace(key, "***") if key else text
+
+
 async def fetch_cookiecloud() -> dict[str, Any]:
     """从设置里的 CookieCloud 服务器取回密文并解密，返回 CookieCloud 原始数据。"""
     if not cookiecloud_configured():
@@ -78,12 +87,12 @@ async def fetch_cookiecloud() -> dict[str, Any]:
             except Exception as exc:
                 last_error = exc
     if data is None:
-        reason = safe_error(last_error) if last_error else "未从服务器获取到有效 Cookie 密文，请确认服务器地址、用户 KEY 与端对端密码正确"
+        reason = _reason(last_error, uuid_value) if last_error else "未从服务器获取到有效 Cookie 密文，请确认服务器地址、用户 KEY 与端对端密码正确"
         raise HTTPException(502, f"拉取 CookieCloud 失败：{reason}")
     try:
         return decrypt_cookiecloud(uuid_value, settings.cookiecloud_password, data["encrypted"], data.get("crypto_type", "legacy"))
     except Exception as exc:
-        raise HTTPException(422, f"CookieCloud 解密失败：{safe_error(exc)}") from exc
+        raise HTTPException(422, f"CookieCloud 解密失败：{_reason(exc, uuid_value)}") from exc
 
 
 async def pull_cookiecloud(origin: str, site_id: int | None = None) -> dict[str, Any]:

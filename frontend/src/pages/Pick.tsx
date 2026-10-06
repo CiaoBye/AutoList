@@ -1,10 +1,11 @@
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError } from "../api";
 import { CandidateRow } from "../components/CandidateRow";
 import { Poster } from "../components/Poster";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
 import { formatSize } from "../format";
 import { useLoad, useToast } from "../hooks";
+import { readLastPick, rememberLastPick } from "../lastPick";
 import { href, navigate, type Route } from "../router";
 import type { SelectionItem, PickBucket, PickItem, PickPage, SubmitResult } from "../types";
 
@@ -43,7 +44,7 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
 }) {
   const expired = film.issues.includes("context_expired");
   return (
-    <section class="card pick-group" aria-labelledby={`pick-${film.id}`}>
+    <section class="card pick-group" id={`pick-card-${film.id}`} aria-labelledby={`pick-${film.id}`}>
       <a class="pick-film" href={href(`/films/${film.id}`)}>
         <span class="pick-poster">
           <Poster id={film.id} title={film.title} url={film.poster_url} />
@@ -87,7 +88,6 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
         {film.candidates.map((candidate) => (
           <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={onToggle} />
         ))}
-        {film.hidden_low_resolution ? <p class="muted candidate-hidden">另有 {film.hidden_low_resolution} 个低分辨率资源未显示</p> : null}
       </div>
     </section>
   );
@@ -114,6 +114,18 @@ export function Pick({ route }: { route: Route }) {
   );
   const selection = useLoad<SelectionItem[]>((signal) => api<SelectionItem[]>("/api/selection", { signal }), [], undefined, "selection");
 
+  // 从别的页面回到挑选台：数据到了就滚到最近一次选定的影片（优先它已选定的那一条），只滚一次。
+  const scrolled = useRef(false);
+  useEffect(() => {
+    if (scrolled.current || !picks.data) return;
+    scrolled.current = true;
+    const filmId = readLastPick();
+    if (!filmId) return;
+    const card = document.getElementById(`pick-card-${filmId}`);
+    if (!card) return;
+    window.requestAnimationFrame(() => (card.querySelector<HTMLElement>(".candidate.is-selected") ?? card).scrollIntoView({ block: "center" }));
+  }, [picks.data]);
+
   const reloadAll = async () => {
     await Promise.all([picks.reload(), selection.reload()]);
   };
@@ -131,8 +143,15 @@ export function Pick({ route }: { route: Route }) {
     }
   };
 
-  const toggle = (candidateId: string) =>
+  // 选定时记下是哪部影片：切到别的页面再回来，直接滚到它那里。
+  const toggle = (candidateId: string) => {
+    const film = picks.data?.items.find((item) =>
+      item.candidates.some((candidate) => candidate.id === candidateId || candidate.site_options.some((option) => option.id === candidateId)),
+    );
+    const selected = film?.candidates.some((candidate) => candidate.site_options.some((option) => option.id === candidateId && option.in_selection));
+    if (film && !selected) rememberLastPick(film.id);
     void act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
+  };
   const search = (filmId: number) =>
     void act(() => api(`/api/films/${filmId}/search`, { method: "POST" }), "已开始寻片，完成后会回到这里");
 
@@ -159,6 +178,12 @@ export function Pick({ route }: { route: Route }) {
   const items = selection.data || [];
   const totalSize = items.reduce((sum, item) => sum + (item.size || 0), 0);
   const expiredInSelection = items.filter((item) => !item.context_available).length;
+  // 影片已入馆的选择：提交时会被跳过，不算待提交；清单里照常列出，由你决定是否移出。
+  const inLibrary = items.filter((item) => item.library_state === "in_library").length;
+  // Transmission 里已经在下载的（含提交超时、其实已添加的）：提交时同样会跳过。
+  const alreadyDownloading = items.filter((item) => item.library_state !== "in_library" && item.downloading).length;
+  const skipped = inLibrary + alreadyDownloading;
+  const submittable = items.filter((item) => item.context_available && item.library_state !== "in_library" && !item.downloading).length;
 
   return (
     <main class={`page${items.length ? " has-tray" : ""}`}>
@@ -245,6 +270,7 @@ export function Pick({ route }: { route: Route }) {
 
       {items.length ? (
         <aside class="tray" aria-label="待入馆清单">
+          <div class="tray-panel">
           {showSelection ? (
             <ul class="tray-list">
               {items.map((item) => (
@@ -253,6 +279,7 @@ export function Pick({ route }: { route: Route }) {
                     <strong>{selectionTitle(item)}</strong>
                     <span>
                       {item.site_name || "未知站点"} · <span class="mono">{formatSize(item.size)}</span>
+                      {item.library_state === "in_library" ? " · 影片已入馆，提交时会跳过" : item.downloading ? " · Transmission 里已在下载，提交时会跳过" : ""}
                       {item.context_available ? "" : " · 已过期，需要重新寻片"}
                     </span>
                   </span>
@@ -268,14 +295,24 @@ export function Pick({ route }: { route: Route }) {
               <strong>
                 待入馆清单 · {items.length} 部 · <span class="mono">{formatSize(totalSize)}</span>
               </strong>
-              {expiredInSelection ? <span>{expiredInSelection} 部已过期</span> : null}
+              {expiredInSelection || skipped ? (
+                <span>
+                  {[
+                    inLibrary ? `${inLibrary} 部已入馆` : "",
+                    alreadyDownloading ? `${alreadyDownloading} 部已在下载` : "",
+                    expiredInSelection ? `${expiredInSelection} 部已过期` : "",
+                  ].filter(Boolean).join(" · ")}
+                  {skipped ? "（已入馆、已在下载的提交时会跳过）" : ""}
+                </span>
+              ) : null}
             </span>
-            <button class="btn tray-btn" type="button" aria-expanded={showSelection} onClick={() => setShowSelection((value) => !value)}>
+            <button class="btn" type="button" aria-expanded={showSelection} onClick={() => setShowSelection((value) => !value)}>
               {showSelection ? "收起清单" : "查看清单"}
             </button>
-            <button class="btn btn-primary btn-large" type="button" disabled={busy || expiredInSelection === items.length} onClick={() => void submit()}>
+            <button class="btn btn-primary btn-large" type="button" disabled={busy || submittable === 0} onClick={() => void submit()}>
               {busy ? "处理中…" : "提交入馆"}
             </button>
+          </div>
           </div>
         </aside>
       ) : null}

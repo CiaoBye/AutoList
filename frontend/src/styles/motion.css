@@ -178,6 +178,11 @@
     animation: slide-in-right var(--dur-3) var(--ease) both;
   }
 
+  /* 站点编辑是居中的弹窗，不是侧滑抽屉。 */
+  .drawer.drawer-site {
+    animation: pop-in var(--dur-2) var(--ease) both;
+  }
+
   .dialog[open] {
     animation: pop-in var(--dur-2) var(--ease) both;
   }

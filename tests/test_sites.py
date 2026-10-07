@@ -826,6 +826,9 @@ class MoviePilotSyncAndStatsTests(IsolatedAppTestCase):
         # 同名站点视为更换了域名：更新地址，但保留本地优先级。
         self.assertEqual((moved["base_url"], moved["priority"]), ("https://tracker-q.example", 9))
         self.assertEqual(result["skipped"], ["坏地址（地址无效）"])
+        # 新站点默认经代理访问；已存在的站点保留本地选择（MoviePilot 里关着代理也不覆盖）。
+        self.assertEqual(new_sites[0]["proxy"], 1)
+        self.assertEqual(local["proxy"], 0)
 
     async def test_account_stats_without_credentials_skip_network(self) -> None:
         from app.services.sites import refresh_site_account_stats

@@ -309,7 +309,8 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
             priority = max(1, min(to_int(s.get("pri") or 100), 999))
             # MoviePilot 默认 15 秒，AutoList 按 IMDb 与片名各搜一次，慢站不够用，新站点至少 30 秒。
             timeout = max(30, min(to_int(s.get("timeout") or 30), 60))
-            proxy = 1 if s.get("proxy") else 0
+            # 站点默认经代理访问（直连 Cloudflare 后面的站点常常很慢）；MoviePilot 里的代理开关不覆盖本地选择。
+            proxy = 1
             render = 1 if s.get("render") else 0
             is_active = 1 if s.get("is_active", True) else 0
 
@@ -319,13 +320,13 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
 
             existing = by_host.get(host) or by_name.get(site_name) or by_name.get(raw_name)
             if existing:
-                # 已存在的站点只同步连接信息；名称、优先级、超时、启用与参与搜索、UA 等本地选择保持不变。
+                # 已存在的站点只同步连接信息；名称、优先级、超时、启用与参与搜索、UA、代理等本地选择保持不变。
                 effective_cookie = cookie or str(existing["cookie"] or "")
                 effective_rss = rss_url or str(existing["rss_url"] or "")
                 adapter = resolve_site_adapter(raw_url, effective_rss, cookie=effective_cookie, from_moviepilot=True)
                 conn.execute(
                     """UPDATE pt_sites
-                       SET adapter=?, base_url=?, proxy=?, render=?,
+                       SET adapter=?, base_url=?, render=?,
                            rss_url=CASE WHEN ? != '' THEN ? ELSE rss_url END,
                            cookie_updated_at=CASE WHEN ? != '' AND ? != COALESCE(cookie, '') THEN ? ELSE cookie_updated_at END,
                            cookie_source=CASE WHEN ? != '' AND ? != COALESCE(cookie, '') THEN 'moviepilot' ELSE cookie_source END,
@@ -333,7 +334,7 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
                            api_key=CASE WHEN ? != '' AND COALESCE(api_key, '') = '' THEN ? ELSE api_key END,
                            user_agent=CASE WHEN COALESCE(user_agent, '') = '' THEN ? ELSE user_agent END
                        WHERE id=?""",
-                    (adapter, raw_url, proxy, render, rss_url, rss_url,
+                    (adapter, raw_url, render, rss_url, rss_url,
                      cookie, cookie, utc_now(), cookie, cookie, cookie, cookie,
                      api_key, api_key, ua, existing["id"]),
                 )

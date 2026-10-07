@@ -4374,7 +4374,7 @@
             "type": "integer"
           },
           "proxy": {
-            "default": false,
+            "default": true,
             "title": "Proxy",
             "type": "boolean"
           },

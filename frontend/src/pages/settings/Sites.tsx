@@ -75,7 +75,7 @@ interface SiteForm {
 
 const emptyForm = (): SiteForm => ({
   name: "", base_url: "", api_key: "", cookie: "", user_agent: "", priority: "100", timeout_seconds: "30",
-  rss_url: "", icon_url: "", proxy: false, enabled: true, search_enabled: true, supplement_only: false,
+  rss_url: "", icon_url: "", proxy: true, enabled: true, search_enabled: true, supplement_only: false,
   limit_interval: "", limit_count: "",
 });
 
@@ -206,7 +206,7 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
   return (
     <DrawerLayer>
       <button class="drawer-backdrop" type="button" aria-label="关闭站点编辑" tabIndex={-1} onClick={close} />
-      <aside class="drawer drawer-site" role="dialog" aria-modal="true" aria-labelledby="site-drawer-title">
+      <aside class="drawer drawer-site site-dialog" role="dialog" aria-modal="true" aria-labelledby="site-drawer-title">
         <div class="site-drawer-head">
           <SiteIcon site={site} />
           <div class="site-drawer-title">
@@ -303,7 +303,6 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 cleared={cleared.includes("rss_url")}
                 onToggleClear={site ? () => toggleClear("rss_url") : undefined}
               />
-              <TextField label="User-Agent" value={form.user_agent} onInput={(value) => set("user_agent", value)} placeholder="留空使用 AutoList 默认" />
             </div>
 
             <div class="drawer-section-title">搜索</div>
@@ -338,7 +337,19 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                   onChange={(value) => set("supplement_only", value)}
                 />
               ) : null}
-              <SwitchRow label="经代理访问" checked={form.proxy} onChange={(value) => set("proxy", value)} />
+            </div>
+
+            <div class="drawer-section-title">网络</div>
+            <div class="field-grid">
+              <TextField label="User-Agent" value={form.user_agent} onInput={(value) => set("user_agent", value)} placeholder="留空使用 AutoList 默认" />
+            </div>
+            <div class="card site-switches">
+              <SwitchRow
+                label="经代理访问"
+                hint="需要在“设置 → 服务连接”底部的网络代理里填好代理地址并打开“站点允许走代理”；直连 Cloudflare 后面的站点常常很慢"
+                checked={form.proxy}
+                onChange={(value) => set("proxy", value)}
+              />
             </div>
           </div>
 
@@ -388,11 +399,106 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
   );
 }
 
+
+/** 站点卡片：图标与名称、域名与解析方式、上传 / 下载量、检测结果与近 30 天成功率，点击打开编辑。 */
+function SiteCard({ site, maxUp, maxDown, busy, missing, onEdit, onToggle, onCheck, onReload }: {
+  site: Site;
+  maxUp: number;
+  maxDown: number;
+  busy: boolean;
+  missing: string[];
+  onEdit: () => void;
+  onToggle: () => void;
+  onCheck: () => void;
+  onReload: () => void;
+}) {
+  const connection = CONNECTION[site.last_status] || CONNECTION.untested;
+  const note = testNote(site);
+  const cookie = cookieNote(site, missing);
+  const account = site.account_stats;
+  const tone = !site.enabled ? "off" : site.last_status === "ok" ? "ok" : site.last_status === "error" ? "bad" : site.last_status === "untested" ? "idle" : "warn";
+  const share = (value: number | null | undefined, max: number) => (value && max ? Math.max(2, Math.round((value / max) * 100)) : 0);
+  return (
+    <article class={`site-card is-${tone}`} onClick={onEdit}>
+      <header class="site-card-head">
+        <SiteIcon site={site} />
+        <div class="site-card-title">
+          <a class="site-name" href={site.base_url} target="_blank" rel="noopener noreferrer" title={`打开 ${site.name} 官网`} onClick={(event) => event.stopPropagation()}>
+            {site.name}
+          </a>
+          <small>{domain(site.base_url)}</small>
+        </div>
+        <span class="site-card-switch" onClick={(event) => event.stopPropagation()}>
+          {participates(site) && site.supplement_only ? <small class="site-supplement">仅补缺</small> : null}
+          <input
+            class="switch"
+            type="checkbox"
+            role="switch"
+            aria-label={`${site.name} 参与搜索`}
+            checked={participates(site)}
+            disabled={busy || !site.enabled}
+            onChange={onToggle}
+          />
+        </span>
+      </header>
+      <div class="site-card-tags">
+        <span class="site-tag">{officialApi(site) ? "官方 API" : parseLabel(site)}</span>
+        {site.proxy ? <span class="site-tag is-accent">代理</span> : null}
+        {!site.enabled ? <span class="site-tag">已停用</span> : null}
+      </div>
+      <div class="site-card-traffic">
+        <span class="site-meter is-up" title="上传量">
+          <small>↑</small>
+          <span class="site-meter-bar"><span style={{ width: `${share(account.uploaded, maxUp)}%` }} /></span>
+          <strong class="num">{account.uploaded == null ? "—" : formatSize(account.uploaded)}</strong>
+        </span>
+        <span class="site-meter is-down" title="下载量">
+          <small>↓</small>
+          <span class="site-meter-bar"><span style={{ width: `${share(account.downloaded, maxDown)}%` }} /></span>
+          <strong class="num">{account.downloaded == null ? "—" : formatSize(account.downloaded)}</strong>
+        </span>
+      </div>
+      <div class="site-card-status" title={note.title || undefined}>
+        <span class={`badge ${connection.className}`}>{site.verify_url ? "需要人机验证" : connection.label}</span>
+        {site.verify_url ? <span onClick={(event) => event.stopPropagation()}><VerifyLink url={site.verify_url} siteId={site.id} onChecked={onReload} /></span> : note.text ? <small class="site-note">{note.text}</small> : null}
+      </div>
+      <footer class="site-card-foot" onClick={(event) => event.stopPropagation()}>
+        <small class="muted">
+          {site.local_stats.total ? `近 30 天 ${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "近 30 天无搜索"}
+          {cookie.warn ? <span class="text-warn"> · {cookie.text}</span> : null}
+        </small>
+        <span class="site-card-actions">
+          <button type="button" class="btn btn-small" disabled={busy} onClick={onCheck}>检测</button>
+          <button type="button" class="btn btn-small" onClick={onEdit}>编辑</button>
+        </span>
+      </footer>
+    </article>
+  );
+}
+
+const VIEW_KEY = "autolist.sites-view";
+const readView = (): "cards" | "table" => {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === "table" ? "table" : "cards";
+  } catch {
+    return "cards";
+  }
+};
+
 export function Sites({ health }: { health: SettingsHealth }) {
   const sites = health.sites;
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<number | "new" | null>(null);
+  const [view, setViewState] = useState<"cards" | "table">(readView);
+  const setView = (next: "cards" | "table") => {
+    setViewState(next);
+    try {
+      window.localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // 浏览器禁用存储时只对当前页面生效。
+    }
+  };
   const { busy, run } = useAction();
   const missing = health.cookiecloud.data?.last_sync?.missing || [];
 
@@ -408,6 +514,10 @@ export function Sites({ health }: { health: SettingsHealth }) {
       || a.id - b.id,
     );
   const counts = Object.fromEntries(FILTERS.map((item) => [item.id, all.filter((site) => matchesFilter(site, item.id)).length])) as Record<Filter, number>;
+  const maxUp = Math.max(0, ...all.map((site) => site.account_stats.uploaded ?? 0));
+  const maxDown = Math.max(0, ...all.map((site) => site.account_stats.downloaded ?? 0));
+  const checkSite = (site: Site) =>
+    void run(() => api<SiteCheck>(`/api/sites/${site.id}/test`, { method: "POST", timeoutMs: 60000 }), (result) => result.message || "检测完成", () => sites.reload());
   const editingSite = typeof editing === "number" ? all.find((site) => site.id === editing) ?? null : null;
 
   const toggleSearch = (site: Site) =>
@@ -448,6 +558,10 @@ export function Sites({ health }: { health: SettingsHealth }) {
           ))}
         </div>
         <input class="log-search" type="search" value={query} placeholder="查找站点" aria-label="查找站点" onInput={(event) => setQuery((event.target as HTMLInputElement).value)} />
+        <div class="segmented" role="group" aria-label="显示方式">
+          <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>卡片</button>
+          <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>表格</button>
+        </div>
       </div>
 
       {sites.error && !sites.data ? <div class="notice notice-bad" role="alert">站点读取失败：{sites.error.message}</div> : null}
@@ -459,7 +573,26 @@ export function Sites({ health }: { health: SettingsHealth }) {
         </div>
       ) : null}
 
-      {list.length ? (
+      {list.length && view === "cards" ? (
+        <div class="site-grid">
+          {list.map((site) => (
+            <SiteCard
+              key={site.id}
+              site={site}
+              maxUp={maxUp}
+              maxDown={maxDown}
+              busy={busy}
+              missing={missing}
+              onEdit={() => setEditing(site.id)}
+              onToggle={() => toggleSearch(site)}
+              onCheck={() => checkSite(site)}
+              onReload={() => void sites.reload()}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {list.length && view === "table" ? (
         <div class="card site-table-card">
           <table class="site-table">
             <thead>

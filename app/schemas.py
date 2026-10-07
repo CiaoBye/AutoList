@@ -100,7 +100,7 @@ class SitePayload(BaseModel):
     timeout_seconds: int = Field(default=30, ge=3, le=300)
     rss_url: str = Field(default="", max_length=2048)
     icon_url: str = Field(default="", max_length=1_500_000)
-    proxy: bool = False
+    proxy: bool = True
     render: bool = False
     limit_interval: int | None = Field(default=None, ge=1)
     limit_count: int | None = Field(default=None, ge=1)

@@ -230,23 +230,6 @@ export function Downloads({ route }: { route: Route }) {
       ) : null}
 
       {data?.summary ? (
-        <div class="chips download-kinds" role="tablist" aria-label="影片与剧集">
-          {KINDS.map((entry) => (
-            <a
-              key={entry.id}
-              class="chip"
-              role="tab"
-              aria-selected={kind === entry.id}
-              aria-current={kind === entry.id ? "true" : undefined}
-              href={link({ kind: entry.id, state: "all", page: 1 })}
-            >
-              {entry.label} <span class="count">{kindCount(entry.id)}</span>
-            </a>
-          ))}
-        </div>
-      ) : null}
-
-      {data?.summary ? (
         <div class="download-toolbar">
           <div class="chips" role="group" aria-label="按下载状态筛选">
             {FILTERS.map((entry) => (
@@ -260,6 +243,19 @@ export function Downloads({ route }: { route: Route }) {
               </a>
             ))}
           </div>
+          <div class="download-toolbar-end">
+          <div class="segmented" role="group" aria-label="影片与剧集">
+            {KINDS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                aria-pressed={kind === entry.id}
+                onClick={() => navigate(link({ kind: entry.id, state: "all", page: 1 }), true)}
+              >
+                {entry.label} <span class="count">{kindCount(entry.id)}</span>
+              </button>
+            ))}
+          </div>
           <label class="download-search">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.5" /></svg>
             <input
@@ -270,6 +266,7 @@ export function Downloads({ route }: { route: Route }) {
               onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
             />
           </label>
+          </div>
         </div>
       ) : null}
 

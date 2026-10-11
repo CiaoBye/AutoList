@@ -61,6 +61,7 @@ function PickGroup({ film, busy, onToggle, onSearch, onRelease, onClear, onDismi
   const expired = film.issues.includes("context_expired");
   return (
     <section class="card pick-group" id={`pick-card-${film.id}`} aria-labelledby={`pick-${film.id}`}>
+      <div class="pick-side">
       <a class="pick-film" href={href(`/films/${film.id}`)}>
         <span class="pick-poster">
           <Poster id={film.id} title={film.title} url={film.poster_url} />
@@ -72,11 +73,19 @@ function PickGroup({ film, busy, onToggle, onSearch, onRelease, onClear, onDismi
             {film.original_title} · {film.year ?? "—"}
           </span>
           <span style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            <StatusBadge status={film.status} />
+            {film.status === "candidates" || film.status === "selected" ? null : <StatusBadge status={film.status} />}
             <IssueBadges issues={film.issues.filter((issue) => issue !== "context_expired")} />
           </span>
         </span>
       </a>
+      <CandidateTools
+        canClear={film.status === "selected" && film.candidates.some((candidate) => !candidate.in_selection)}
+        failed={film.issues.includes("submit_failed")}
+        busy={busy}
+        onClear={() => onClear(film.id)}
+        onDismiss={() => onDismiss(film.id)}
+        />
+      </div>
       <div class="pick-body">
         {expired ? (
           <div class="notice notice-bad">
@@ -105,13 +114,6 @@ function PickGroup({ film, busy, onToggle, onSearch, onRelease, onClear, onDismi
             </a>
           </ExcludedPanel>
         ) : null}
-        <CandidateTools
-          canClear={film.status === "selected" && film.candidates.some((candidate) => !candidate.in_selection)}
-          failed={film.issues.includes("submit_failed")}
-          busy={busy}
-          onClear={() => onClear(film.id)}
-          onDismiss={() => onDismiss(film.id)}
-        />
         {film.candidates.map((candidate) => (
           <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={onToggle} />
         ))}

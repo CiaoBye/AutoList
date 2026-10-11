@@ -292,3 +292,22 @@ class SettingsKeepTests(IsolatedAppTestCase):
             cleared = await client.put("/api/settings", json={"clear_cookiecloud_url": True})
             self.assertEqual(cleared.status_code, 200, cleared.text)
         self.assertEqual(settings.cookiecloud_url, "")
+
+
+class CookieCloudIntervalSettingTests(IsolatedAppTestCase):
+    """CookieCloud 定时拉取间隔：默认一天一次，0 表示不定时，只在 Cookie 失效或手动同步时拉取。"""
+
+    async def test_interval_is_saved_through_the_settings_form(self) -> None:
+        for raw, expected in (("360", 360), ("0", 0), ("abc", 1440)):
+            payload = run_payload_module(
+                f"m.buildSettingsPayload({json.dumps({'cookiecloud_interval_minutes': raw})}, ['cookiecloud_interval_minutes'], [])",
+            )
+            self.assertEqual(payload["cookiecloud_interval_minutes"], expected)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            self.assertEqual((await client.get("/api/settings")).json()["cookiecloud_interval_minutes"], 1440)
+            response = await client.put("/api/settings", json={"cookiecloud_interval_minutes": 360})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["cookiecloud_interval_minutes"], 360)
+            self.assertEqual(settings.cookiecloud_interval_minutes, 360)
+            response = await client.put("/api/settings", json={"cookiecloud_interval_minutes": 0})
+            self.assertEqual(response.json()["cookiecloud_interval_minutes"], 0)

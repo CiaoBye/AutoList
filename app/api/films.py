@@ -31,7 +31,7 @@ from ..services.films import (
     store_library_state,
 )
 from ..services.library import hydrate_recent_emby_posters, library_details
-from ..services.recognition import recognize_item
+from ..services.recognition import localize_media, recognize_item
 from ..services.search import begin_search_task_slot, run_search
 from ..tasks import SEARCH
 from ..util import to_int
@@ -248,6 +248,7 @@ async def set_film_tmdb(item_id: int, payload: FilmTmdbPayload) -> dict[str, Any
         raise HTTPException(502, f"TMDB 读取失败：{safe_error(exc)}") from exc
     if to_int(details.get("id")) != payload.tmdb_id:
         raise HTTPException(502, "TMDB 返回的影片编号不一致")
+    details = await localize_media(details)
     reidentify_item(item_id, details, item.get("imdb_id"))
     await _recheck_library(item_id)
     event_logger().info(

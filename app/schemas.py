@@ -78,6 +78,7 @@ class RuntimeSettingsPayload(BaseModel):
     cookiecloud_url: str | None = Field(default=None, max_length=2048)
     cookiecloud_key: str | None = Field(default=None, max_length=128, pattern=rf"^(?:{COOKIECLOUD_KEY_PATTERN})?$")
     cookiecloud_password: str | None = Field(default=None, max_length=2048)
+    cookiecloud_interval_minutes: int | None = Field(default=None, ge=0, le=10080)
     outbound_proxy_url: str | None = Field(default=None, max_length=2048)
     tmdb_proxy_enabled: bool = False
     pt_proxy_enabled: bool = False

@@ -7,7 +7,7 @@
 
 <p align="center"><b>给一份电影片单，自动补齐你的私人影库。</b></p>
 
-当前版本：`2.68`
+当前版本：`2.77`
 
 你只管维护想收藏的片单；AutoList 负责对照 Emby 找出缺哪些、去你自己的站点寻片、按你的标准挑出合格的资源，交给 MoviePilot 下载，并一直盯到影片入库。
 
@@ -44,7 +44,7 @@ AutoList 把这条链路收成一个以“每一部电影”为单位的工作�
 - **不重复、不遗漏**：提交前再核对 Emby 与 Transmission，已入馆、已在下载的相同发布会被跳过；换了资源后自动清理被取代的停滞旧任务。
 - **对站点友好**：每个站点单独限速；遇到 Cookie 失效、二次验证或维护会明确提示并跳过，从不绕过验证码。可与 MoviePilot 共用 CookieCloud，Cookie 失效时自动重新拉取。
 - **状态可信**：影片状态由服务端统一计算；MoviePilot、Transmission、Emby 的变化既可主动轮询，也可通过 Webhook 即时推送。
-- **本地优先**：数据保存在本机 SQLite；密钥只在服务端处理，页面只显示“已配置”。
+- **本地优先**：数据保存在本机 SQLite；各服务的密钥只在服务端处理、页面只显示“已配置”；站点的 Cookie、API Key、RSS 地址在站点编辑弹窗里按需读取并明文显示（面向内网自用，请配合访问令牌）。
 - **上手顺手**：第一次打开有分步引导；四套主题（宣纸朱砂、青绿山水、玄漆描金、暗房红灯），不只是配色，连字体、海报边框与书架线都不同，桌面与手机都能用。
 
 AutoList 不下载、不整理文件，也不内置任何站点——站点由你自己添加（支持 NexusPHP 类站点、站点官方 API、Torznab、RSS）。
@@ -83,7 +83,7 @@ docker exec Autolist python -c "import sqlite3; s=sqlite3.connect('/data/playlis
 
 恢复时先停止容器，把当前数据库改名保留，删除它的 `-wal` / `-shm`，再把备份复制为 `playlist-autodown.db`。完整备份还应包含数据目录里的 `runtime-settings.json` 与 `candidate-context.key`。
 
-**CookieCloud**：浏览器插件把 Cookie 推送到 MoviePilot 自带的 CookieCloud，AutoList 从同一个服务拉取。在“馆务 → 站点 → Cookie 来源”填写与插件相同的地址、用户 KEY 与加密密码即可；每 10 分钟拉取一次，寻片遇到 Cookie 失效时立即补拉。
+**CookieCloud**：浏览器插件把 Cookie 推送到 MoviePilot 自带的 CookieCloud，AutoList 从同一个服务拉取。在“馆务 → 站点 → Cookie 来源”填写与插件相同的地址、用户 KEY 与加密密码即可；定时拉取的间隔可选（每小时 / 6 小时 / 每天，默认每天，也可不定时），寻片遇到 Cookie 失效时立即补拉。
 
 </details>
 

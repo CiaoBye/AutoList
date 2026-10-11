@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import connect
 from app.schemas import ImportPayload
 from app.services.library import library_details
-from app.services.recognition import recognize_movie
+from app.services.recognition import backfill_chinese_titles, chinese_title_from_translations, localize_media, recognize_movie
 from app.util import to_int, utc_now
 from tests.support import IsolatedAppTestCase
 
@@ -484,3 +484,49 @@ class RecognitionMatchTests(IsolatedAppTestCase):
             media = await recognition.recognize_movie("Yi Yi", 2000, "tt0244316")
         self.assertEqual(media["id"], 25538)
         tmdb.search_movie.assert_not_awaited()
+
+
+def _translation(region: str, title: str, lang: str = "zh") -> dict:
+    return {"iso_639_1": lang, "iso_3166_1": region, "data": {"title": title}}
+
+
+class ChineseTitleTests(IsolatedAppTestCase):
+    """TMDB 简体中文片名为空（回退成外文）时，改用新加坡、香港、台湾的中文译名。"""
+
+    def test_region_order_prefers_mainland_then_singapore_then_hong_kong_then_taiwan(self) -> None:
+        translations = [
+            _translation("TW", "蜘蛛人：無家日"), _translation("HK", "蜘蛛俠：英雄無歸"),
+            _translation("SG", "蜘蛛侠：英雄无归"), _translation("US", "Spider-Man: No Way Home", "en"),
+        ]
+        self.assertEqual(chinese_title_from_translations(translations), "蜘蛛侠：英雄无归")
+        self.assertEqual(chinese_title_from_translations(translations[:2]), "蜘蛛俠：英雄無歸")
+        self.assertEqual(chinese_title_from_translations([_translation("CN", "大陆片名"), *translations]), "大陆片名")
+        # 没有汉字的 zh 译名（回退成英文）与其他语言都不算。
+        self.assertIsNone(chinese_title_from_translations([_translation("CN", "Spider-Man"), _translation("JP", "スパイダーマン", "ja")]))
+        self.assertIsNone(chinese_title_from_translations([]))
+
+    async def test_localize_media_only_when_the_title_has_no_han_characters(self) -> None:
+        translations = AsyncMock(return_value=[_translation("SG", "蜘蛛侠：英雄无归")])
+        with patch.object(settings, "tmdb_api_key", "k"), patch.object(TMDBClient, "movie_translations", new=translations):
+            english = await localize_media({"id": 634649, "title": "Spider-Man: No Way Home"})
+            chinese = await localize_media({"id": 1, "title": "已经是中文"})
+        self.assertEqual(english["title"], "蜘蛛侠：英雄无归")
+        self.assertEqual(chinese["title"], "已经是中文")
+        self.assertEqual(translations.await_count, 1)
+
+    async def test_backfill_updates_existing_films_once(self) -> None:
+        with connect() as conn:
+            playlist_id = to_int(conn.execute("INSERT INTO playlists(name,position,created_at) VALUES('p',1,?)", (utc_now(),)).lastrowid)
+            for rank, (title, tmdb_id) in enumerate([("Spider-Man: No Way Home", 634649), ("没有译名的片", 2), ("已有中文", 3)], start=1):
+                conn.execute(
+                    "INSERT INTO playlist_items(playlist_id,rank_no,original_title,tmdb_id,tmdb_title) VALUES(?,?,?,?,?)",
+                    (playlist_id, rank, title, tmdb_id, title if rank != 3 else "蜘蛛侠"),
+                )
+        async def translations(self, tmdb_id: int) -> list[dict]:
+            return [_translation("SG", "蜘蛛侠：英雄无归")] if tmdb_id == 634649 else []
+        with patch.object(settings, "tmdb_api_key", "k"), patch.object(TMDBClient, "movie_translations", new=translations):
+            self.assertEqual(await backfill_chinese_titles(), 1)
+            self.assertEqual(await backfill_chinese_titles(), 0)  # 每部只查一次
+        with connect() as conn:
+            titles = [row["tmdb_title"] for row in conn.execute("SELECT tmdb_title FROM playlist_items ORDER BY rank_no")]
+        self.assertEqual(titles, ["蜘蛛侠：英雄无归", "没有译名的片", "蜘蛛侠"])

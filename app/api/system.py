@@ -31,7 +31,7 @@ from ..schemas import (
 )
 from ..security import safe_error
 from ..services.cookiecloud import (
-    PULL_INTERVAL_SECONDS,
+    pull_interval_minutes,
     cookiecloud_configured,
     cookiecloud_key_valid,
     fetch_cookiecloud,
@@ -66,7 +66,7 @@ async def cookiecloud_status() -> dict[str, Any]:
         "key_valid": cookiecloud_key_valid(),
         "url_configured": bool(settings.cookiecloud_url),
         "url": public_endpoint_url(settings.cookiecloud_url),
-        "pull_interval_minutes": PULL_INTERVAL_SECONDS // 60,
+        "pull_interval_minutes": pull_interval_minutes(),
         # 最近一次整体同步：origin 为 schedule（定时拉取）/ expired（Cookie 失效后补拉）/ manual（手动同步）。
         "last_sync": dict(state.last_cookie_sync) or None,
     }

@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS playlist_items (
   failure_dismissed_id INTEGER,
   candidates_cleared_at TEXT,
   identity_check TEXT,
+  tmdb_title_zh_checked_at TEXT,
   UNIQUE(playlist_id, rank_no)
 );
 CREATE TABLE IF NOT EXISTS library_scan_tasks (

@@ -349,7 +349,11 @@ async def submit_selection() -> dict[str, Any]:
                 # 固定走 MoviePilot：按 TMDB 编号识别影片与分类、按分类目录选择下载路径，
                 # 再交由 Transmission 写入 MOVIEPILOT 与站点标签，供 MP 后续整理。
                 # 片单影片可能在寻片后重新识别过：以片单当前的 TMDB 编号为准，交给 MoviePilot 识别分类。
-                media = {**raw["media"], "tmdb_id": candidate["playlist_tmdb_id"] or raw["media"].get("tmdb_id")}
+                media = {
+                    **raw["media"], "tmdb_id": candidate["playlist_tmdb_id"] or raw["media"].get("tmdb_id"),
+                    "tmdb_title": candidate["playlist_tmdb_title"], "tmdb_original_title": candidate["playlist_tmdb_original_title"],
+                    "tmdb_year": candidate["playlist_tmdb_year"],
+                }
                 response = await moviepilot.download(media, _submission_torrent(raw["torrent"], site), downloader=downloader)
                 success = _moviepilot_success(response)
                 if not isinstance(response, dict):

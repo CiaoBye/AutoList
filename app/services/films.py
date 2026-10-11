@@ -541,9 +541,10 @@ def reidentify_item(item_id: int, media: dict[str, Any], fallback_imdb: str | No
                    tmdb_poster_path=?,tmdb_original_language=?,fanart_poster_url=NULL,
                    fanart_backdrop_url=NULL,tmdb_backdrop_path=NULL,
                    tmdb_alt_titles_json=CASE WHEN tmdb_id IS ? THEN tmdb_alt_titles_json ELSE NULL END,
+                   tmdb_title_zh_checked_at=CASE WHEN tmdb_id IS ? THEN tmdb_title_zh_checked_at ELSE NULL END,
                    emby_item_id=NULL,emby_image_tag=NULL,library_state='unknown',library_checked_at=NULL
                WHERE id=?""",
-            (*values, tmdb_poster_path(media), tmdb_original_language(media), values[0], item_id),
+            (*values, tmdb_poster_path(media), tmdb_original_language(media), values[0], values[0], item_id),
         )
         stale: list[str] = []
         if changed:

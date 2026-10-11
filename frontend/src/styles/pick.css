@@ -18,6 +18,18 @@
   padding: var(--space-4) var(--space-5);
 }
 
+/* 左栏：影片信息，下面是清除其余候选等操作。 */
+.pick-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.pick-side .candidate-tools {
+  justify-content: flex-start;
+}
+
 .pick-film {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);

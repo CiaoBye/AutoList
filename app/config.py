@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "2.68"
+APP_VERSION = "2.77"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -126,6 +126,8 @@ class Settings:
     cookiecloud_url: str = os.getenv("COOKIECLOUD_URL", "").rstrip("/")
     cookiecloud_key: str = os.getenv("COOKIECLOUD_KEY", "")
     cookiecloud_password: str = os.getenv("COOKIECLOUD_PASSWORD", "")
+    # 定时拉取 CookieCloud 的间隔（分钟）：0 表示只在 Cookie 失效或手动同步时拉取。与 MoviePilot 一样默认一天一次。
+    cookiecloud_interval_minutes: int = int(os.getenv("COOKIECLOUD_INTERVAL_MINUTES", "1440") or "1440")
     outbound_proxy_url: str = os.getenv("OUTBOUND_PROXY_URL", "")
     tmdb_proxy_enabled: bool = os.getenv("TMDB_PROXY_ENABLED", "false").lower() == "true"
     pt_proxy_enabled: bool = os.getenv("PT_PROXY_ENABLED", "false").lower() == "true"
@@ -152,6 +154,11 @@ class Settings:
         for key in ("tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters"):
             if key in values and values[key] is not None:
                 setattr(self, key, bool(values[key]))
+        if values.get("cookiecloud_interval_minutes") is not None:
+            try:
+                self.cookiecloud_interval_minutes = max(0, min(10080, int(values["cookiecloud_interval_minutes"])))
+            except (TypeError, ValueError):
+                pass  # 非法值保留现值
         if values.get("mp_timeout_seconds") is not None:
             try:
                 parsed_timeout = float(values["mp_timeout_seconds"])
@@ -181,6 +188,7 @@ class Settings:
             "cookiecloud_key_configured": bool(self.cookiecloud_key),
             "cookiecloud_password": REDACTED_SECRET,
             "cookiecloud_password_configured": bool(self.cookiecloud_password),
+            "cookiecloud_interval_minutes": self.cookiecloud_interval_minutes,
             "outbound_proxy_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url_configured": bool(self.outbound_proxy_url),
             "outbound_proxy_url": public_endpoint_url(self.outbound_proxy_url),

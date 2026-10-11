@@ -18,7 +18,7 @@ export function SectionHead({ title, children, actions }: { title: string; child
 }
 
 export function TextField({
-  label, value, onInput, placeholder, type = "text", hint, autocomplete = "off", inputMode,
+  label, value, onInput, placeholder, type = "text", hint, autocomplete = "off", inputMode, wide = false,
 }: {
   label: string;
   value: string | number;
@@ -28,9 +28,11 @@ export function TextField({
   hint?: string;
   autocomplete?: string;
   inputMode?: "numeric" | "url" | "text";
+  /** 占满一整行（站点编辑里的图标地址、User-Agent 等较长的字段）。 */
+  wide?: boolean;
 }) {
   return (
-    <label class="field">
+    <label class={wide ? "field field-wide" : "field"}>
       <span>{label}</span>
       <input
         type={type}
@@ -69,14 +71,14 @@ export function SecretField({
         {configured && !cleared ? <span class="badge st-in_library">已保存</span> : null}
         {cleared ? <span class="badge st-issue">将清除</span> : null}
       </span>
-      <span class="secret-wrap">
+      <span class={`secret-wrap${configured && onToggleClear ? " has-clear" : ""}${multiline ? " is-multiline" : ""}`}>
         {multiline ? (
           <textarea rows={3} value={value} placeholder={placeholder} onInput={(event) => onInput((event.target as HTMLTextAreaElement).value)} />
         ) : (
           <input type="password" autocomplete="new-password" value={value} placeholder={placeholder} onInput={(event) => onInput((event.target as HTMLInputElement).value)} />
         )}
         {configured && onToggleClear ? (
-          <button class="btn btn-small" type="button" onClick={onToggleClear} aria-pressed={cleared}>
+          <button class="btn btn-small secret-clear" type="button" onClick={onToggleClear} aria-pressed={cleared} title={cleared ? "撤销清除" : "保存时清除已保存的值"}>
             {cleared ? "撤销" : "清除"}
           </button>
         ) : null}

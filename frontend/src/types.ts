@@ -52,6 +52,7 @@ export type Site = Schemas["Site"];
 export type SiteCheck = Schemas["SiteCheck"];
 export type SiteChecks = Schemas["SiteChecks"];
 export type SiteSaved = Schemas["SiteSaved"];
+export type SiteSecrets = Schemas["SiteSecrets"];
 export type MoviePilotSitesSynced = Schemas["MoviePilotSitesSynced"];
 export type CookieCloudSynced = Schemas["CookieCloudSynced"];
 export type SiteCookieRefreshed = Schemas["SiteCookieRefreshed"];

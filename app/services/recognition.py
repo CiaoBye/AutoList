@@ -158,7 +158,7 @@ async def recognize_movie(
     async def enriched(match: dict[str, Any] | None, matched_by: str = "title") -> dict[str, Any] | None:
         if not match:
             return None
-        result = {**match, "matched_by": matched_by}
+        result = {**(await localize_media(match)), "matched_by": matched_by}
         resolved_imdb = imdb_id or result.get("imdb_id")
         if not resolved_imdb and result.get("id"):
             try:
@@ -210,6 +210,76 @@ async def recognize_movie(
     return await enriched(select_tmdb_match(
         options, str(suggestion.get("original_title") or suggestion.get("title") or title), suggestion.get("year") or year,
     ))
+
+
+HAN = re.compile(r"[\u4e00-\u9fff]")
+# 中文译名的取用顺序：中国大陆、新加坡、香港、台湾（台湾译名是繁体，放最后），再是其他华语地区。
+ZH_REGION_ORDER = ("CN", "SG", "HK", "TW")
+
+
+def has_han(value: Any) -> bool:
+    return bool(HAN.search(str(value or "")))
+
+
+def chinese_title_from_translations(translations: list[dict[str, Any]]) -> str | None:
+    """从 TMDB 译名里挑一个中文片名：只认含汉字的 zh 译名，按大陆、新加坡、香港、台湾的顺序。"""
+    found: dict[str, str] = {}
+    for entry in translations:
+        if str(entry.get("iso_639_1") or "").lower() != "zh":
+            continue
+        title = str((entry.get("data") or {}).get("title") or "").strip()
+        if title and has_han(title):
+            found.setdefault(str(entry.get("iso_3166_1") or "").upper(), title)
+    for region in ZH_REGION_ORDER:
+        if region in found:
+            return found[region]
+    return next(iter(found.values()), None)
+
+
+async def localize_media(media: dict[str, Any]) -> dict[str, Any]:
+    """TMDB 简体中文片名为空时（片名回退成外文），补上新加坡、香港、台湾等地的中文译名；取不到就保持原样。"""
+    if not settings.tmdb_api_key or not media.get("id") or has_han(media.get("title")):
+        return media
+    try:
+        title = chinese_title_from_translations(await TMDBClient().movie_translations(to_int(media["id"])))
+    except Exception:
+        return media
+    return {**media, "title": title} if title else media
+
+
+async def backfill_chinese_titles(limit: int = 15) -> int:
+    """给已识别、片名里没有汉字的影片补中文片名（每部只查一次）；返回补上的数量。"""
+    if not settings.tmdb_api_key:
+        return 0
+    with connect() as conn:
+        rows = [
+            dict(row) for row in conn.execute(
+                "SELECT id,tmdb_id,tmdb_title FROM playlist_items WHERE tmdb_id IS NOT NULL AND tmdb_title_zh_checked_at IS NULL ORDER BY id",
+            ).fetchall()
+        ]
+    todo = [row for row in rows if not has_han(row["tmdb_title"])]
+    done = 0
+    # 已经有汉字片名的不用查，直接记为查过。
+    with connect() as conn:
+        conn.executemany(
+            "UPDATE playlist_items SET tmdb_title_zh_checked_at=? WHERE id=?",
+            [(utc_now(), row["id"]) for row in rows if has_han(row["tmdb_title"])],
+        )
+    for row in todo[:limit]:
+        try:
+            title = chinese_title_from_translations(await TMDBClient().movie_translations(to_int(row["tmdb_id"])))
+        except Exception:
+            continue  # TMDB 暂时不可用：下次同步再试
+        with connect() as conn:
+            if title:
+                conn.execute(
+                    "UPDATE playlist_items SET tmdb_title=?,tmdb_title_zh_checked_at=? WHERE id=? AND tmdb_id IS ?",
+                    (title, utc_now(), row["id"], row["tmdb_id"]),
+                )
+                done += 1
+            else:
+                conn.execute("UPDATE playlist_items SET tmdb_title_zh_checked_at=? WHERE id=?", (utc_now(), row["id"]))
+    return done
 
 
 async def recognize_item(item: Any) -> dict[str, Any] | None:
@@ -270,12 +340,16 @@ def persist_tmdb_item(item_id: int, media: dict[str, Any], fallback_imdb: str | 
                    tmdb_alt_titles_json=CASE WHEN tmdb_id IS ? THEN tmdb_alt_titles_json ELSE NULL END,
                    fanart_backdrop_url=CASE WHEN tmdb_id IS ? THEN fanart_backdrop_url ELSE NULL END,
                    tmdb_backdrop_path=CASE WHEN tmdb_id IS ? THEN tmdb_backdrop_path ELSE NULL END,
+                   tmdb_title_zh_checked_at=CASE WHEN tmdb_id IS ? THEN tmdb_title_zh_checked_at ELSE NULL END,
                    tmdb_id=?,tmdb_title=?,tmdb_original_title=?,tmdb_year=?,tmdb_imdb_id=?,tmdb_checked_at=?,
                    tmdb_poster_path=COALESCE(?, tmdb_poster_path),
                    tmdb_original_language=COALESCE(?, tmdb_original_language)
                WHERE id=?""",
-            (values[0], values[0], values[0], values[0], *values, tmdb_poster_path(media), tmdb_original_language(media), item_id),
+            (values[0], values[0], values[0], values[0], values[0], *values, tmdb_poster_path(media), tmdb_original_language(media), item_id),
         )
+        if not has_han(values[1]):
+            # 片名被写成了没有汉字的外文：让同步再去补一次中文译名。
+            conn.execute("UPDATE playlist_items SET tmdb_title_zh_checked_at=NULL WHERE id=?", (item_id,))
 
 
 

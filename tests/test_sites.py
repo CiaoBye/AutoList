@@ -292,7 +292,7 @@ class CookieCloudStatusTests(IsolatedAppTestCase):
         settings.cookiecloud_url = "http://cc.example:3000/cookiecloud"
         status = await cookiecloud_status()
         self.assertTrue(status["configured"])
-        self.assertEqual(status["pull_interval_minutes"], 10)
+        self.assertEqual(status["pull_interval_minutes"], 24 * 60)  # 默认一天一次，与 MoviePilot 一致
         self.assertFalse({"received", "updated_at", "endpoint"} & set(status))
 
 
@@ -374,6 +374,26 @@ class SiteApiTests(SeededPlaylistTestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["message"], "认证失败")
+
+    async def test_site_secrets_are_returned_only_by_the_edit_endpoint(self) -> None:
+        """Cookie、API Key、RSS 地址：站点列表只给“是否已配置”，编辑弹窗经单独接口按需读取明文（内网自用）。"""
+        from fastapi import Response
+
+        with connect() as conn:
+            site_id = to_int(conn.execute(
+                "INSERT INTO pt_sites(name,adapter,base_url,cookie,api_key,rss_url,created_at) VALUES(?,?,?,?,?,?,?)",
+                ("明文站点", "nexusphp", "https://plain.example", "uid=1; pass=2", "key-123", "https://plain.example/rss?passkey=abc", utc_now()),
+            ).lastrowid)
+        row = next(item for item in await site_routes.sites() if item["id"] == site_id)
+        self.assertEqual((row["cookie"], row["api_key"], row["rss_url"]), ("", "", ""))
+        self.assertTrue(row["cookie_configured"] and row["api_key_configured"] and row["rss_url_configured"])
+        response = Response()
+        secrets = await site_routes.site_secrets(site_id, response)
+        self.assertEqual(secrets, {"cookie": "uid=1; pass=2", "api_key": "key-123", "rss_url": "https://plain.example/rss?passkey=abc"})
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        with self.assertRaises(HTTPException) as missing:
+            await site_routes.site_secrets(site_id + 999, Response())
+        self.assertEqual(missing.exception.status_code, 404)
 
     async def test_local_site_list_does_not_call_moviepilot(self) -> None:
         with connect() as conn:
@@ -1099,16 +1119,22 @@ class CookieCloudPullTests(IsolatedAppTestCase):
             "cookie_data": {".tracker-b.example": [{"domain": ".tracker-b.example", "name": "session", "value": value}]},
         })
 
-    async def test_scheduled_pull_is_due_every_ten_minutes(self) -> None:
+    async def test_scheduled_pull_follows_the_configured_interval(self) -> None:
+        from app.config import settings
         from app.services import cookiecloud
 
+        settings.cookiecloud_interval_minutes = 10
         self.assertTrue(cookiecloud.pull_due())
         with patch.object(cookiecloud, "fetch_cookiecloud", new=self._cloud("new")), \
              patch("app.services.sites.test_site_config", new=AsyncMock()):
             await cookiecloud.pull_cookiecloud("schedule")
         self.assertFalse(cookiecloud.pull_due())
-        cookiecloud._last_pull_monotonic -= cookiecloud.PULL_INTERVAL_SECONDS
+        cookiecloud._last_pull_monotonic -= 10 * 60
         self.assertTrue(cookiecloud.pull_due())
+        # 0 表示不定时拉取：只在 Cookie 失效或手动同步时拉取。
+        settings.cookiecloud_interval_minutes = 0
+        cookiecloud.reset_pull_clock()
+        self.assertFalse(cookiecloud.pull_due())
 
     async def test_expired_cookie_is_refreshed_and_the_request_retried_once(self) -> None:
         from app import state as app_state

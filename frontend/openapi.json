@@ -2934,6 +2934,10 @@
             "title": "Ai Model",
             "type": "string"
           },
+          "cookiecloud_interval_minutes": {
+            "title": "Cookiecloud Interval Minutes",
+            "type": "integer"
+          },
           "cookiecloud_key": {
             "title": "Cookiecloud Key",
             "type": "string"
@@ -3087,6 +3091,7 @@
           "cookiecloud_key_configured",
           "cookiecloud_password",
           "cookiecloud_password_configured",
+          "cookiecloud_interval_minutes",
           "outbound_proxy_configured",
           "outbound_proxy_url_configured",
           "outbound_proxy_url",
@@ -3173,6 +3178,19 @@
             "maxLength": 120,
             "title": "Ai Model",
             "type": "string"
+          },
+          "cookiecloud_interval_minutes": {
+            "anyOf": [
+              {
+                "maximum": 10080.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookiecloud Interval Minutes"
           },
           "cookiecloud_key": {
             "anyOf": [
@@ -4731,6 +4749,30 @@
           "search_enabled"
         ],
         "title": "SiteSaved",
+        "type": "object"
+      },
+      "SiteSecrets": {
+        "description": "站点编辑弹窗按需读取的明文（内网自用）：站点列表接口仍只返回“是否已配置”。",
+        "properties": {
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "cookie": {
+            "title": "Cookie",
+            "type": "string"
+          },
+          "rss_url": {
+            "title": "Rss Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cookie",
+          "api_key",
+          "rss_url"
+        ],
+        "title": "SiteSecrets",
         "type": "object"
       },
       "SubmissionNote": {
@@ -7995,6 +8037,46 @@
           }
         },
         "summary": "Refresh Site Cookie"
+      }
+    },
+    "/api/sites/{site_id}/secrets": {
+      "get": {
+        "description": "站点的 Cookie、API Key 与 RSS 地址明文：只给站点编辑弹窗按需读取，站点列表仍不返回；不缓存。",
+        "operationId": "site_secrets_api_sites__site_id__secrets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteSecrets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Site Secrets"
       }
     },
     "/api/sites/{site_id}/test": {

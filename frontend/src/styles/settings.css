@@ -131,6 +131,16 @@
   gap: var(--space-3) var(--space-4);
 }
 
+.field-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 .field textarea {
   min-height: 88px;
   padding: var(--space-3) var(--space-3);
@@ -154,10 +164,29 @@
   gap: var(--space-2);
 }
 
+
+/* 密钥输入：“清除”按钮放在输入框里面的右侧，标签行只有名称和“已保存”，同一排的字段才能对齐。 */
 .secret-wrap {
+  position: relative;
   display: flex;
   align-items: stretch;
-  gap: var(--space-2);
+}
+
+.secret-wrap.has-clear input,
+.secret-wrap.has-clear textarea {
+  padding-right: 64px;
+}
+
+.secret-clear {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+}
+
+.secret-wrap.is-multiline .secret-clear {
+  top: var(--space-2);
+  transform: none;
 }
 
 .secret-wrap input,
@@ -616,6 +645,12 @@ input.switch:focus-visible {
   background: var(--paper);
 }
 
+/* 连接设置：服务器地址、用户 KEY、加密密码、定时拉取并排；清除按钮都在各自的标签行最右边。 */
+.cc-fields {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+
 .site-filters {
   display: flex;
   flex-wrap: wrap;
@@ -938,7 +973,7 @@ input.switch:focus-visible {
 /* 站点编辑：居中的弹窗，头部与底部固定，中间滚动。 */
 .drawer.drawer-site {
   inset: 0;
-  width: min(720px, calc(100vw - 32px));
+  width: min(1080px, calc(100vw - 32px));
   height: fit-content;
   max-height: min(90vh, 880px);
   margin: auto;
@@ -981,6 +1016,120 @@ input.switch:focus-visible {
   white-space: nowrap;
 }
 
+/* 弹窗头部右侧的“启用”开关。 */
+.site-head-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-right: var(--space-2);
+  cursor: pointer;
+}
+
+.site-drawer-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.site-drawer-meta .muted {
+  min-width: 0;
+}
+
+/* 打开站点编辑时，后面的页面模糊并压暗。 */
+.drawer-backdrop:has(+ .drawer.drawer-site) {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* 所有设置排在一页：宽屏三列（基本 / 认证 / 搜索与网络），窄一点两列，手机一列。 */
+.site-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.site-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.site-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.site-block .field textarea {
+  min-height: 64px;
+}
+
+.site-block-title {
+  margin: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+/* 限制访问频率打开后，在同一行里填“每 N 秒最多 M 次”，不再多占几行。 */
+.site-limit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--fs-m);
+}
+
+.site-limit-row input {
+  width: 72px;
+  min-height: var(--control-h-s);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  text-align: center;
+}
+
+.field-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+/* 站点概况：上传、下载、分享率、近 30 天搜索，四个并排的小块。 */
+.site-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.site-stats > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+}
+
+.site-stats strong {
+  font-size: var(--fs-l);
+}
+
+.site-stats small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
 .site-drawer-form {
   display: flex;
   flex: 1 1 auto;
@@ -995,7 +1144,7 @@ input.switch:focus-visible {
   gap: var(--space-3);
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-6) var(--space-6);
+  padding: var(--space-4) var(--space-6) var(--space-5);
 }
 
 .site-drawer-note {

@@ -55,6 +55,41 @@ class MoviePilotGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["success"])
         self.assertEqual(len(bodies), 1)
 
+    async def test_colliding_tmdb_id_is_never_submitted_by_id(self) -> None:
+        """TMDB 编号同时是电影和电视剧（如 10096、101）：按编号提交会被 MoviePilot 当成电视剧放进剧集目录，所以改按种子名；
+        种子名是外文拼写、识别不出时，把 TMDB 的中文名与原名放到片名前面再试；都认不出就不提交。"""
+        bodies: list[dict[str, object]] = []
+
+        async def fake_request(_client: object, _method: str, _path: str, **kwargs: object) -> Mock:
+            bodies.append(kwargs["json"])  # type: ignore[arg-type]
+            response = Mock()
+            response.json.return_value = {"success": True, "data": {"download_id": "x"}}
+            return response
+
+        movie = {"tmdb_id": 101, "type": "电影"}
+
+        async def recognize(_self: object, name: str) -> dict | None:
+            return movie if name.startswith("这个杀手不太冷") else None
+
+        media = {"tmdb_id": 101, "tmdb_title": "这个杀手不太冷", "tmdb_original_title": "Léon", "tmdb_year": 1994}
+        client = MoviePilotClient()
+        with patch("app.clients.safe_request", new=fake_request), \
+             patch("app.clients._tmdb_has_tv", new=AsyncMock(return_value=True)), \
+             patch.object(MoviePilotClient, "recognize", new=recognize):
+            result = await client.download(media, {"title": "Leon The Professional 1994 BluRay 2160p x265"}, downloader="TR")
+        self.assertTrue(result["success"])
+        self.assertEqual(["media_id" in body for body in bodies], [False])
+        # 提交给 MoviePilot 的片名是中文名 + 原名 + 年份 + 原来年份之后的部分。
+        self.assertEqual(bodies[0]["torrent_in"]["title"], "这个杀手不太冷 Léon 1994 BluRay 2160p x265")
+        # 种子名与补上的片名都认不出这部电影：不提交。
+        bodies.clear()
+        with patch("app.clients.safe_request", new=fake_request), \
+             patch("app.clients._tmdb_has_tv", new=AsyncMock(return_value=True)), \
+             patch.object(MoviePilotClient, "recognize", new=AsyncMock(return_value={"tmdb_id": 101, "type": "电视剧"})):
+            with self.assertRaisesRegex(RuntimeError, "同时是电影和电视剧"):
+                await client.download(media, {"title": "Go.1983.S01"}, downloader="TR")
+        self.assertEqual(bodies, [])
+
     def test_moviepilot_gateway_has_no_search_compatibility_methods(self) -> None:
         client = MoviePilotClient()
         for removed in (

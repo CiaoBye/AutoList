@@ -1,7 +1,7 @@
 """从 CookieCloud 服务器（与 MoviePilot 共用）拉取站点 Cookie。
 
-拉取有三个时机：定时（``PULL_INTERVAL_SECONDS``）、在设置页手动同步，以及站点报“Cookie 已失效”时
-立即补拉一次。同一时间只有一次拉取在进行；失效补拉在 ``EXPIRED_REFRESH_COOLDOWN_SECONDS`` 内最多一次，
+拉取有三个时机：定时（间隔见设置 ``cookiecloud_interval_minutes``，默认一天一次，0 表示不定时）、在设置页手动同步，
+以及站点报“Cookie 已失效”时立即补拉一次。同一时间只有一次拉取在进行；失效补拉在 ``EXPIRED_REFRESH_COOLDOWN_SECONDS`` 内最多一次，
 避免浏览器里的登录也已过期时，每次搜索都去拉一遍。
 """
 
@@ -26,7 +26,6 @@ from ..schemas import COOKIECLOUD_KEY_PATTERN
 from ..security import safe_error
 from ..sites.errors import CookieExpired
 
-PULL_INTERVAL_SECONDS = 10 * 60
 EXPIRED_REFRESH_COOLDOWN_SECONDS = 2 * 60
 
 T = TypeVar("T")
@@ -42,8 +41,15 @@ def cookiecloud_key_valid() -> bool:
     return bool(re.fullmatch(COOKIECLOUD_KEY_PATTERN, (settings.cookiecloud_key or "").strip()))
 
 
+def pull_interval_minutes() -> int:
+    return max(0, int(settings.cookiecloud_interval_minutes))
+
+
 def pull_due() -> bool:
-    return _last_pull_monotonic is None or time.monotonic() - _last_pull_monotonic >= PULL_INTERVAL_SECONDS
+    minutes = pull_interval_minutes()
+    if minutes <= 0:
+        return False  # 只在 Cookie 失效或手动同步时拉取
+    return _last_pull_monotonic is None or time.monotonic() - _last_pull_monotonic >= minutes * 60
 
 
 def reset_pull_clock() -> None:

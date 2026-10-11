@@ -29,7 +29,7 @@ from ..state import remember_site_icon, site_icon_cache
 from ..util import raster_image_media_type, to_int
 from ..outbound import safe_request, validate_remote_icon_url
 from ..outbound import validated_base_url, validate_outbound_url
-from ..responses import CookieCloudSynced, MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteCookieRefreshed, SiteSaved
+from ..responses import CookieCloudSynced, MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteCookieRefreshed, SiteSaved, SiteSecrets
 
 router = APIRouter()
 MAX_SITE_ICON_BYTES = 512 * 1024
@@ -130,6 +130,17 @@ async def sites() -> list[dict[str, Any]]:
         separator = "&" if "?" in endpoint else "?"
         item["icon_endpoint"] = f"{endpoint}{separator}v={SITE_ICON_ENDPOINT_VERSION}"
     return rows
+
+@router.get("/api/sites/{site_id}/secrets", response_model=SiteSecrets)
+async def site_secrets(site_id: int, response: Response) -> dict[str, Any]:
+    """站点的 Cookie、API Key 与 RSS 地址明文：只给站点编辑弹窗按需读取，站点列表仍不返回；不缓存。"""
+    with connect() as conn:
+        row = conn.execute("SELECT cookie,api_key,rss_url FROM pt_sites WHERE id=?", (site_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "站点不存在")
+    response.headers["Cache-Control"] = "no-store"
+    return {"cookie": str(row["cookie"] or ""), "api_key": str(row["api_key"] or ""), "rss_url": str(row["rss_url"] or "")}
+
 
 @router.get("/api/sites/{site_id}/icon")
 async def site_icon(site_id: int) -> Response:

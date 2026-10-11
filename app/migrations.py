@@ -48,6 +48,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "candidates_cleared_at": "TEXT",
         # 等待资源的影片对 TMDB 识别做的二次核实结果（JSON）：是否与片单来源一致、核实时间。
         "identity_check": "TEXT",
+        # 中文片名补全：TMDB 的简体中文片名为空（回退成外文原名）时，查过其他华语地区译名的时间。NULL = 没查过。
+        "tmdb_title_zh_checked_at": "TEXT",
         "library_state": "TEXT NOT NULL DEFAULT 'unknown'",
         "library_checked_at": "TEXT",
         "emby_item_id": "TEXT",

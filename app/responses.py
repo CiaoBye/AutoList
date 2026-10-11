@@ -583,6 +583,14 @@ class Site(Model):
     account_stats: SiteAccountStats
 
 
+class SiteSecrets(Model):
+    """站点编辑弹窗按需读取的明文（内网自用）：站点列表接口仍只返回“是否已配置”。"""
+
+    cookie: str
+    api_key: str
+    rss_url: str
+
+
 class SiteSaved(Model):
     id: int
     name: str
@@ -748,6 +756,7 @@ class PublicSettings(Model):
     cookiecloud_key_configured: bool
     cookiecloud_password: str
     cookiecloud_password_configured: bool
+    cookiecloud_interval_minutes: int
     outbound_proxy_configured: bool
     outbound_proxy_url_configured: bool
     outbound_proxy_url: str

@@ -144,6 +144,20 @@ class MoviePilotClient:
                 response.raise_for_status()
                 return response.json()
 
+        title = str(torrent_payload.get("title") or "")
+        if await _tmdb_has_tv(tmdb_id):
+            # 编号同时是电影和电视剧：MoviePilot 按编号会随便挑一个（曾把电影当成电视剧放进“欧美剧集”目录）。
+            # 改按种子名提交，而且只在 MoviePilot 按这个名字识别出的正是这部电影时才提交；种子名是外文拼写、
+            # 识别不出时（如 Leon The Professional），把 TMDB 的中文名与原名放到片名前面再试，认不出就不提交，免得放错分类。
+            for candidate_title in _recognition_titles(title, media_in):
+                media = await self.recognize(candidate_title)
+                if media and to_int(media.get("tmdb_id")) == tmdb_id and str(media.get("type")) in {"电影", "movie"}:
+                    torrent_payload["title"] = candidate_title
+                    return await add(False)
+            raise RuntimeError(
+                f"TMDB 编号 {tmdb_id} 同时是电影和电视剧，MoviePilot 按编号会当成电视剧，按种子名也没能识别成这部电影，"
+                "已暂停提交，请在 MoviePilot 里手动添加",
+            )
         result = await add(True)
         if isinstance(result, dict) and result.get("success") is False and "无法识别媒体信息" in str(result.get("message") or ""):
             # 同一个 TMDB 编号同时是电影和电视剧（如 123678、408）时，MoviePilot 只凭编号分不清类型；
@@ -154,6 +168,49 @@ class MoviePilotClient:
         return result
 
 TMDB_POSTER_MAX_BYTES = 4 * 1024 * 1024
+
+# 已查过的“这个 TMDB 编号是否同时是电视剧”（进程内缓存）。
+_tmdb_tv_collisions: dict[int, bool] = {}
+
+
+def _recognition_titles(title: str, media_in: dict[str, Any]) -> list[str]:
+    """提交给 MoviePilot 识别的片名候选：先是种子原名，再是“TMDB 中文名 / 原名 + 年份 + 种子名里年份之后的部分”。"""
+    candidates = [title]
+    year = re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", title)
+    tail = title[year.end():].strip() if year else title
+    release_year = str(media_in.get("tmdb_year") or media_in.get("year") or (year.group(0) if year else "")).strip()
+    zh = str(media_in.get("tmdb_title") or "").strip()
+    original = str(media_in.get("tmdb_original_title") or "").strip()
+    for names in ((zh, original), (original,), (zh,)):
+        name = " ".join(part for part in names if part)
+        if name and release_year:
+            candidate = f"{name} {release_year} {tail}".strip()
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return candidates
+
+
+async def _tmdb_has_tv(tmdb_id: int) -> bool:
+    """TMDB 的电影编号与电视剧编号各成一套、会重号（如 10096 既是电影《女孩梦三十》也是电视剧《Go》）。
+
+    查不到（没配 TMDB、网络不通）时按“没重号”处理，不因为 TMDB 抖动挡住提交。"""
+    if tmdb_id in _tmdb_tv_collisions:
+        return _tmdb_tv_collisions[tmdb_id]
+    if not settings.tmdb_api_key:
+        return False
+    client = TMDBClient()
+    try:
+        _, params = client._auth()
+        await client._get(f"/tv/{int(tmdb_id)}", params)
+        found = True
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 404:
+            return False
+        found = False
+    except Exception:
+        return False
+    _tmdb_tv_collisions[tmdb_id] = found
+    return found
 
 
 class TMDBClient:
@@ -228,6 +285,12 @@ class TMDBClient:
     async def movie_external_ids(self, tmdb_id: int) -> dict[str, Any]:
         _, params = self._auth()
         return (await self._get(f"/movie/{tmdb_id}/external_ids", params)).json()
+
+    async def movie_translations(self, tmdb_id: int) -> list[dict[str, Any]]:
+        """TMDB 各语言 / 地区的译名与简介（zh-CN 为空时，新加坡、香港、台湾常有中文译名）。"""
+        _, params = self._auth()
+        data = (await self._get(f"/movie/{int(tmdb_id)}/translations", params)).json()
+        return data.get("translations", []) if isinstance(data, dict) else []
 
     async def movie_alternative_titles(self, tmdb_id: int) -> list[str]:
         """TMDB 记录的其他片名（各地区译名、罗马拼音等），站点种子常用其中某个。"""

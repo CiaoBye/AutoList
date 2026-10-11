@@ -104,7 +104,7 @@ def apply_cookie_groups(groups: dict[str, str], site_id: int | None = None, orig
     """Apply decrypted CookieCloud groups to local sites without changing their User-Agent.
 
     Cookie 与现有值完全相同的站点记入 ``unchanged``，不写库也不重置账户统计缓存：
-    定时拉取每 10 分钟一次，否则会让所有站点反复重新读取账户统计并刷屏日志。
+    定时拉取会反复执行，否则会让所有站点反复重新读取账户统计并刷屏日志。
     ``origin``（schedule / expired / manual）只用于记录最近一次整体同步；Cookie 有变化的站点会在后台重新检测。
     """
     updated_ids: list[int] = []

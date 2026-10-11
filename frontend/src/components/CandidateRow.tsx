@@ -66,11 +66,11 @@ export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candida
   return (
     <div class={`candidate${expanded ? " is-expanded" : ""}${selected ? " is-selected" : ""}`}>
       <div class="candidate-main">
-        <span style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-          <span class={`badge ${candidate.recommendation === "preferred" ? "st-candidates" : "st-missing"}`}>{label}</span>
+        <span class="candidate-head">
+          {candidate.recommendation === "preferred" ? null : <span class="badge st-missing">{label}</span>}
           {candidate.is_free ? <span class="badge st-in_library">免费</span> : null}
+          <ReleaseTitle className="candidate-name" title={candidate.title} url={candidate.detail_url} />
         </span>
-        <ReleaseTitle className="candidate-name" title={candidate.title} url={candidate.detail_url} />
         <span class="candidate-meta">
           <ReleaseFacts siteName={candidate.site_name} size={candidate.size} seeders={candidate.seeders} publishDate={candidate.publish_date} />
           {candidate.recommendation_reason ? <span>{candidate.recommendation_reason}</span> : null}

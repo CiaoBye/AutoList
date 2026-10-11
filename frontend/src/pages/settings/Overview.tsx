@@ -4,6 +4,7 @@ import { href } from "../../router";
 import { readTheme, THEMES } from "../../theme";
 import type { CookieCloudSynced } from "../../types";
 import { STRENGTH_TEXT } from "./Appearance";
+import { pullLabel } from "./CookieCloudPanel";
 import { CHECKED_SERVICES, dotClass, serviceDetail, type SettingsHealth } from "./health";
 import { eventLabel, describe, LEVEL_CLASS, LEVEL_TEXT, levelOf, shortStamp } from "./logText";
 import { SectionHead, useAction } from "./shared";
@@ -132,7 +133,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
           ) : (
             <>
               <dl class="overview-facts">
-                <div><dt>同步方式</dt><dd>每 {cc.pull_interval_minutes} 分钟拉取</dd></div>
+                <div><dt>同步方式</dt><dd>{pullLabel(cc.pull_interval_minutes)}</dd></div>
                 <div>
                   <dt>最近同步</dt>
                   <dd>

@@ -313,6 +313,34 @@
   height: 10px;
 }
 
+.todo-empty {
+  margin: var(--space-3) 0 0;
+  font-size: var(--fs-s);
+}
+
+.todo-snoozed {
+  margin-top: auto;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--wash);
+}
+
+.todo-snoozed-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-s);
+  cursor: pointer;
+}
+
+.todo-snoozed-toggle:hover {
+  color: var(--accent);
+}
+
+.todo.is-snoozed {
+  opacity: 0.7;
+}
+
 .todo-text {
   display: flex;
   flex: 1 1 auto;

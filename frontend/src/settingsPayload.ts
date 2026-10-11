@@ -64,6 +64,10 @@ export function buildSettingsPayload(
     } else if (name === "mp_timeout_seconds") {
       const value = Number(form[name]);
       payload[name] = Number.isFinite(value) && value > 0 ? value : 30;
+    } else if (name === "cookiecloud_interval_minutes") {
+      // 0 表示不定时拉取（只在 Cookie 失效或手动同步时拉取）。
+      const value = Math.floor(Number(form[name]));
+      payload[name] = Number.isFinite(value) && value >= 0 ? value : 1440;
     } else if (name === "tmdb_language") {
       payload[name] = text(name) || "zh-CN";
     } else {

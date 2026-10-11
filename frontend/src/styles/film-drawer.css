@@ -189,6 +189,18 @@
   min-width: 0;
 }
 
+/* 标签（保底、免费）与种子名在同一行，标签在前。 */
+.candidate-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.candidate-head .candidate-name {
+  min-width: 0;
+}
+
 .candidate-name,
 .candidate-site-name {
   overflow-wrap: anywhere;

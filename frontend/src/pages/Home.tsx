@@ -43,6 +43,28 @@ interface TodoView {
   action: { label: string; href?: string; run?: () => Promise<void> };
 }
 
+/** “需要你决定”里暂时不想看的事项：忽略后先不显示，数量增加或过了 14 天再提醒（只记在这个浏览器里）。 */
+const SNOOZE_KEY = "autolist.home.todo-snooze";
+const SNOOZE_MS = 14 * 86400000;
+type Snooze = Record<string, { count: number; until: number }>;
+
+const readSnooze = (): Snooze => {
+  try {
+    const value = JSON.parse(localStorage.getItem(SNOOZE_KEY) || "{}");
+    return value && typeof value === "object" ? (value as Snooze) : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeSnooze = (value: Snooze): void => {
+  try {
+    localStorage.setItem(SNOOZE_KEY, JSON.stringify(value));
+  } catch {
+    // 记不住也没关系，只是刷新后会再显示。
+  }
+};
+
 export function startBatchSearch(playlistId: number): Promise<{ total: number }> {
   return api<SearchTaskStarted>("/api/search-tasks", {
     method: "POST",
@@ -57,6 +79,8 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [todosExpanded, setTodosExpanded] = useState(false);
+  const [snooze, setSnooze] = useState<Snooze>(readSnooze);
+  const [showSnoozed, setShowSnoozed] = useState(false);
   const home = useLoad<HomeData>(
     (signal) => api<HomeData>(`/api/home${playlistParam ? `?playlist_id=${encodeURIComponent(playlistParam)}` : ""}`, { signal }),
     [playlistParam],
@@ -239,13 +263,27 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
   const segments = BAR_ORDER.filter((status) => counts[status] > 0);
   const others = segments.filter((status) => status !== "in_library");
 
-  const decisions = data.todos.filter((todo): todo is DecisionTodo => todo.key !== "search_missing");
+  const allDecisions = data.todos.filter((todo): todo is DecisionTodo => todo.key !== "search_missing");
+  const snoozeId = (todo: DecisionTodo) => `${playlistId}:${todo.key}`;
+  const isSnoozed = (todo: DecisionTodo) => {
+    const entry = snooze[snoozeId(todo)];
+    return Boolean(entry) && Date.now() < entry.until && todo.count <= entry.count;
+  };
+  const changeSnooze = (todo: DecisionTodo, on: boolean) => {
+    const next = { ...snooze };
+    if (on) next[snoozeId(todo)] = { count: todo.count, until: Date.now() + SNOOZE_MS };
+    else delete next[snoozeId(todo)];
+    setSnooze(next);
+    writeSnooze(next);
+  };
+  const snoozedTodos = allDecisions.filter(isSnoozed);
+  const decisions = allDecisions.filter((todo) => !isSnoozed(todo));
   const shownTodos = todosExpanded ? decisions : decisions.slice(0, TODO_VISIBLE);
 
   return (
     <main class="page page-home">
       <h1 class="visually-hidden">藏馆</h1>
-      <div class={`home-grid${decisions.length ? "" : " is-solo"}`}>
+      <div class={`home-grid${allDecisions.length ? "" : " is-solo"}`}>
         <section class="card progress-card" aria-label="馆藏进度">
           <div class="progress-head">
             {data.playlists.length > 1 ? (
@@ -312,7 +350,7 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
           </div>
         </section>
 
-        {decisions.length ? (
+        {allDecisions.length ? (
           <section class="card todo-card" aria-labelledby="todo-title">
             <div class="todo-head">
               <h2 id="todo-title" class="section-title">
@@ -324,6 +362,7 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
                 </button>
               ) : null}
             </div>
+            {!decisions.length ? <p class="muted todo-empty">暂时没有要决定的事</p> : null}
             <ul class="todo-list">
                 {shownTodos.map((todo) => {
                   const view = describe(todo);
@@ -342,10 +381,35 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
                           {view.action.label}
                         </a>
                       )}
+                      <button class="btn btn-small" type="button" title="先不显示；数量增加或 14 天后再提醒" onClick={() => changeSnooze(todo, true)}>
+                        忽略
+                      </button>
                     </li>
                   );
                 })}
             </ul>
+            {snoozedTodos.length ? (
+              <div class="todo-snoozed">
+                <button class="todo-snoozed-toggle" type="button" aria-expanded={showSnoozed} onClick={() => setShowSnoozed(!showSnoozed)}>
+                  已忽略 {snoozedTodos.length} 项{showSnoozed ? "（收起）" : ""}
+                </button>
+                {showSnoozed ? (
+                  <ul class="todo-list">
+                    {snoozedTodos.map((todo) => (
+                      <li key={todo.key} class="todo is-snoozed">
+                        <span class="dot" style={{ color: describe(todo).color }} aria-hidden="true" />
+                        <span class="todo-text">
+                          <strong>{describe(todo).title}</strong>
+                        </span>
+                        <button class="btn btn-small" type="button" onClick={() => changeSnooze(todo, false)}>
+                          恢复
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

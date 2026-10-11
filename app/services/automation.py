@@ -529,7 +529,7 @@ async def sync_scheduler() -> None:
                 # starve the independent heartbeat during a slow SQLite pass.
                 await asyncio.to_thread(cleanup_old_data)
                 await refresh_stale_site_account_stats()
-                # 定时从 CookieCloud 拉取站点 Cookie（间隔见 cookiecloud.PULL_INTERVAL_SECONDS）。
+                # 定时从 CookieCloud 拉取站点 Cookie（间隔见设置 cookiecloud_interval_minutes）。
                 if cookiecloud_configured() and pull_due():
                     try:
                         applied = await pull_cookiecloud("schedule")

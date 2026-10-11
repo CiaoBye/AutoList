@@ -25,6 +25,7 @@ from .downloads import enrich_torrent_media, identify_torrents
 from .films import clear_stale_candidates, items_with_usable_candidates, project_films, replaced_stalled_torrents
 from .history import organize_failures
 from .identity import verify_waiting_identities
+from .recognition import backfill_chinese_titles
 from .library import library_recheck_due, recheck_library_states
 from .search import begin_search_task_slot, fetch_downloads_now, invalidate_downloads_snapshot, run_search
 from .sites import test_site_config
@@ -293,6 +294,9 @@ async def _run() -> dict[str, Any]:
         await research_waiting(projected, pending)
         waiting_ids = {film["id"] for film in projected if film["status"] == "missing" and "no_eligible" in film["issues"]}
         flagged = await verify_waiting_identities([item for item in pending if item["id"] in waiting_ids])
+        localized = await backfill_chinese_titles()
+        if localized:
+            event_logger().info("sync_titles_localized", extra={"detail": f"{localized} 部影片的 TMDB 简体中文片名为空，已改用新加坡 / 香港 / 台湾的中文译名"})
         if flagged:
             event_logger().info("sync_identity_flagged", extra={"detail": f"{flagged} 部等待资源的影片 TMDB 识别可能有误，已标记，请核对"})
         downloading_ids = [film["id"] for film in projected if film["status"] == "downloading"]

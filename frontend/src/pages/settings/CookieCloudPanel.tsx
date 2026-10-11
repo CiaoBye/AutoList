@@ -3,10 +3,19 @@ import { api } from "../../api";
 import { formatTime } from "../../format";
 import type { CookieCloudSynced } from "../../types";
 import type { SettingsHealth } from "./health";
-import { DirtyNote, ProviderBadge, SecretField, TextField, useAction, useProviderTest } from "./shared";
+import { DirtyNote, ProviderBadge, SecretField, useAction, useProviderTest } from "./shared";
 import { useSettingsDraft } from "./useSettingsForm";
 
-const FIELDS = ["cookiecloud_url", "cookiecloud_key", "cookiecloud_password"];
+const FIELDS = ["cookiecloud_url", "cookiecloud_key", "cookiecloud_password", "cookiecloud_interval_minutes"];
+/** 定时拉取的间隔选项：0 表示不定时，只在 Cookie 失效或手动同步时拉取（与 MoviePilot 一样默认一天一次）。 */
+const INTERVALS: { value: number; label: string }[] = [
+  { value: 60, label: "每小时" },
+  { value: 360, label: "每 6 小时" },
+  { value: 1440, label: "每天（默认）" },
+  { value: 0, label: "不定时，只在 Cookie 失效或手动同步时" },
+];
+export const pullLabel = (minutes: number): string =>
+  minutes <= 0 ? "只在 Cookie 失效或手动同步时拉取" : minutes % 1440 === 0 ? `每 ${minutes / 1440} 天拉取` : minutes % 60 === 0 ? `每 ${minutes / 60} 小时拉取` : `每 ${minutes} 分钟拉取`;
 const ORIGIN_LABELS: Record<string, string> = { schedule: "定时拉取", expired: "Cookie 失效后重新拉取", manual: "手动同步" };
 
 /** 站点页顶部的 Cookie 来源：一条状态（拉取方式、最近一次同步、未覆盖的站点），连接设置按需展开。 */
@@ -26,7 +35,7 @@ export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth;
     : !cc.configured
       ? "尚未配置"
       : [
-          `每 ${cc.pull_interval_minutes} 分钟从 ${cc.url || "CookieCloud 服务器"} 拉取`,
+          `${pullLabel(cc.pull_interval_minutes)}（来自 ${cc.url || "CookieCloud 服务器"}）`,
           last
             ? `最近 ${formatTime(last.at)} ${ORIGIN_LABELS[last.origin] || "同步"}，更新 ${last.updated.length} 个、${last.unchanged} 个已是最新`
             : "服务重启后还没有同步过",
@@ -79,22 +88,29 @@ export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth;
             void run(save, "CookieCloud 设置已保存", () => health.cookiecloud.reload());
           }}
         >
-          <div class="field-grid">
-            <TextField
-              label="服务器地址"
-              value={text("cookiecloud_url")}
-              onInput={(value) => set("cookiecloud_url", value)}
-              placeholder="http://192.168.x.x:3000/cookiecloud"
-              inputMode="url"
-              hint={cleared.includes("cookiecloud_url") ? "保存后删除已保存的地址" : "留空保存即保留当前地址"}
-            />
-            {configured("cookiecloud_url") ? (
-              <span class="field clear-action">
-                <button class="btn btn-small" type="button" aria-pressed={cleared.includes("cookiecloud_url")} onClick={() => toggleClear("cookiecloud_url")}>
-                  {cleared.includes("cookiecloud_url") ? "撤销清除" : "清除服务器地址"}
-                </button>
+          <div class="field-grid cc-fields">
+            <label class="field">
+              <span class="field-label-row">
+                服务器地址
+                {cleared.includes("cookiecloud_url") ? <span class="badge st-issue">将清除</span> : null}
               </span>
-            ) : null}
+              <span class={`secret-wrap${configured("cookiecloud_url") ? " has-clear" : ""}`}>
+                <input
+                  type="text"
+                  inputMode="url"
+                  autocomplete="off"
+                  value={text("cookiecloud_url")}
+                  placeholder="http://192.168.x.x:3000/cookiecloud"
+                  onInput={(event) => set("cookiecloud_url", (event.target as HTMLInputElement).value)}
+                />
+                {configured("cookiecloud_url") ? (
+                  <button class="btn btn-small secret-clear" type="button" aria-pressed={cleared.includes("cookiecloud_url")} onClick={() => toggleClear("cookiecloud_url")} title={cleared.includes("cookiecloud_url") ? "撤销清除" : "保存时清除已保存的地址"}>
+                    {cleared.includes("cookiecloud_url") ? "撤销" : "清除"}
+                  </button>
+                ) : null}
+              </span>
+              <small class="field-hint">{cleared.includes("cookiecloud_url") ? "保存后删除已保存的地址" : "留空保存即保留当前地址"}</small>
+            </label>
             <SecretField
               label="用户 KEY"
               value={text("cookiecloud_key")}
@@ -112,6 +128,15 @@ export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth;
               cleared={cleared.includes("cookiecloud_password")}
               onToggleClear={() => toggleClear("cookiecloud_password")}
             />
+            <label class="field">
+              <span>定时拉取</span>
+              <select value={String(form.cookiecloud_interval_minutes ?? 1440)} onChange={(event) => set("cookiecloud_interval_minutes", Number((event.target as HTMLSelectElement).value))}>
+                {INTERVALS.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+              <small class="field-hint">站点的 Cookie 失效时会立即补拉一次，所以定时拉取不必太频繁。</small>
+            </label>
           </div>
           <div class="service-row-actions">
             <DirtyNote dirty={dirty} onReset={reset} />

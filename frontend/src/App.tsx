@@ -7,26 +7,27 @@ import { Pick } from "./pages/Pick";
 import { Timeline } from "./pages/Timeline";
 import { Settings } from "./pages/Settings";
 import { href, useRoute, type RouteName } from "./router";
+import { ThemeMenu } from "./components/ThemeMenu";
 import { applyTheme, readTheme, type Theme } from "./theme";
 import type { ConnectionStatus, SearchTask } from "./types";
 import { Downloads } from "./pages/Downloads";
 
 const NAV: { name: RouteName; label: string; path: string; icon: string }[] = [
   { name: "home", label: "藏馆", path: "/", icon: "M3 10l8-6 8 6v9H3z M9 19v-5h4v5" },
-  { name: "films", label: "片单", path: "/films", icon: "M4 5h14M4 11h14M4 17h14" },
-  { name: "pick", label: "挑选", path: "/pick", icon: "M5 11l4 4 8-9" },
-  { name: "downloads", label: "下载", path: "/downloads", icon: "M11 3v11 M6 9l5 5 5-5 M4 19h14" },
-  { name: "timeline", label: "动态", path: "/timeline", icon: "M11 6v5l3 2 M11 20a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" },
-  { name: "settings", label: "设置", path: "/settings", icon: "M11 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M11 2v3M11 17v3M2 11h3M17 11h3" },
+  { name: "films", label: "书目", path: "/films", icon: "M4 5h14M4 11h14M4 17h14" },
+  { name: "pick", label: "遴选", path: "/pick", icon: "M5 11l4 4 8-9" },
+  { name: "downloads", label: "在途", path: "/downloads", icon: "M11 3v11 M6 9l5 5 5-5 M4 19h14" },
+  { name: "timeline", label: "馆志", path: "/timeline", icon: "M11 6v5l3 2 M11 20a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" },
+  { name: "settings", label: "馆务", path: "/settings", icon: "M11 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M11 2v3M11 17v3M2 11h3M17 11h3" },
 ];
 
 const PAGE_TITLES: Record<RouteName, string> = {
   home: "藏馆",
-  films: "片单",
-  pick: "挑选",
-  downloads: "下载",
-  timeline: "动态",
-  settings: "设置",
+  films: "书目",
+  pick: "遴选",
+  downloads: "在途",
+  timeline: "馆志",
+  settings: "馆务",
   not_found: "页面不存在",
 };
 
@@ -40,7 +41,7 @@ function SearchIndicator() {
   const active = (tasks.data || []).filter((task) => task.status === "running" || task.status === "queued");
   if (!active.length) {
     return (
-      <a class="nav-status hide-mobile" href={href("/timeline")} title="查看动态">
+      <a class="nav-status hide-mobile" href={href("/timeline")} title="查看馆志">
         <span class="dot" aria-hidden="true" />
         寻片空闲
       </a>
@@ -75,7 +76,7 @@ function ServiceStatus() {
       class={`nav-status ${!status.data ? "" : failing ? "is-bad" : allOnline ? "is-ok" : ""}`}
       href={href("/settings/services")}
       title={detail || undefined}
-      aria-label={`服务状态：${label}${detail ? `，${detail}` : ""}，打开服务设置`}
+      aria-label={`服务状态：${label}${detail ? `，${detail}` : ""}，打开往来`}
     >
       <span class="dot" aria-hidden="true" />
       {label}
@@ -148,8 +149,7 @@ export function App() {
     return () => window.removeEventListener(AUTH_EVENT, onAuth);
   }, []);
 
-  const toggleTheme = () => {
-    const next: Theme = theme === "archive" ? "cinema" : "archive";
+  const changeTheme = (next: Theme) => {
     applyTheme(next, true);
     setTheme(next);
   };
@@ -229,13 +229,9 @@ export function App() {
             <span class="hide-mobile">
               <ServiceStatus />
             </span>
-            <button class="nav-btn icon-btn" type="button" aria-label={theme === "archive" ? "切换到午夜放映（暗色）" : "切换到馆藏档案（亮色）"} onClick={toggleTheme}>
-              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-                {theme === "archive" ? <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z" /> : <path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6L15 15M5 15l1.4-1.4M13.6 6.4L15 5M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />}
-              </svg>
-            </button>
+            <ThemeMenu theme={theme} onChange={changeTheme} />
             <a class="nav-btn hide-mobile" href={href("/settings")} aria-current={route.name === "settings" ? "page" : undefined}>
-              设置
+              馆务
             </a>
           </div>
         </header>

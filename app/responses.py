@@ -97,6 +97,35 @@ class Candidate(Model):
     site_selection_reason: str
 
 
+class IdentitySuggestion(Model):
+    tmdb_id: int
+    title: str
+    year: int | None = None
+
+
+class IdentityFlag(Model):
+    """等待资源的影片：TMDB 识别与片单来源对不上时的标记（只提示，不自动改）。"""
+
+    reason: str
+    suggested: IdentitySuggestion | None = None
+
+
+class ExcludedCandidate(Model):
+    """不符合入馆标准、但确实是这部影片的资源：可以人工放行。"""
+    id: str
+    title: str
+    site_name: str | None
+    detail_url: str | None
+    publish_date: str | None
+    size: Number | None
+    seeders: int | None
+    resolution: str | None
+    codec: str | None
+    group_name: str | None
+    exclusion_reason: str | None
+    context_available: bool
+
+
 class ExcludedReason(Model):
     reason: str
     count: int
@@ -110,6 +139,10 @@ class FilmHistoryRecord(Model):
     success: int
     message: str
     created_at: str
+
+
+class FilmCleared(Model):
+    cleared: int
 
 
 class FilmSearchSummary(Model):
@@ -129,6 +162,11 @@ class FilmDetail(Film):
     # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
     excluded_summary: list[ExcludedReason]
     excluded_count: int
+    excluded_candidates: list[ExcludedCandidate] = []
+    next_search_at: str | None = None
+    identity_flag: IdentityFlag | None = None
+    # 没选定的候选自动清除的时间（保留 7 天）。
+    candidates_expire_at: str | None = None
     history: list[FilmHistoryRecord]
     search: FilmSearchSummary | None
     search_site_count: int
@@ -193,6 +231,10 @@ class PickItem(Film):
     # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
     excluded_summary: list[ExcludedReason]
     excluded_count: int
+    excluded_candidates: list[ExcludedCandidate] = []
+    next_search_at: str | None = None
+    identity_flag: IdentityFlag | None = None
+    candidates_expire_at: str | None = None
 
 
 class PickSearchProgress(Model):

@@ -8,6 +8,7 @@ import re
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timezone
 from collections import Counter, deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -227,7 +228,12 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
         for item in rows:
             if to_int(item["id"]) not in downloading_ids and torrent_matches_item(item, torrent_title):
                 downloading_ids.add(to_int(item["id"]))
-    queue = [item for item in rows if to_int(item["id"]) not in downloading_ids]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # 等待资源的影片（还没到下一次自动寻片的时间）不进批量寻片的队列，免得每批都白搜一遍。
+    queue = [
+        item for item in rows
+        if to_int(item["id"]) not in downloading_ids and not (item["next_search_at"] and str(item["next_search_at"]) > now_iso)
+    ]
     safe_limit = min(max(1, to_int(limit)), MAX_SEARCH_ITEMS) if limit is not None else MAX_SEARCH_ITEMS
     selected = queue[:safe_limit]
     return {
@@ -236,6 +242,31 @@ async def searchable_playlist_items(playlist_id: int, limit: int | None = None) 
         "downloading_count": len(downloading), "download_state": transmission_state,
         "pending_count": len(queue), "items": rows_to_dicts(selected),
     }
+
+
+# 连续没有合格资源时，下一次自动寻片的间隔（天）：越往后越稀，最长 90 天。
+WAIT_BACKOFF_DAYS = (3, 7, 14, 30, 60, 90)
+
+
+def record_search_outcome(task_id: int, item_id: int, kept: int, had_site_failures: bool) -> None:
+    """记下这部影片本次寻片的结果：有合格资源就清掉“等待”；没有就按退避间隔安排下一次自动寻片。
+
+    有站点没搜成时结果不可靠，不算“没有资源”（不计数、不安排）；同一个任务里补缺等多次写入只计一次。"""
+    from datetime import datetime, timedelta, timezone
+
+    with connect() as conn:
+        row = conn.execute("SELECT wait_streak, wait_task_id FROM playlist_items WHERE id=?", (item_id,)).fetchone()
+        if not row:
+            return
+        if kept > 0:
+            conn.execute("UPDATE playlist_items SET wait_streak=0, next_search_at=NULL, wait_task_id=? WHERE id=?", (task_id, item_id))
+            return
+        if had_site_failures or to_int(row["wait_task_id"]) == task_id:
+            return
+        streak = to_int(row["wait_streak"]) + 1
+        days = WAIT_BACKOFF_DAYS[min(streak, len(WAIT_BACKOFF_DAYS)) - 1]
+        due = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+        conn.execute("UPDATE playlist_items SET wait_streak=?, next_search_at=?, wait_task_id=? WHERE id=?", (streak, due, task_id, item_id))
 
 
 def build_search_queries(item: sqlite3.Row, media: dict[str, Any]) -> list[tuple[str, str | None, str]]:
@@ -821,6 +852,7 @@ async def run_search(task_id: int) -> None:
             task_id, "info", "candidate",
             f"{label} 保留 {len(eligible_keys)} 个可下载候选，记录 {len(excluded_keys)} 个排除样本",
         )
+        record_search_outcome(task_id, to_int(item["id"]), len(eligible_keys), bool(site_failures))
         return len(eligible_keys)
 
     async def process(item: sqlite3.Row) -> dict[str, Any] | None:
@@ -969,7 +1001,7 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
             ])
         else:
             if not searchable:
-                raise HTTPException(422, "没有参与搜索的站点，请先在设置中开启")
+                raise HTTPException(422, "没有参与搜索的站点，请先在馆务中开启")
             # 不记站点快照：开始搜索时读取当时参与搜索的站点。
             try:
                 item_ids = [to_int(value) for value in json.loads(source["item_ids_json"] or "[]")]

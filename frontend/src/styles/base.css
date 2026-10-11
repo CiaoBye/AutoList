@@ -1,5 +1,14 @@
 /* 基础：盒模型、字体与页面底色。 */
 
+/* 暗房红灯主题的标题字体：等宽中文（Noto Sans Mono CJK SC Bold 的子集，OFL）。只有用到它的主题才会下载。 */
+@font-face {
+  font-family: "Noto Sans Mono SC";
+  src: url("../fonts/NotoSansMonoSC-Bold-subset.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 *,
 *::before,
 *::after {
@@ -11,6 +20,8 @@ body {
   margin: 0;
   min-height: 100%;
   background: var(--paper);
+  background-image: var(--page-texture);
+  background-size: var(--page-texture-size);
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--fs-body);
@@ -58,5 +69,7 @@ select {
 }
 
 .serif {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
+  font-weight: var(--heading-weight);
 }

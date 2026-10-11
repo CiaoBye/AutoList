@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS playlist_items (
   emby_image_tag TEXT,
   library_state TEXT NOT NULL DEFAULT 'unknown',
   library_checked_at TEXT,
+  wait_streak INTEGER NOT NULL DEFAULT 0,
+  next_search_at TEXT,
+  wait_task_id INTEGER,
+  failure_dismissed_id INTEGER,
+  candidates_cleared_at TEXT,
+  identity_check TEXT,
   UNIQUE(playlist_id, rank_no)
 );
 CREATE TABLE IF NOT EXISTS library_scan_tasks (

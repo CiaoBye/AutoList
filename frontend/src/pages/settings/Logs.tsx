@@ -84,7 +84,7 @@ export function Logs() {
   return (
     <div class="settings-form">
       <SectionHead
-        title="诊断日志"
+        title="诊断"
         actions={
           <>
             <button class="btn" type="button" onClick={() => void first.reload()}>

@@ -193,8 +193,8 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
             };
       case "no_eligible":
         return {
-          title: `${todo.count} 部没有合格资源`,
-          color: "var(--issue-fg)",
+          title: `${todo.count} 部在等待资源`,
+          color: "var(--muted)",
           action: { label: "查看", href: href("/pick", { status: "no_eligible", playlist: playlistId }) },
         };
       case "submit_failed":
@@ -479,6 +479,7 @@ function Shelf({ title, id, films, playlistId, link, ranked = false, cardWidth, 
               status={film.status}
               issues={film.issues}
             />
+            <span class="shelf-rail" aria-hidden="true" />
             <span class="film-card-title" title={film.title}>{film.title}</span>
             <span class="film-card-sub">
               {film.year ?? "—"} · {film.original_title}

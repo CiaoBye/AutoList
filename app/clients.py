@@ -209,7 +209,7 @@ class TMDBClient:
 
     async def search_movie(self, title: str, year: int | None = None, language: str | None = None) -> list[dict[str, Any]]:
         if not settings.tmdb_api_key:
-            raise RuntimeError("请先在设置中填写 TMDB API Key")
+            raise RuntimeError("请先在馆务中填写 TMDB API Key")
         _, auth_params = self._auth()
         params: dict[str, Any] = {"query": title, "language": language or settings.tmdb_language, **auth_params}
         if year:
@@ -237,13 +237,13 @@ class TMDBClient:
 
     async def movie_details(self, tmdb_id: int) -> dict[str, Any]:
         if not settings.tmdb_api_key:
-            raise RuntimeError("请先在设置中填写 TMDB API Key")
+            raise RuntimeError("请先在馆务中填写 TMDB API Key")
         _, params = self._auth()
         return (await self._get(f"/movie/{int(tmdb_id)}", {"language": settings.tmdb_language, **params})).json()
 
     async def tv_details(self, tmdb_id: int) -> dict[str, Any]:
         if not settings.tmdb_api_key:
-            raise RuntimeError("请先在设置中填写 TMDB API Key")
+            raise RuntimeError("请先在馆务中填写 TMDB API Key")
         _, params = self._auth()
         return (await self._get(f"/tv/{int(tmdb_id)}", {"language": settings.tmdb_language, **params})).json()
 
@@ -303,7 +303,7 @@ class FanartClient:
     async def movie_poster_url(self, tmdb_id: int, original_language: str | None = None) -> str:
         """Return the best poster URL for a TMDB movie, or ``""`` when fanart.tv has none."""
         if not settings.fanart_api_key:
-            raise RuntimeError("请先在设置中填写 Fanart API Key")
+            raise RuntimeError("请先在馆务中填写 Fanart API Key")
         response = await self._movie(int(tmdb_id))
         if response.status_code == 404:
             return ""
@@ -322,7 +322,7 @@ class FanartClient:
     async def movie_background_url(self, tmdb_id: int) -> str:
         """横幅剧照：无字版优先，其次点赞最多；fanart.tv 没有时返回 ``""``。"""
         if not settings.fanart_api_key:
-            raise RuntimeError("请先在设置中填写 Fanart API Key")
+            raise RuntimeError("请先在馆务中填写 Fanart API Key")
         response = await self._movie(int(tmdb_id))
         if response.status_code == 404:
             return ""

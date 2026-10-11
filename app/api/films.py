@@ -19,6 +19,8 @@ from ..schemas import FilmTmdbPayload
 from ..security import safe_error, sanitize_sensitive_text
 from ..services.candidates import candidate_view, latest_candidate_rows
 from ..services.films import (
+    clear_candidates,
+    dismiss_submit_failure,
     FILM_ISSUE_LABELS,
     FILM_STATUSES,
     backdrop_url,
@@ -33,7 +35,8 @@ from ..services.recognition import recognize_item
 from ..services.search import begin_search_task_slot, run_search
 from ..tasks import SEARCH
 from ..util import to_int
-from ..responses import FilmDetail, FilmPage, FilmSearchStarted, TmdbMatch
+from ..services.identity import identity_flag
+from ..responses import FilmCleared, FilmDetail, FilmPage, FilmSearchStarted, TmdbMatch
 
 router = APIRouter()
 MAX_FILM_PAGE_SIZE = 200
@@ -109,10 +112,33 @@ async def film_detail(item_id: int) -> dict[str, Any]:
         "playlist_name": item["playlist_name"],
         "library_checked_at": item.get("library_checked_at"),
         **candidate_view(candidate_rows, site_rows),
+        "next_search_at": item.get("next_search_at"),
+        "identity_flag": identity_flag(item) if "no_eligible" in film["issues"] else None,
         "history": history,
         "search": search,
         "search_site_count": search_sites,
     }
+
+
+@router.post("/api/films/{item_id}/clear-candidates", response_model=FilmCleared)
+async def clear_film_candidates(item_id: int) -> dict[str, Any]:
+    """清除这部影片没选定的候选，让它回到“缺片”、重新进入批量寻片；已选定的保留。"""
+    with connect() as conn:
+        if not film_item(conn, item_id):
+            raise HTTPException(404, "影片不存在")
+        if item_in_active_search(conn, film_item(conn, item_id)["playlist_id"], item_id):
+            raise HTTPException(409, "这部影片正在寻片")
+    return {"cleared": clear_candidates(item_id)}
+
+
+@router.post("/api/films/{item_id}/dismiss-failure", response_model=FilmCleared)
+async def dismiss_film_failure(item_id: int) -> dict[str, Any]:
+    """忽略这部影片的“提交失败”标记（提交记录保留）。"""
+    with connect() as conn:
+        if not film_item(conn, item_id):
+            raise HTTPException(404, "影片不存在")
+    dismiss_submit_failure(item_id)
+    return {"cleared": 1}
 
 
 @router.post("/api/films/{item_id}/search", response_model=FilmSearchStarted)
@@ -128,7 +154,7 @@ async def search_film(item_id: int) -> dict[str, Any]:
         begin_search_task_slot(conn)
         site_ids = searchable_site_ids(conn)
         if not site_ids:
-            raise HTTPException(422, "请先在设置中选择至少一个参与搜索的站点")
+            raise HTTPException(422, "请先在馆务中选择至少一个参与搜索的站点")
         rank = to_int(item["rank_no"] or 0)
         task_id = insert_search_task(
             conn, item["playlist_id"], range_start=rank, range_end=rank, trigger="film", site_ids=site_ids, item_ids=[item_id],
@@ -162,7 +188,7 @@ async def recognize_film(item_id: int) -> dict[str, Any]:
     """按导入时的原名、年份与 IMDb 重新识别这一部影片（整体替换原有识别结果）。"""
     item = _film_row(item_id)
     if not settings.tmdb_api_key:
-        raise HTTPException(422, "请先在设置中填写 TMDB API Key")
+        raise HTTPException(422, "请先在馆务中填写 TMDB API Key")
     try:
         media = await recognize_item(item)
     except Exception as exc:
@@ -183,7 +209,7 @@ async def tmdb_matches(item_id: int, q: str = Query(default="", max_length=120),
     """手动指定用：按关键词在 TMDB 搜索候选影片。"""
     item = _film_row(item_id)
     if not settings.tmdb_api_key:
-        raise HTTPException(422, "请先在设置中填写 TMDB API Key")
+        raise HTTPException(422, "请先在馆务中填写 TMDB API Key")
     query = q.strip() or str(item["original_title"])
     search_year = year if q.strip() else (year or item.get("year"))
     try:
@@ -211,7 +237,7 @@ async def set_film_tmdb(item_id: int, payload: FilmTmdbPayload) -> dict[str, Any
     """手动指定 TMDB 影片，覆盖自动识别结果。"""
     item = _film_row(item_id)
     if not settings.tmdb_api_key:
-        raise HTTPException(422, "请先在设置中填写 TMDB API Key")
+        raise HTTPException(422, "请先在馆务中填写 TMDB API Key")
     try:
         details = await TMDBClient().movie_details(payload.tmdb_id)
     except httpx.HTTPStatusError as exc:

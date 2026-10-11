@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.requests import ClientDisconnect
 
 from ..clients import TransmissionClient
 from ..responses import SyncEventAccepted, SyncResult, SyncStatus, SyncWebhooks
@@ -37,7 +38,7 @@ async def _webhooks(token: str) -> dict[str, Any]:
 
 @router.get("/api/sync/webhooks", response_model=SyncWebhooks)
 async def sync_webhooks() -> dict[str, Any]:
-    """三方推送事件的地址（相对路径，含密钥）与 Transmission 脚本钩子的启用情况，供设置里的“联动”页展示。"""
+    """三方推送事件的地址（相对路径，含密钥）与 Transmission 脚本钩子的启用情况，供馆务里的“联动”页展示。"""
     return await _webhooks(sync_events.sync_token())
 
 
@@ -58,7 +59,12 @@ async def sync_event(source: str, request: Request) -> dict[str, Any]:
     if not sync_events.authorized(request.query_params.get("token"), client_ip):
         raise HTTPException(401, "事件密钥无效")
     query = {key: value for key, value in request.query_params.items() if key != "token"}
-    hint = sync_events.parse(source, await request.body(), query)
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        # 推送方（如 Transmission 的脚本）超时挂断：事件只是提示，下一次同步照常会读到最新状态。
+        return {"accepted": False}
+    hint = sync_events.parse(source, body, query)
     if hint is None:
         return {"accepted": False}
     sync_events.handle(hint)

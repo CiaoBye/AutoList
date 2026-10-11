@@ -40,7 +40,9 @@
 .brand span {
   padding-left: var(--space-3);
   border-left: 1px solid var(--nav-line);
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
+  font-weight: var(--heading-weight);
   font-size: var(--fs-body);
   color: var(--nav-muted);
 }
@@ -112,10 +114,10 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--control-h-s);
+  min-height: var(--control-h);
   padding: 0 var(--space-3);
   border: 1px solid var(--nav-line);
-  border-radius: 999px;
+  border-radius: var(--radius-m);
   background: var(--nav-chip-bg);
   color: var(--nav-ink);
   font-size: var(--fs-m);
@@ -129,6 +131,67 @@
 }
 
 .nav-status.is-ok .dot { color: var(--nav-ok); }
+
+/* 主题菜单：顶栏按钮显示当前主题的色块，点开是四套主题的列表。 */
+.theme-menu {
+  position: relative;
+}
+
+/* 顶栏上的图标随当前主题变化，用主题的点缀色。 */
+.theme-icon {
+  display: flex;
+  color: var(--nav-accent);
+}
+
+.theme-pop {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 236px;
+  padding: var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+  color: var(--ink);
+  white-space: normal;
+}
+
+.theme-pop-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-pop-item:hover {
+  background: var(--wash);
+}
+
+.theme-pop-item[aria-checked="true"] {
+  border-color: var(--accent);
+}
+
+.theme-pop-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.theme-pop-text small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
 
 .nav-status.is-busy { color: var(--nav-busy); border-color: currentColor; }
 
@@ -172,7 +235,7 @@
   min-height: var(--control-h-s);
   padding: 0 var(--space-3);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-m);
   background: var(--wash);
   color: var(--ink-2);
   font-size: var(--fs-s);

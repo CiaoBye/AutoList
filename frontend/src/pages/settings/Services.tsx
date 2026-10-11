@@ -238,7 +238,7 @@ export function Services({ health }: { health: SettingsHealth }) {
   return (
     <div class="settings-form">
       <SectionHead
-        title="服务连接"
+        title="往来"
         actions={
           <>
             {checked ? <span class="muted section-meta">检测于 {String(checked.getHours()).padStart(2, "0")}:{String(checked.getMinutes()).padStart(2, "0")}</span> : null}

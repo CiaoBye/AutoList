@@ -243,7 +243,7 @@ export function Playlists() {
   return (
     <div class="settings-form">
       <SectionHead
-        title="片单管理"
+        title="编目"
         actions={
           <button class="btn btn-primary" type="button" onClick={() => setImporting(true)}>
             导入片单

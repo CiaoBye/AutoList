@@ -1,33 +1,40 @@
 /*
  * 设计令牌：主题只是这组变量的取值。
  * 组件样式只能引用变量，禁止按主题写组件选择器，避免主题之间互相覆盖。
+ *
+ * 四套主题是四种“馆”的样子，不只是四种颜色：除了配色，还各自定义标题字体、圆角、海报边框、书架线、
+ * 徽标样式、馆藏号前缀、页面底纹与缺藏位的样子（下面带“馆”标注的那组变量）。
+ *   paper    宣纸朱砂（浅）典籍与印章
+ *   jade     青绿山水（浅）卷轴与签条
+ *   lacquer  玄漆描金（深）漆器与装裱
+ *   darkroom 暗房红灯（深）胶片与场记
  */
 :root,
-[data-theme="archive"] {
+[data-theme="paper"] {
   color-scheme: light;
-  --paper: #f4f1ea;
-  --surface: #fffdf8;
-  --ink: #1b1a17;
-  --ink-2: #3d3a34;
-  --muted: #5e5a52;
-  --line: #e2dccf;
-  --line-strong: #d9d2c3;
-  --wash: #ece7dc;
-  --accent: #9a3412;
+  --paper: #f3ede0;
+  --surface: #fbf7ec;
+  --ink: #1e1b16;
+  --ink-2: #3d382f;
+  --muted: #5f5748;
+  --line: #ddd3bd;
+  --line-strong: #d2c7ad;
+  --wash: #ebe3d1;
+  --accent: #b3261e;
   --accent-ink: #ffffff;
-  --accent-hover: #7c2d12;
+  --accent-hover: #8e1f19;
   --focus: #1d4e89;
-  --overlay: rgba(27, 26, 23, 0.36);
-  --shadow: 0 1px 2px rgba(27, 26, 23, 0.06), 0 8px 24px rgba(27, 26, 23, 0.06);
-  --shadow-lift: 0 10px 24px rgba(27, 26, 23, 0.2);
-  --shadow-pop: 0 -8px 24px rgba(27, 26, 23, 0.16);
+  --overlay: rgba(30, 27, 22, 0.36);
+  --shadow: 0 1px 2px rgba(30, 27, 22, 0.06), 0 8px 24px rgba(30, 27, 22, 0.06);
+  --shadow-lift: 0 10px 24px rgba(30, 27, 22, 0.2);
+  --shadow-pop: 0 -8px 24px rgba(30, 27, 22, 0.16);
 
-  --st-unrecognized-fg: #9b2c2c;
-  --st-unrecognized-bg: #f6e0de;
-  --st-unchecked-fg: #5e5a52;
-  --st-unchecked-bg: #f4f1ea;
-  --st-missing-fg: #5e5a52;
-  --st-missing-bg: #ece7dc;
+  --st-unrecognized-fg: #8e1f19;
+  --st-unrecognized-bg: #f4dedb;
+  --st-unchecked-fg: #5f5748;
+  --st-unchecked-bg: #f3ede0;
+  --st-missing-fg: #5f5748;
+  --st-missing-bg: #ebe3d1;
   --st-searching-fg: #1d4e89;
   --st-searching-bg: #e1eaf6;
   --st-candidates-fg: #8a5a00;
@@ -36,11 +43,11 @@
   --st-selected-bg: #fbf3df;
   --st-downloading-fg: #1d4e89;
   --st-downloading-bg: #eaf0f9;
-  --st-in_library-fg: #2f6b4f;
-  --st-in_library-bg: #e3efe7;
-  --issue-fg: #9b2c2c;
-  --issue-bg: #f6e0de;
-  --bar-missing: #b9b1a2;
+  --st-in_library-fg: #2f5a44;
+  --st-in_library-bg: #e3ecdf;
+  --issue-fg: #8e1f19;
+  --issue-bg: #f4dedb;
+  --bar-missing: #bdb298;
 
   --poster-1: #3f2a2a;
   --poster-2: #2e3b36;
@@ -48,51 +55,169 @@
   --poster-4: #4a3b2a;
   --poster-5: #33303b;
   --poster-6: #3b3a2a;
-  --poster-ink: #f4f1ea;
+  --poster-ink: #f3ede0;
 
-  /* 顶栏：浅色主题用浅色纸张底、深色字，强调色做当前页的下划线与底色。 */
-  --nav-bg: #fffdf8;
-  --nav-ink: #1b1a17;
-  --nav-muted: #5e5a52;
-  --nav-line: rgba(27, 26, 23, 0.16);
-  --nav-hover: rgba(27, 26, 23, 0.05);
-  --nav-accent: #9a3412;
-  --nav-active-bg: rgba(154, 52, 18, 0.1);
-  --nav-chip-bg: #fffdf8;
-  --nav-edge: #d9d2c3;
-  --nav-fill: linear-gradient(180deg, #fcfaf5 0%, #f4f1ea 100%);
-  --nav-shadow: 0 1px 0 #ddd6c8;
-  --nav-ok: #2f6b4f;
+  --nav-bg: #fbf7ec;
+  --nav-ink: #1e1b16;
+  --nav-muted: #5f5748;
+  --nav-line: rgba(30, 27, 22, 0.16);
+  --nav-hover: rgba(30, 27, 22, 0.05);
+  --nav-accent: #b3261e;
+  --nav-active-bg: rgba(179, 38, 30, 0.1);
+  --nav-chip-bg: #fbf7ec;
+  --nav-edge: #d2c7ad;
+  --nav-fill: linear-gradient(180deg, #fcf9f1 0%, #f3ede0 100%);
+  --nav-shadow: 0 1px 0 #ddd3bd;
+  --nav-ok: #2f5a44;
   --nav-busy: #1d4e89;
-  --nav-bad: #9b2c2c;
+  --nav-bad: #8e1f19;
   --nav-warn: #8a5a00;
+
+  /* 馆：形状与质感。典籍：宋体标题、方正小圆角、墨线框加纸影的海报、朱文印章徽标、墨线书架。 */
+  --font-heading: var(--font-serif);
+  --heading-tracking: 0.04em;
+  --radius-s: 3px;
+  --radius-m: 4px;
+  --radius-l: 6px;
+  --page-texture: radial-gradient(rgba(120, 100, 60, 0.07) 1px, transparent 1.2px);
+  --page-texture-size: 7px 7px;
+  --poster-radius: 2px;
+  --poster-border: 1px solid var(--ink);
+  --poster-shadow: 2px 2px 0 var(--line-strong);
+  --poster-inset: none;
+  --poster-sprocket: none;
+  --badge-radius: 2px;
+  --badge-border: 1.5px solid currentColor;
+  --badge-fill: 45%;
+  --badge-font: var(--font-serif);
+  --rail-h: 0;
+  --rail-fill: transparent;
+  --rail-top: 1.5px solid var(--ink);
+  --rail-bottom: 1px solid var(--ink);
+  --rank-prefix: "No.";
+  --vacant-line: var(--muted);
+  --heading-weight: 700;
+  /* 馆志账页与在途清单：栏线、行线与路程刻度。 */
+  --ledger-margin: 1px solid var(--accent);
+  --ledger-rule: 1px solid var(--line);
 }
 
-[data-theme="cinema"] {
+[data-theme="jade"] {
+  color-scheme: light;
+  --paper: #eef1ea;
+  --surface: #f8faf4;
+  --ink: #1c2a26;
+  --ink-2: #34453f;
+  --muted: #52645e;
+  --line: #cfd8cc;
+  --line-strong: #c2cdc0;
+  --wash: #e2e9df;
+  --accent: #2f6f6a;
+  --accent-ink: #ffffff;
+  --accent-hover: #245853;
+  --focus: #2b5f9e;
+  --overlay: rgba(28, 42, 38, 0.36);
+  --shadow: 0 1px 2px rgba(28, 42, 38, 0.06), 0 8px 24px rgba(28, 42, 38, 0.06);
+  --shadow-lift: 0 10px 24px rgba(28, 42, 38, 0.2);
+  --shadow-pop: 0 -8px 24px rgba(28, 42, 38, 0.16);
+
+  --st-unrecognized-fg: #9b2c2c;
+  --st-unrecognized-bg: #f4e0dc;
+  --st-unchecked-fg: #52645e;
+  --st-unchecked-bg: #eef1ea;
+  --st-missing-fg: #52645e;
+  --st-missing-bg: #e2e9df;
+  --st-searching-fg: #2b5a8a;
+  --st-searching-bg: #e0ebf4;
+  --st-candidates-fg: #7a5a12;
+  --st-candidates-bg: #f2e6c9;
+  --st-selected-fg: #7a5a12;
+  --st-selected-bg: #f6edd5;
+  --st-downloading-fg: #2b5a8a;
+  --st-downloading-bg: #e6eff7;
+  --st-in_library-fg: #245a47;
+  --st-in_library-bg: #dcebe4;
+  --issue-fg: #9b2c2c;
+  --issue-bg: #f4e0dc;
+  --bar-missing: #b5c2b7;
+
+  --poster-1: #2c3d39;
+  --poster-2: #3f5a52;
+  --poster-3: #2b3d4a;
+  --poster-4: #4a4a35;
+  --poster-5: #33403b;
+  --poster-6: #3a4a45;
+  --poster-ink: #f4f6ef;
+
+  --nav-bg: #f8faf4;
+  --nav-ink: #1c2a26;
+  --nav-muted: #52645e;
+  --nav-line: rgba(28, 42, 38, 0.16);
+  --nav-hover: rgba(28, 42, 38, 0.05);
+  --nav-accent: #2f6f6a;
+  --nav-active-bg: rgba(47, 111, 106, 0.12);
+  --nav-chip-bg: #f8faf4;
+  --nav-edge: #c2cdc0;
+  --nav-fill: linear-gradient(180deg, #fafcf6 0%, #eef1ea 100%);
+  --nav-shadow: 0 1px 0 #cfd8cc;
+  --nav-ok: #245a47;
+  --nav-busy: #2b5a8a;
+  --nav-bad: #9b2c2c;
+  --nav-warn: #7a5a12;
+
+  /* 馆：卷轴。楷体标题、大圆角、绢边海报、竹签式徽标（一端方、一端圆）、铜轴书架。 */
+  --font-heading: "Kaiti SC", "STKaiti", "KaiTi", "Noto Serif SC", var(--font-serif);
+  --heading-tracking: 0.06em;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 18px;
+  --page-texture: linear-gradient(180deg, rgba(47, 111, 106, 0.06), transparent 320px);
+  --page-texture-size: 100% 100%;
+  --poster-radius: 8px;
+  --poster-border: 3px solid var(--surface);
+  --poster-shadow: 0 0 0 1px var(--line-strong);
+  --poster-inset: none;
+  --poster-sprocket: none;
+  --badge-radius: 2px 999px 999px 2px;
+  --badge-border: 1px solid currentColor;
+  --badge-fill: 100%;
+  --badge-font: var(--font-sans);
+  --rail-h: 6px;
+  --rail-fill: linear-gradient(90deg, #b08d3c, #d9bd78, #b08d3c);
+  --rail-top: 0 solid transparent;
+  --rail-bottom: 0 solid transparent;
+  --rank-prefix: "卷 ";
+  --vacant-line: #8da398;
+  --heading-weight: 700;
+  --ledger-margin: 1px solid var(--line-strong);
+  --ledger-rule: 1px dashed var(--line-strong);
+}
+
+[data-theme="lacquer"] {
   color-scheme: dark;
-  --paper: #0f1618;
-  --surface: #172124;
-  --ink: #eef3f0;
-  --ink-2: #c9d3cf;
-  --muted: #9daaa6;
-  --line: #26343a;
-  --line-strong: #33444b;
-  --wash: #1e2a2e;
-  --accent: #e08a5b;
-  --accent-ink: #1b1a17;
-  --accent-hover: #eba27a;
+  --paper: #14110f;
+  --surface: #1f1a17;
+  --ink: #efe6d6;
+  --ink-2: #d2c8b7;
+  --muted: #9d9382;
+  --line: #38302a;
+  --line-strong: #4a4037;
+  --wash: #2a231f;
+  --accent: #d4a24c;
+  --accent-ink: #14110f;
+  --accent-hover: #e2b866;
   --focus: #8fb8ea;
   --overlay: rgba(0, 0, 0, 0.55);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
   --shadow-lift: 0 10px 24px rgba(0, 0, 0, 0.5);
   --shadow-pop: 0 -8px 24px rgba(0, 0, 0, 0.4);
 
-  --st-unrecognized-fg: #f0a39e;
-  --st-unrecognized-bg: #3a2322;
-  --st-unchecked-fg: #b7c1bd;
-  --st-unchecked-bg: #172124;
-  --st-missing-fg: #b7c1bd;
-  --st-missing-bg: #243034;
+  --st-unrecognized-fg: #f0a79e;
+  --st-unrecognized-bg: #4a2420;
+  --st-unchecked-fg: #b8ad9b;
+  --st-unchecked-bg: #1f1a17;
+  --st-missing-fg: #b8ad9b;
+  --st-missing-bg: #2a231f;
   --st-searching-fg: #8fb8ea;
   --st-searching-bg: #1c2b40;
   --st-candidates-fg: #e7c274;
@@ -101,35 +226,156 @@
   --st-selected-bg: #2b2413;
   --st-downloading-fg: #8fb8ea;
   --st-downloading-bg: #18243a;
-  --st-in_library-fg: #7fc4a1;
-  --st-in_library-bg: #1d3129;
-  --issue-fg: #f0a39e;
-  --issue-bg: #3a2322;
-  --bar-missing: #4a5a5f;
+  --st-in_library-fg: #8fcfa8;
+  --st-in_library-bg: #233a2e;
+  --issue-fg: #f0a79e;
+  --issue-bg: #4a2420;
+  --bar-missing: #5a4f44;
 
-  --poster-1: #3a2626;
-  --poster-2: #243631;
-  --poster-3: #232d3d;
-  --poster-4: #3f3223;
-  --poster-5: #2b2833;
-  --poster-6: #333222;
-  --poster-ink: #eef3f0;
+  --poster-1: #3a2b24;
+  --poster-2: #2f3a33;
+  --poster-3: #2b3040;
+  --poster-4: #4a3a22;
+  --poster-5: #352f3b;
+  --poster-6: #3b3a26;
+  --poster-ink: #efe6d6;
 
-  --nav-bg: #0a1113;
-  --nav-ink: #eef3f0;
-  --nav-muted: #93a19c;
-  --nav-line: rgba(238, 243, 240, 0.12);
-  --nav-hover: rgba(238, 243, 240, 0.07);
-  --nav-accent: #e08a5b;
-  --nav-active-bg: rgba(224, 138, 91, 0.16);
-  --nav-chip-bg: rgba(238, 243, 240, 0.06);
-  --nav-edge: rgba(238, 243, 240, 0.12);
-  --nav-fill: linear-gradient(180deg, #0a1113 0%, #111b1e 100%);
-  --nav-shadow: 0 1px 0 rgba(238, 243, 240, 0.1), 0 12px 24px -14px rgba(0, 0, 0, 0.5);
-  --nav-ok: #7fc4a1;
+  --nav-bg: #0e0c0a;
+  --nav-ink: #efe6d6;
+  --nav-muted: #9d9382;
+  --nav-line: rgba(239, 230, 214, 0.12);
+  --nav-hover: rgba(239, 230, 214, 0.07);
+  --nav-accent: #d4a24c;
+  --nav-active-bg: rgba(212, 162, 76, 0.16);
+  --nav-chip-bg: rgba(239, 230, 214, 0.06);
+  --nav-edge: rgba(239, 230, 214, 0.12);
+  --nav-fill: linear-gradient(180deg, #0e0c0a 0%, #17130f 100%);
+  --nav-shadow: 0 1px 0 rgba(239, 230, 214, 0.1), 0 12px 24px -14px rgba(0, 0, 0, 0.5);
+  --nav-ok: #8fcfa8;
   --nav-busy: #8fb8ea;
-  --nav-bad: #f0a39e;
+  --nav-bad: #f0a79e;
   --nav-warn: #e7c274;
+
+  /* 馆：漆器与装裱。宋体、近乎直角、金线双框装裱的海报、描金方框徽标、金线书架。 */
+  --font-heading: var(--font-serif);
+  --heading-tracking: 0.1em;
+  --radius-s: 2px;
+  --radius-m: 2px;
+  --radius-l: 4px;
+  --page-texture: linear-gradient(90deg, rgba(255, 255, 255, 0.025), transparent 30%, rgba(255, 255, 255, 0.02));
+  --page-texture-size: 100% 100%;
+  --poster-radius: 0;
+  --poster-border: 1px solid var(--accent);
+  --poster-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  --poster-inset: inset 0 0 0 3px #14110f, inset 0 0 0 4px #8a6a2f;
+  --poster-sprocket: none;
+  --badge-radius: 0;
+  --badge-border: 1px solid currentColor;
+  --badge-fill: 60%;
+  --badge-font: var(--font-serif);
+  --rail-h: 3px;
+  --rail-fill: transparent;
+  --rail-top: 1px solid var(--accent);
+  --rail-bottom: 3px double #8a6a2f;
+  --rank-prefix: "藏 ";
+  --vacant-line: #6b5a3a;
+  --heading-weight: 700;
+  --ledger-margin: 1px solid #8a6a2f;
+  --ledger-rule: 1px solid var(--line);
+}
+
+[data-theme="darkroom"] {
+  color-scheme: dark;
+  --paper: #120c0c;
+  --surface: #1c1313;
+  --ink: #e8d9d4;
+  --ink-2: #cdbcb6;
+  --muted: #9a8680;
+  --line: #3a2a28;
+  --line-strong: #4d3835;
+  --wash: #281b1a;
+  --accent: #e0453a;
+  --accent-ink: #120c0c;
+  --accent-hover: #ec6258;
+  --focus: #8fb8ea;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lift: 0 10px 24px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 -8px 24px rgba(0, 0, 0, 0.45);
+
+  --st-unrecognized-fg: #f2a29a;
+  --st-unrecognized-bg: #4a1f1b;
+  --st-unchecked-fg: #b5a39d;
+  --st-unchecked-bg: #1c1313;
+  --st-missing-fg: #b5a39d;
+  --st-missing-bg: #281b1a;
+  --st-searching-fg: #8fb8ea;
+  --st-searching-bg: #1c2b40;
+  --st-candidates-fg: #e7c274;
+  --st-candidates-bg: #3a2f17;
+  --st-selected-fg: #e7c274;
+  --st-selected-bg: #2b2413;
+  --st-downloading-fg: #8fb8ea;
+  --st-downloading-bg: #18243a;
+  --st-in_library-fg: #8fd0a8;
+  --st-in_library-bg: #1f3a2c;
+  --issue-fg: #f2a29a;
+  --issue-bg: #4a1f1b;
+  --bar-missing: #5a4340;
+
+  --poster-1: #3a2323;
+  --poster-2: #2a2f2c;
+  --poster-3: #26282f;
+  --poster-4: #3d2c24;
+  --poster-5: #2d2630;
+  --poster-6: #322c24;
+  --poster-ink: #e8d9d4;
+
+  --nav-bg: #0b0707;
+  --nav-ink: #e8d9d4;
+  --nav-muted: #9a8680;
+  --nav-line: rgba(232, 217, 212, 0.12);
+  --nav-hover: rgba(232, 217, 212, 0.07);
+  --nav-accent: #e0453a;
+  --nav-active-bg: rgba(224, 69, 58, 0.16);
+  --nav-chip-bg: rgba(232, 217, 212, 0.06);
+  --nav-edge: rgba(232, 217, 212, 0.12);
+  --nav-fill: linear-gradient(180deg, #0b0707 0%, #150e0e 100%);
+  --nav-shadow: 0 1px 0 rgba(232, 217, 212, 0.1), 0 12px 24px -14px rgba(0, 0, 0, 0.55);
+  --nav-ok: #8fd0a8;
+  --nav-busy: #8fb8ea;
+  --nav-bad: #f2a29a;
+  --nav-warn: #e7c274;
+
+  /* 馆：胶片与场记。等宽标题、胶片孔边的海报、场记板式徽标、红灯书架线、颗粒底纹。 */
+  /* 等宽中文：内置 Noto Sans Mono CJK SC Bold 的子集（见 fonts/），汉字与字母同宽，像场记板上的刻字。 */
+  --font-heading: "Noto Sans Mono SC", var(--font-mono), "PingFang SC", "Heiti SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --heading-tracking: 0.04em;
+  --heading-weight: 700;
+  --radius-s: 3px;
+  --radius-m: 5px;
+  --radius-l: 8px;
+  --page-texture: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1.2px);
+  --page-texture-size: 4px 4px;
+  --poster-radius: 2px;
+  --poster-border: 1px solid #000;
+  --poster-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  --poster-inset: inset 7px 0 0 #000, inset -7px 0 0 #000;
+  --poster-sprocket:
+    repeating-linear-gradient(180deg, transparent 0 4px, #8a6560 4px 8px, transparent 8px 12px) left 1.5px top 2px / 4px 100% no-repeat,
+    repeating-linear-gradient(180deg, transparent 0 4px, #8a6560 4px 8px, transparent 8px 12px) right 1.5px top 2px / 4px 100% no-repeat;
+  --badge-radius: 2px;
+  --badge-border: 1px solid currentColor;
+  --badge-fill: 100%;
+  --badge-font: var(--font-mono);
+  --rail-h: 3px;
+  --rail-fill: var(--accent);
+  --rail-top: 0 solid transparent;
+  --rail-bottom: 0 solid transparent;
+  --rank-prefix: "REEL ";
+  --vacant-line: #6b4a46;
+  --ledger-margin: 1px solid var(--accent);
+  --ledger-rule: 1px dashed var(--line-strong);
 }
 
 @media (pointer: coarse) {
@@ -162,10 +408,7 @@
   --space-6: 24px;
   --space-7: 32px;
   --space-8: 48px;
-  /* 圆角：标签与小控件 / 按钮、输入框、卡片内元素 / 卡片与浮层。 */
-  --radius-s: 6px;
-  --radius-m: 8px;
-  --radius-l: 14px;
+  /* 圆角（--radius-s / -m / -l：标签与小控件 / 按钮、输入框、卡片内元素 / 卡片与浮层）随主题取值，见上面各主题。 */
   /* 控件高度：标准 40（触屏 44），小号 32（触屏 36）。 */
   --control-h: 40px;
   --control-h-s: 32px;
@@ -174,6 +417,7 @@
   --dur-1: 120ms;
   --dur-2: 200ms;
   --dur-3: 320ms;
+  --route-tick: color-mix(in srgb, var(--ink) 30%, transparent);
   --nav-height: 72px;
   --tab-height: 64px;
   --page-gutter: clamp(16px, 4vw, 64px);

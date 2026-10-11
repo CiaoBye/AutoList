@@ -87,7 +87,9 @@
 
 .film-hero h2 {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
+  font-weight: var(--heading-weight);
   font-size: var(--fs-xl);
   line-height: 1.25;
 }
@@ -352,4 +354,95 @@ a.candidate-site-name:hover {
   .film-hero.has-banner .film-meta {
     padding-top: 76px;
   }
+}
+
+/* 等待资源：被排除原因的一句话说明，以及可人工放行的资源。 */
+.excluded-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+
+.excluded-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.excluded-text {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.excluded-release summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: var(--fs-m);
+}
+
+.excluded-release ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.excluded-release li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.excluded-release-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.excluded-release-title {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-s);
+}
+
+/* 候选的操作条：靠右的一小排按钮。 */
+.candidate-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* 等待资源：TMDB 识别可能有误的提示。 */
+.identity-flag {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  font-size: var(--fs-s);
+}
+
+.identity-flag strong {
+  color: var(--accent);
+  font-size: var(--fs-m);
 }

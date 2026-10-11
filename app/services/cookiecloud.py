@@ -64,7 +64,7 @@ def _reason(exc: Exception, key: str) -> str:
 async def fetch_cookiecloud() -> dict[str, Any]:
     """从设置里的 CookieCloud 服务器取回密文并解密，返回 CookieCloud 原始数据。"""
     if not cookiecloud_configured():
-        raise HTTPException(422, "请先在设置中填写 CookieCloud 服务器地址、用户 KEY 与端对端加密密码")
+        raise HTTPException(422, "请先在馆务中填写 CookieCloud 服务器地址、用户 KEY 与端对端加密密码")
     uuid_value = settings.cookiecloud_key.strip()
     server = settings.cookiecloud_url.strip().rstrip("/")
     if server.endswith("/cookiecloud"):

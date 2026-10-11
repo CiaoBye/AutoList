@@ -1,14 +1,10 @@
 import { useState } from "preact/hooks";
 import { getToken, setToken } from "../../api";
 import { useToast } from "../../hooks";
-import { applyTheme, readTheme, type Theme } from "../../theme";
+import { applyTheme, readTheme, THEMES, type Theme } from "../../theme";
+import { ThemeTile } from "../../components/ThemeIcon";
 import { CardHead, DirtyNote, SectionHead, SwitchRow, useAction } from "./shared";
 import { useSettingsForm } from "./useSettingsForm";
-
-export const THEMES: { id: Theme; name: string }[] = [
-  { id: "archive", name: "馆藏档案" },
-  { id: "cinema", name: "午夜放映" },
-];
 
 export const STRENGTH_TEXT: Record<string, string> = {
   missing: "服务端未启用访问令牌：同一网络内任何人都能访问。只适合可信内网；映射到公网前务必设置 AUTOLIST_ACCESS_TOKEN。",
@@ -32,7 +28,7 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
 
   return (
     <div class="settings-form">
-      <SectionHead title="外观与访问" />
+      <SectionHead title="外观" />
 
       <section class="card setting-card" aria-labelledby="appearance-theme">
         <CardHead id="appearance-theme" title="主题" />
@@ -41,9 +37,10 @@ export function Appearance({ onThemeChange }: { onThemeChange: (theme: Theme) =>
             {THEMES.map((item) => (
               <label key={item.id} class={`theme-option theme-option-${item.id}`}>
                 <input type="radio" name="theme" checked={theme === item.id} onChange={() => choose(item.id)} />
-                <span class="theme-swatch" aria-hidden="true" />
+                <ThemeTile theme={item.id} paper={item.paper} accent={item.accent} size={36} />
                 <span>
                   <strong>{item.name}</strong>
+                  <small class="muted">{item.tagline}</small>
                 </span>
               </label>
             ))}

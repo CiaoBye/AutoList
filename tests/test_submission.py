@@ -307,6 +307,10 @@ class SelectionApiTests(SeededPlaylistTestCase):
         self.assertEqual(result["submitted"], 0)
         self.assertEqual(result["skipped"][0]["reason"], "Transmission 正在下载")
         download_mock.assert_not_awaited()
+        # 被跳过的资源不会再被提交，随即从待入馆清单移出。
+        with connect() as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM selection_items WHERE candidate_id=?", ("downloading-candidate",)).fetchone())
+            conn.execute("INSERT INTO selection_items(candidate_id,selected_at) VALUES(?,?)", ("downloading-candidate", utc_now()))
         # 同一影片的种子停滞超过 24 小时、没有做种者：不再当作“正在下载”，允许换一个资源提交。
         import time as clock
 

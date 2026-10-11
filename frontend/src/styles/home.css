@@ -45,7 +45,8 @@
 }
 
 .progress-playlist-name {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
   font-size: var(--fs-l);
   font-weight: 700;
 }
@@ -245,7 +246,8 @@
   border-radius: var(--radius-m);
   background-color: transparent;
   color: var(--ink);
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
   font-size: var(--fs-l);
   font-weight: 700;
   cursor: pointer;

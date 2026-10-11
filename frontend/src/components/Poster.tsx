@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { posterTone } from "../format";
+import { posterTone, rankDigits } from "../format";
 import { ISSUE_LABELS, STATUS_BAR_COLOR, STATUS_LABELS } from "../status";
 import type { FilmIssue, FilmStatus } from "../types";
 
@@ -42,7 +42,7 @@ export function Poster({ id, title, rank, url, status, issues = [] }: PosterProp
           onError={() => setFailed(true)}
         />
       )}
-      <span class="poster-rank">{rank ? `#${rank}` : ""}</span>
+      <span class={rank ? "poster-rank rank-no" : "poster-rank"}>{rank ? rankDigits(rank) : ""}</span>
       <span class="poster-title">{title}</span>
       {status ? <PosterState status={status} issues={issues} /> : null}
     </span>

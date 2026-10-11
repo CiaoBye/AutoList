@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError } from "../api";
 import { CandidateRow } from "../components/CandidateRow";
+import { CandidateTools } from "../components/CandidateTools";
+import { ExcludedPanel } from "../components/ExcludedPanel";
 import { Poster } from "../components/Poster";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
-import { formatSize } from "../format";
+import { formatSize, rankDigits, releaseConfirmText } from "../format";
 import { useLoad, useToast } from "../hooks";
 import { readLastPick, rememberLastPick } from "../lastPick";
 import { href, navigate, type Route } from "../router";
@@ -13,7 +15,7 @@ const BUCKET_LABELS: Record<PickBucket | "all", string> = {
   all: "全部",
   candidates: "待挑选",
   selected: "已选定",
-  no_eligible: "无合格资源",
+  no_eligible: "等待资源",
   stalled: "下载停滞",
 };
 const BUCKETS: (PickBucket | "all")[] = ["all", "candidates", "selected", "stalled", "no_eligible"];
@@ -36,11 +38,25 @@ function describeResult(result: SubmitResult): string {
   return parts.join("；");
 }
 
-function PickGroup({ film, busy, onToggle, onSearch }: {
+const EXPIRY_KEY = "autolist.pick.expiry-dismissed";
+
+/** 没选定的候选在 24 小时内就要被自动清除的影片（已选定的不算）。 */
+const expiringSoon = (items: PickItem[]): PickItem[] =>
+  items.filter(
+    (film) =>
+      film.candidates_expire_at &&
+      new Date(film.candidates_expire_at).getTime() - Date.now() <= 86400000 &&
+      film.candidates.some((candidate) => !candidate.in_selection),
+  );
+
+function PickGroup({ film, busy, onToggle, onSearch, onRelease, onClear, onDismiss }: {
   film: PickItem;
   busy: boolean;
   onToggle: (candidateId: string) => void;
   onSearch: (filmId: number) => void;
+  onRelease: (film: PickItem, candidate: PickItem["excluded_candidates"][number]) => void;
+  onClear: (filmId: number) => void;
+  onDismiss: (filmId: number) => void;
 }) {
   const expired = film.issues.includes("context_expired");
   return (
@@ -50,14 +66,14 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
           <Poster id={film.id} title={film.title} url={film.poster_url} />
         </span>
         <span class="pick-film-text">
-          <span class="mono muted" style={{ fontSize: "12px" }}>#{film.rank_no ?? "—"}</span>
+          <span class={`mono muted${film.rank_no ? " rank-no" : ""}`} style={{ fontSize: "12px" }}>{film.rank_no ? rankDigits(film.rank_no) : "—"}</span>
           <strong id={`pick-${film.id}`} class="serif">{film.title}</strong>
           <span class="muted" style={{ fontSize: "13px" }}>
             {film.original_title} · {film.year ?? "—"}
           </span>
           <span style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             <StatusBadge status={film.status} />
-            <IssueBadges issues={film.issues} />
+            <IssueBadges issues={film.issues.filter((issue) => issue !== "context_expired")} />
           </span>
         </span>
       </a>
@@ -71,20 +87,31 @@ function PickGroup({ film, busy, onToggle, onSearch }: {
           </div>
         ) : null}
         {film.bucket === "no_eligible" ? (
-          <div class="notice notice-bad">
-            <span style={{ flex: "1 1 240px" }}>
-              {film.excluded_count
-                ? film.excluded_summary.map((item) => `${item.reason} ${item.count}`).join("、")
-                : "没有匹配的搜索结果"}
-            </span>
+          <ExcludedPanel
+            summary={film.excluded_summary}
+            count={film.excluded_count}
+            candidates={film.excluded_candidates}
+            nextSearchAt={film.next_search_at}
+            busy={busy}
+            onRelease={(candidate) => onRelease(film, candidate)}
+            identity={film.identity_flag}
+            identityHref={href(`/films/${film.id}`)}
+          >
             <button class="btn btn-small" type="button" disabled={busy} onClick={() => onSearch(film.id)}>
               重新寻片
             </button>
             <a class="btn btn-small" href={href("/settings/rules")}>
               查看入馆标准
             </a>
-          </div>
+          </ExcludedPanel>
         ) : null}
+        <CandidateTools
+          canClear={film.status === "selected" && film.candidates.some((candidate) => !candidate.in_selection)}
+          failed={film.issues.includes("submit_failed")}
+          busy={busy}
+          onClear={() => onClear(film.id)}
+          onDismiss={() => onDismiss(film.id)}
+        />
         {film.candidates.map((candidate) => (
           <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={onToggle} />
         ))}
@@ -100,6 +127,13 @@ export function Pick({ route }: { route: Route }) {
   const [busy, setBusy] = useState(false);
   const [showSelection, setShowSelection] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [dismissedExpiry, setDismissedExpiry] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(EXPIRY_KEY);
+    } catch {
+      return null;
+    }
+  });
 
   const picks = useLoad<PickPage>(
     (signal) => {
@@ -152,6 +186,18 @@ export function Pick({ route }: { route: Route }) {
     if (film && !selected) rememberLastPick(film.id);
     void act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
   };
+  // 人工放行：确实是这部影片、只是不符合入馆标准的资源，确认后改成“人工确认”并加入待入馆清单。
+  const release = (film: PickItem, candidate: PickItem["excluded_candidates"][number]) => {
+    if (!window.confirm(releaseConfirmText(film, candidate))) return;
+    rememberLastPick(film.id);
+    void act(() => api(`/api/selection/items/${encodeURIComponent(candidate.id)}?force=true`, { method: "POST" }), "已放行并加入待入馆清单");
+  };
+  const clearCandidates = (filmId: number) => {
+    if (!window.confirm("清除这部影片没选定的候选？它会回到缺片，下一批寻片会重新搜（已选定的保留）。")) return;
+    void act(() => api(`/api/films/${filmId}/clear-candidates`, { method: "POST" }), "已清除没选定的候选");
+  };
+  const dismissFailure = (filmId: number) =>
+    void act(() => api(`/api/films/${filmId}/dismiss-failure`, { method: "POST" }), "已忽略提交失败（提交记录保留）");
   const search = (filmId: number) =>
     void act(() => api(`/api/films/${filmId}/search`, { method: "POST" }), "已开始寻片，完成后会回到这里");
 
@@ -175,6 +221,8 @@ export function Pick({ route }: { route: Route }) {
   };
 
   const data = picks.data;
+  const expiring = data ? expiringSoon(data.items) : [];
+  const expiryKey = expiring.map((film) => `${film.id}:${film.candidates_expire_at}`).join(",");
   const items = selection.data || [];
   const totalSize = items.reduce((sum, item) => sum + (item.size || 0), 0);
   const expiredInSelection = items.filter((item) => !item.context_available).length;
@@ -188,7 +236,7 @@ export function Pick({ route }: { route: Route }) {
   return (
     <main class={`page${items.length ? " has-tray" : ""}`}>
       <div class="page-head">
-        <h1>挑选</h1>
+        <h1>遴选</h1>
         <span class="grow" />
         {data && data.playlists.length > 1 ? (
           <label class="field">
@@ -223,6 +271,29 @@ export function Pick({ route }: { route: Route }) {
         </div>
       ) : null}
 
+      {expiring.length && dismissedExpiry !== expiryKey ? (
+        <div class="notice" role="status">
+          <span>
+            {expiring.length} 部影片没选定的候选将在 24 小时内自动清除（{expiring.slice(0, 3).map((film) => film.title).join("、")}
+            {expiring.length > 3 ? " 等" : ""}），清除后它们回到缺片，之后重新寻片；已选定的保留
+          </span>
+          <button
+            class="btn btn-small"
+            type="button"
+            onClick={() => {
+              setDismissedExpiry(expiryKey);
+              try {
+                localStorage.setItem(EXPIRY_KEY, expiryKey);
+              } catch {
+                /* 记不住也没关系，下次再提醒 */
+              }
+            }}
+          >
+            知道了
+          </button>
+        </div>
+      ) : null}
+
       {data?.searching ? (
         <div class="notice pick-searching" role="status">
           <span>
@@ -236,17 +307,17 @@ export function Pick({ route }: { route: Route }) {
 
       {picks.error && !data ? (
         <div class="notice notice-bad" role="alert">
-          挑选台读取失败：{picks.error.message}
+          遴选读取失败：{picks.error.message}
           <button class="btn btn-small" type="button" onClick={() => void picks.reload()}>
             重试
           </button>
         </div>
       ) : null}
-      {!data && !picks.error ? <p class="muted">正在读取挑选台……</p> : null}
+      {!data && !picks.error ? <p class="muted">正在读取遴选……</p> : null}
 
       {data && !data.items.length && !data.searching ? (
         <div class="card empty">
-          <strong>{status === "all" ? "挑选台暂无待选资源" : `没有“${BUCKET_LABELS[status]}”的影片`}</strong>
+          <strong>{status === "all" ? "遴选暂无待选资源" : `没有“${BUCKET_LABELS[status]}”的影片`}</strong>
           <a class="btn btn-primary" href={href("/")}>
             回到藏馆寻片
           </a>
@@ -255,7 +326,7 @@ export function Pick({ route }: { route: Route }) {
 
       <div class="pick-list">
         {data?.items.map((film) => (
-          <PickGroup key={film.id} film={film} busy={busy} onToggle={toggle} onSearch={search} />
+          <PickGroup key={film.id} film={film} busy={busy} onToggle={toggle} onSearch={search} onRelease={release} onClear={clearCandidates} onDismiss={dismissFailure} />
         ))}
       </div>
 
@@ -263,7 +334,7 @@ export function Pick({ route }: { route: Route }) {
         <div class="notice" role="status" style={{ marginTop: "20px" }}>
           提交结果：{result}
           <a class="btn btn-small" href={href("/timeline")}>
-            查看动态
+            查看馆志
           </a>
         </div>
       ) : null}

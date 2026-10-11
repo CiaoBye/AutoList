@@ -140,7 +140,7 @@ export function Films({ route }: { route: Route }) {
   return (
     <main class="page">
       <div class="page-head">
-        <h1>片单</h1>
+        <h1>书目</h1>
         {data && data.playlists.length > 1 ? (
           <select
             class="page-head-select"
@@ -280,6 +280,7 @@ export function Films({ route }: { route: Route }) {
                 status={film.status}
                 issues={film.issues}
               />
+              <span class="shelf-rail" aria-hidden="true" />
               <span class="film-card-title">{film.title}</span>
               <span class="film-card-sub">
                 {film.year ?? "—"} · {film.original_title}

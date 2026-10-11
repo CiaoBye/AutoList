@@ -35,7 +35,7 @@ export const STATUS_HINTS: Record<FilmStatus, string> = {
 };
 
 export const ISSUE_LABELS: Record<FilmIssue, string> = {
-  no_eligible: "无合格资源",
+  no_eligible: "等待资源",
   submit_failed: "提交失败",
   context_expired: "候选已过期",
   organize_failed: "整理失败",

@@ -89,7 +89,7 @@ async def run_recognition(task_id: int) -> None:
             ).fetchall()
         if items and not settings.tmdb_api_key:
             # 未配置 TMDB 时每部影片都会得到同一个错误，直接失败并给出配置提示。
-            update_recognition_task(task_id, status="failed", error_message="请先在设置中填写 TMDB API Key")
+            update_recognition_task(task_id, status="failed", error_message="请先在馆务中填写 TMDB API Key")
             return
         update_recognition_task(task_id, status="running")
         matched, corrected, errors = 0, 0, []

@@ -145,11 +145,27 @@
   }
 
   .page.has-tray {
-    padding-bottom: 200px;
+    padding-bottom: 160px;
+  }
+
+  .tray-bar {
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .tray-summary {
+    flex-basis: 100%;
+  }
+
+  .tray-summary span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .tray-bar .btn-large {
     flex: 1 1 auto;
+    min-height: var(--control-h);
   }
 }
 

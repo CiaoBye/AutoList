@@ -87,7 +87,7 @@ class PlaylistSourceFetcher:
     def _tmdb_auth(self) -> tuple[dict[str, str], dict[str, str]]:
         key = settings.tmdb_api_key.strip()
         if not key:
-            raise ValueError("请先在设置中配置 TMDB API Key")
+            raise ValueError("请先在馆务中配置 TMDB API Key")
         if key.startswith("eyJ") or len(key) > 80:
             return {"Authorization": f"Bearer {key}"}, {}
         return {}, {"api_key": key}

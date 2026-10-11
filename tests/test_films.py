@@ -20,7 +20,7 @@ from app.api import picks as pick_routes
 from app.api import system as system_routes
 from app.api import timeline as timeline_routes
 from app.api.playlists import playlist_item_poster
-from app.clients import EmbyClient
+from app.clients import EmbyClient, TMDBClient
 from app.config import settings
 from app.database import SCHEMA_VERSION, connect
 from app.security import is_signed_media_path
@@ -464,12 +464,16 @@ class PickQueueTests(FilmFixture):
     async def test_pick_queue_groups_selectable_and_blocked_films(self) -> None:
         with self._no_transmission():
             queue = await pick_routes.picks(playlist_id=self.playlist_id, status="all")
-        buckets = {item["id"]: item["bucket"] for item in queue["items"]}
-        self.assertEqual(queue["counts"], {"all": 3, "candidates": 1, "selected": 1, "no_eligible": 1, "stalled": 0})
+        # “全部”只放需要动手的；等待资源的影片只在它自己的分组里。
+        self.assertEqual(queue["counts"], {"all": 2, "candidates": 1, "selected": 1, "no_eligible": 1, "stalled": 0})
+        self.assertNotIn(self.items["no_eligible"], [item["id"] for item in queue["items"]])
+        with self._no_transmission():
+            waiting = await pick_routes.picks(playlist_id=self.playlist_id, status="no_eligible")
+        buckets = {item["id"]: item["bucket"] for item in queue["items"] + waiting["items"]}
         self.assertEqual(buckets[self.items["candidates"]], "candidates")
         self.assertEqual(buckets[self.items["selected"]], "selected")
         self.assertEqual(buckets[self.items["no_eligible"]], "no_eligible")
-        by_id = {item["id"]: item for item in queue["items"]}
+        by_id = {item["id"]: item for item in queue["items"] + waiting["items"]}
         self.assertTrue(by_id[self.items["candidates"]]["candidates"][0]["context_available"])
         self.assertEqual(by_id[self.items["selected"]]["candidates"][0]["in_selection"], 1)
         self.assertEqual(by_id[self.items["no_eligible"]]["candidates"], [])
@@ -1132,3 +1136,233 @@ class IdentityChangeTests(FilmFixture):
                 await submit_selection()
         download.assert_not_awaited()
         self.assertEqual(raised.exception.status_code, 409)
+
+
+class WaitingForResourcesTests(FilmFixture):
+    def _row(self, key: str = "no_eligible") -> dict:
+        with connect() as conn:
+            return dict(conn.execute("SELECT wait_streak,next_search_at,wait_task_id FROM playlist_items WHERE id=?", (self.items[key],)).fetchone())
+
+    async def test_no_resources_backs_off_and_resources_clear_the_wait(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.search import record_search_outcome
+
+        item = self.items["no_eligible"]
+        record_search_outcome(11, item, 0, False)
+        first = self._row()
+        self.assertEqual(first["wait_streak"], 1)
+        days = (datetime.fromisoformat(first["next_search_at"]) - datetime.now(timezone.utc)).total_seconds() / 86400
+        self.assertTrue(2.9 < days < 3.1, days)
+        # 同一个任务里补缺等多次写入只计一次；有站点没搜成时结果不可靠，不计数。
+        record_search_outcome(11, item, 0, False)
+        record_search_outcome(12, item, 0, True)
+        self.assertEqual(self._row()["wait_streak"], 1)
+        record_search_outcome(13, item, 0, False)
+        second = self._row()
+        self.assertEqual(second["wait_streak"], 2)
+        days = (datetime.fromisoformat(second["next_search_at"]) - datetime.now(timezone.utc)).total_seconds() / 86400
+        self.assertTrue(6.9 < days < 7.1, days)
+        # 搜到合格资源：清掉等待。
+        record_search_outcome(14, item, 2, False)
+        self.assertEqual((self._row()["wait_streak"], self._row()["next_search_at"]), (0, None))
+
+    async def test_waiting_films_stay_out_of_the_batch_queue_until_due_and_are_searched_when_due(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.services import sync
+        from app.services.search import searchable_playlist_items
+
+        item = self.items["missing"]
+        future = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+        with connect() as conn:
+            conn.execute("UPDATE playlist_items SET wait_streak=1, next_search_at=? WHERE id=?", (future, item))
+        with self._no_transmission():
+            queue = await searchable_playlist_items(self.playlist_id)
+        self.assertNotIn(item, [row["id"] for row in queue["items"]])
+        past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        with connect() as conn:
+            conn.execute("UPDATE playlist_items SET next_search_at=? WHERE id=?", (past, item))
+            rows = [dict(row) for row in conn.execute("SELECT * FROM playlist_items WHERE id=?", (item,)).fetchall()]
+        with self._no_transmission():
+            queue = await searchable_playlist_items(self.playlist_id)
+        self.assertIn(item, [row["id"] for row in queue["items"]])
+        started: list[str] = []
+
+        async def fake_search(task_id: int) -> None:
+            return None
+
+        projected = [{"id": item, "status": "missing", "issues": ["no_eligible"]}]
+        with patch.object(sync, "run_search", fake_search), patch.object(sync.SEARCH, "start", lambda task_id, work: (started.append(task_id), work.close())):
+            self.assertEqual(await sync.research_waiting(projected, rows), 1)
+            # 刚启动的搜索还在进行：不会重复启动。
+            self.assertEqual(await sync.research_waiting(projected, rows), 0)
+        self.assertEqual(len(started), 1)
+        with connect() as conn:
+            self.assertEqual(conn.execute("SELECT trigger FROM search_tasks ORDER BY id DESC LIMIT 1").fetchone()[0], "waiting")
+
+
+class ManualOverrideTests(FilmFixture):
+    async def test_a_candidate_excluded_only_by_the_policy_can_be_released_by_hand(self) -> None:
+        from app.api.selection import toggle_selection
+
+        candidate_id = self.candidate_ids["excluded"]
+        state.raw_candidates[candidate_id] = {"media": {}, "torrent": {}, "tmdb_id": 108}
+        with self.assertRaises(HTTPException) as plain:
+            await toggle_selection(candidate_id)
+        self.assertEqual(plain.exception.status_code, 422)
+        self.assertIn("人工放行", plain.exception.detail)
+        result = await toggle_selection(candidate_id, force=True)
+        self.assertTrue(result["in_selection"])
+        with connect() as conn:
+            row = conn.execute("SELECT eligibility,recommendation,recommendation_reason,exclusion_reason FROM candidates WHERE id=?", (candidate_id,)).fetchone()
+        self.assertEqual((row["eligibility"], row["recommendation"], row["exclusion_reason"]), ("eligible", "manual", None))
+        self.assertIn("人工放行", row["recommendation_reason"])
+
+    async def test_other_films_and_dead_resources_can_never_be_released(self) -> None:
+        from app.api.selection import toggle_selection
+        from app.candidate_policy import exclusion_overridable
+
+        self.assertTrue(exclusion_overridable("WEB-DL / WEBDL 不在电影策略范围"))
+        self.assertTrue(exclusion_overridable("x264 与 TTG 不在允许组合中"))
+        for reason in ("片名不匹配：资源片名与目标影片不一致", "IMDb 编号不匹配：目标 tt1，资源为 tt2", "0 人做种，无法下载", "种子已被站点删除", "FURY 组为 x265 编码，疑似冒用组名", ""):
+            self.assertFalse(exclusion_overridable(reason), reason)
+        candidate_id = self.candidate_ids["excluded"]
+        state.raw_candidates[candidate_id] = {"media": {}, "torrent": {}, "tmdb_id": 108}
+        with connect() as conn:
+            conn.execute("UPDATE candidates SET exclusion_reason=? WHERE id=?", ("IMDb 编号不匹配：目标 tt1，资源为 tt2", candidate_id))
+        with self.assertRaises(HTTPException) as raised:
+            await toggle_selection(candidate_id, force=True)
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertIn("不能放行", raised.exception.detail)
+
+    async def test_the_detail_lists_overridable_candidates_only(self) -> None:
+        from app.api.films import film_detail
+
+        detail = await film_detail(self.items["no_eligible"])
+        self.assertEqual([item["id"] for item in detail["excluded_candidates"]], [self.candidate_ids["excluded"]])
+        with connect() as conn:
+            conn.execute("UPDATE candidates SET exclusion_reason=? WHERE id=?", ("片名不匹配：资源片名与目标影片不一致", self.candidate_ids["excluded"]))
+        detail = await film_detail(self.items["no_eligible"])
+        self.assertEqual(detail["excluded_candidates"], [])
+
+
+class ClearingTests(FilmFixture):
+    async def _by_id(self) -> dict:
+        result = await self._films()
+        return {film["id"]: film for film in result["items"]}
+
+    async def test_clearing_candidates_returns_the_film_to_missing_but_keeps_the_selection(self) -> None:
+        film = self.items["candidates"]
+        before = (await self._by_id())[film]
+        self.assertEqual(before["status"], "candidates")
+        self.assertEqual(film_service.clear_candidates(film), 1)
+        after = (await self._by_id())[film]
+        # 回到缺片，而且不再带“等待资源”（那次寻片不再算数）；下一批寻片会重新搜它。
+        self.assertEqual((after["status"], after["issues"]), ("missing", []))
+        # 已选定的候选不会被清掉。
+        selected = self.items["selected"]
+        film_service.clear_candidates(selected)
+        with connect() as conn:
+            kept = conn.execute("SELECT COUNT(*) FROM candidates WHERE playlist_item_id=?", (selected,)).fetchone()[0]
+        self.assertEqual(kept, 1)
+        self.assertEqual((await self._by_id())[selected]["status"], "selected")
+
+    async def test_a_submit_failure_can_be_dismissed_and_expires_after_a_newer_search(self) -> None:
+        film = self.items["submit_failed"]
+        self.assertEqual((await self._by_id())[film]["issues"], ["submit_failed"])
+        film_service.dismiss_submit_failure(film)
+        self.assertEqual((await self._by_id())[film]["issues"], [])
+        with connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM download_history WHERE playlist_item_id=?", (film,)).fetchone()[0], 1)
+            conn.execute("UPDATE playlist_items SET failure_dismissed_id=NULL WHERE id=?", (film,))
+        self.assertEqual((await self._by_id())[film]["issues"], ["submit_failed"])
+        # 之后又完成了一次新的寻片：旧的提交失败作废（重新提交本来就要新的候选）。
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO search_attempts(task_id,playlist_item_id,site_id,site_name,status,result_count,duration_ms,created_at,finished_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (self.task_id, film, self.site_id, "站点B", "success", 1, 100, "2999-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00"),
+            )
+        self.assertNotIn("submit_failed", (await self._by_id())[film]["issues"])
+
+    async def test_unselected_candidates_expire_after_seven_days_but_nothing_else_does(self) -> None:
+        old = "2000-01-01T00:00:00+00:00"
+        with connect() as conn:
+            conn.execute("UPDATE candidates SET created_at=?", (old,))
+        # 有合格候选却一直没选的影片被清除；已选定的、只有被排除候选的（等待资源）不动。
+        self.assertEqual(film_service.clear_stale_candidates(), 1)
+        by_id = await self._by_id()
+        self.assertEqual(by_id[self.items["candidates"]]["status"], "missing")
+        self.assertEqual(by_id[self.items["selected"]]["status"], "selected")
+        self.assertEqual(by_id[self.items["no_eligible"]]["issues"], ["no_eligible"])
+
+    async def test_the_detail_tells_when_the_unselected_candidates_will_be_cleared(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.api.films import film_detail
+
+        detail = await film_detail(self.items["candidates"])
+        expire = datetime.fromisoformat(detail["candidates_expire_at"])
+        left = (expire - datetime.now(timezone.utc)).total_seconds() / 86400
+        self.assertTrue(6.9 < left < 7.1, left)
+        self.assertIsNone((await film_detail(self.items["missing"]))["candidates_expire_at"])
+
+
+class IdentityCheckTests(FilmFixture):
+    """等待资源的影片对 TMDB 识别做二次核实：只打标记，不自动改。"""
+
+    def _prepare(self, **values: object) -> int:
+        item_id = self.items["no_eligible"]
+        with connect() as conn:
+            for column, value in values.items():
+                conn.execute(f"UPDATE playlist_items SET {column}=? WHERE id=?", (value, item_id))  # nosec B608
+        return item_id
+
+    async def _verify(self, find_results: list[dict] | None = None, details: dict | None = None) -> int:
+        from app.services import identity
+
+        item_id = self.items["no_eligible"]
+        with connect() as conn:
+            row = dict(conn.execute("SELECT * FROM playlist_items WHERE id=?", (item_id,)).fetchone())
+        with patch.object(identity.settings, "tmdb_api_key", "k"), \
+             patch.object(TMDBClient, "find_by_imdb", new=AsyncMock(return_value=find_results or [])), \
+             patch.object(TMDBClient, "movie_details", new=AsyncMock(return_value=details or {})):
+            return await identity.verify_waiting_identities([row])
+
+    async def _flag(self) -> object:
+        from app.services.identity import identity_flag
+
+        with connect() as conn:
+            row = dict(conn.execute("SELECT * FROM playlist_items WHERE id=?", (self.items["no_eligible"],)).fetchone())
+        return identity_flag(row)
+
+    async def test_imdb_pointing_to_another_film_is_flagged_with_the_suggestion(self) -> None:
+        self._prepare(tmdb_id=111, tmdb_title="错的片", tmdb_year=2001, imdb_id="tt0000001", tmdb_imdb_id="tt0000002")
+        flagged = await self._verify(find_results=[{"id": 222, "title": "对的片", "release_date": "2002-05-01"}])
+        self.assertEqual(flagged, 1)
+        flag = await self._flag()
+        self.assertEqual(flag["suggested"], {"tmdb_id": 222, "title": "对的片", "year": 2002})
+        self.assertIn("tt0000001", flag["reason"])
+        # 识别被改成别的以后，旧标记不再显示（也不会被自动改回）。
+        self._prepare(tmdb_id=222)
+        self.assertIsNone(await self._flag())
+
+    async def test_matching_identity_is_not_flagged_and_is_not_rechecked_soon(self) -> None:
+        self._prepare(tmdb_id=111, imdb_id="tt0000001", tmdb_imdb_id="tt0000001")
+        self.assertEqual(await self._verify(), 0)
+        self.assertIsNone(await self._flag())
+        # 核实结果沿用一段时间：不再向 TMDB 查询。
+        from app.services import identity
+
+        with connect() as conn:
+            row = dict(conn.execute("SELECT * FROM playlist_items WHERE id=?", (self.items["no_eligible"],)).fetchone())
+        self.assertFalse(identity._needs_check(row, utc_now()))
+
+    async def test_source_tmdb_id_disagreement_and_year_mismatch_are_flagged(self) -> None:
+        self._prepare(tmdb_id=111, source_tmdb_id=333, imdb_id=None, tmdb_imdb_id=None)
+        self.assertEqual(await self._verify(details={"id": 333, "title": "来源给的", "release_date": "1999-01-01"}), 1)
+        self.assertEqual((await self._flag())["suggested"]["tmdb_id"], 333)
+        self._prepare(source_tmdb_id=None, identity_check=None, year=1960, tmdb_year=2015)
+        self.assertEqual(await self._verify(), 1)
+        self.assertIsNone((await self._flag())["suggested"])

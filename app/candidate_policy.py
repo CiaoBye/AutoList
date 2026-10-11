@@ -180,6 +180,16 @@ DEFAULT_POLICY: dict[str, Any] = {
 }
 
 
+def exclusion_overridable(reason: Any) -> bool:
+    """被排除的原因里，哪些允许人工放行：只是不符合入馆标准（格式、制作组、编码组合……）的可以；
+    资源其实是别的影片、没有做种者、已被站点删除、疑似冒用组名这几类不能放行。"""
+    text = str(reason or "")
+    if not text:
+        return False
+    blocked = ("片名不匹配", "IMDb 编号不匹配", "0 人做种", "已被站点删除", "冒用组名")
+    return not any(marker in text for marker in blocked)
+
+
 def normalized_policy(value: Any) -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     default_profiles_value = DEFAULT_POLICY.get("profiles")

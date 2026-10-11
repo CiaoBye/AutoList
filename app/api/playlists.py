@@ -234,7 +234,7 @@ async def sync_playlist_now(playlist_id: int) -> dict[str, Any]:
 @router.post("/api/playlists/{playlist_id}/library-scan")
 async def scan_playlist_library(playlist_id: int) -> dict[str, Any]:
     if not settings.emby_base_url or not settings.emby_api_key:
-        raise HTTPException(422, "请先在设置中配置 Emby 地址与 API Key")
+        raise HTTPException(422, "请先在馆务中配置 Emby 地址与 API Key")
     capacity_rejection = LIBRARY.capacity_error()
     if capacity_rejection is not None:
         raise HTTPException(429, capacity_rejection)

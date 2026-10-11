@@ -3,7 +3,7 @@ import { api, ApiError } from "../api";
 import { Poster } from "../components/Poster";
 import { DrawerSkeleton } from "../components/Skeleton";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
-import { formatTime } from "../format";
+import { formatTime, rankDigits, releaseConfirmText } from "../format";
 import { useLoad, useToast } from "../hooks";
 import { href } from "../router";
 import { rememberLastPick } from "../lastPick";
@@ -11,6 +11,8 @@ import { TRANSFER_LABELS } from "../status";
 import { CandidateRow } from "../components/CandidateRow";
 import type { FilmDetail, TmdbMatch } from "../types";
 import { DrawerLayer } from "../components/DrawerLayer";
+import { CandidateTools } from "../components/CandidateTools";
+import { ExcludedPanel } from "../components/ExcludedPanel";
 
 interface Step {
   title: string;
@@ -24,18 +26,11 @@ function buildSteps(film: FilmDetail): Step[] {
   const checked = ["in_library", "not_found", "strm"].includes(film.library_state || "");
   const inLibrary = film.status === "in_library";
   const searched = film.search !== null || ["candidates", "selected", "downloading", "in_library"].includes(film.status);
-  if (inLibrary && !film.search && !film.history.length) {
-    return [
-      { title: "已识别", detail: film.tmdb_id ? `TMDB ${film.tmdb_id}` : "", state: "done" },
-      { title: "Emby 中已有实体文件", detail: `最近检查：${formatTime(film.library_checked_at)}`, state: "done" },
-      { title: "已入馆", detail: "", state: "done" },
-    ];
-  }
   const state = (done: boolean, now: boolean): Step["state"] => (done ? "done" : now ? "now" : "todo");
   return [
     {
       title: recognized ? "已识别" : "识别 TMDB",
-      detail: recognized ? `TMDB ${film.tmdb_id}${film.imdb_id ? ` · ${film.imdb_id}` : ""}` : "",
+      detail: "",
       state: state(recognized, !recognized),
     },
     {
@@ -205,7 +200,11 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
       <aside class="drawer drawer-film" role="dialog" aria-modal="true" aria-labelledby="film-title">
         <div class="drawer-head">
           <span class="mono muted" style={{ fontSize: "13px" }}>
-            {data ? `#${data.rank_no ?? "—"} · ${data.playlist_name}` : "影片详情"}
+            {data ? (
+              <>
+                {data.rank_no ? <span class="rank-no">{rankDigits(data.rank_no)}</span> : "—"} · {data.playlist_name}
+              </>
+            ) : "影片详情"}
           </span>
           <button ref={closeRef} class="btn icon-btn" type="button" aria-label="关闭详情" onClick={onClose}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -251,6 +250,9 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
               </div>
             </div>
 
+            {data.status === "in_library" ? (
+              <p class="muted">Emby 中已有实体文件 · 最近检查 {formatTime(data.library_checked_at)}</p>
+            ) : (
             <ol class="steps" aria-label="入馆进度">
               {buildSteps(data).map((step) => (
                 <li key={step.title} class={`step step-${step.state}`}>
@@ -265,6 +267,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 </li>
               ))}
             </ol>
+            )}
 
             {data.status === "unrecognized" ? (
               <section class="panel">
@@ -300,13 +303,25 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
 
             {data.status === "missing" ? (
               <section class="panel">
-                <h3>{data.issues.includes("no_eligible") ? "上次寻片没有合格资源" : "还没有寻过片"}</h3>
+                <h3>{data.issues.includes("no_eligible") ? "等待资源" : "还没有寻过片"}</h3>
                 {data.issues.includes("no_eligible") ? (
-                  <span class="muted">
-                    {data.excluded_count
-                      ? data.excluded_summary.map((item) => `${item.reason} ${item.count}`).join("、")
-                      : "没有匹配的搜索结果"}
-                  </span>
+                  <ExcludedPanel
+                    summary={data.excluded_summary}
+                    count={data.excluded_count}
+                    candidates={data.excluded_candidates}
+                    nextSearchAt={data.next_search_at}
+                    busy={busy}
+                    identity={data.identity_flag}
+                    onFixIdentity={(tmdbId) => {
+                      if (!window.confirm("改用 TMDB 反查到的这部影片？之后会按它重新识别、寻片。")) return;
+                      void act(() => api(`/api/films/${id}/tmdb`, { method: "POST", body: { tmdb_id: tmdbId }, timeoutMs: 60000 }), "已改用新的 TMDB 识别");
+                    }}
+                    onRelease={(candidate) => {
+                      if (!window.confirm(releaseConfirmText({ title: data.title, year: data.year }, candidate))) return;
+                      rememberLastPick(id);
+                      void act(() => api(`/api/selection/items/${encodeURIComponent(candidate.id)}?force=true`, { method: "POST" }), "已放行并加入待入馆清单");
+                    }}
+                  />
                 ) : null}
                 <span class="actions">
                   <button class="btn btn-primary" type="button" disabled={busy} onClick={() => void search()}>
@@ -348,21 +363,23 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                     </button>
                   </div>
                 ) : null}
+                <CandidateTools
+                  canClear={data.status === "selected" && data.candidates.some((candidate) => !candidate.in_selection)}
+                  failed={data.issues.includes("submit_failed")}
+                  busy={busy}
+                  onClear={() => {
+                    if (!window.confirm("清除这部影片没选定的候选？它会回到缺片，下一批寻片会重新搜（已选定的保留）。")) return;
+                    void act(() => api(`/api/films/${id}/clear-candidates`, { method: "POST" }), "已清除没选定的候选");
+                  }}
+                  onDismiss={() => void act(() => api(`/api/films/${id}/dismiss-failure`, { method: "POST" }), "已忽略提交失败（提交记录保留）")}
+                />
                 {data.candidates.map((candidate) => (
                   <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={(candidateId) => void toggle(candidateId)} />
                 ))}
-                {data.issues.includes("submit_failed") ? (
-                  <div class="notice notice-bad">
-                    上次提交失败
-                    <button class="btn btn-small" type="button" disabled={busy} onClick={() => void search()}>
-                      重新寻片
-                    </button>
-                  </div>
-                ) : null}
                 {data.status === "selected" ? (
                   <span class="actions">
                     <a class="btn btn-primary" href="#/pick?status=selected">
-                      去挑选台提交
+                      去遴选提交
                     </a>
                   </span>
                 ) : null}

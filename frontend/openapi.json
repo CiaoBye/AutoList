@@ -946,6 +946,141 @@
         "title": "DownloadsPage",
         "type": "object"
       },
+      "ExcludedCandidate": {
+        "description": "不符合入馆标准、但确实是这部影片的资源：可以人工放行。",
+        "properties": {
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "context_available": {
+            "title": "Context Available",
+            "type": "boolean"
+          },
+          "detail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Url"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "publish_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Date"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "seeders": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seeders"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "site_name",
+          "detail_url",
+          "publish_date",
+          "size",
+          "seeders",
+          "resolution",
+          "codec",
+          "group_name",
+          "exclusion_reason",
+          "context_available"
+        ],
+        "title": "ExcludedCandidate",
+        "type": "object"
+      },
       "ExcludedReason": {
         "properties": {
           "count": {
@@ -1145,6 +1280,19 @@
         "title": "Film",
         "type": "object"
       },
+      "FilmCleared": {
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "title": "FilmCleared",
+        "type": "object"
+      },
       "FilmDetail": {
         "properties": {
           "backdrop_url": {
@@ -1163,6 +1311,25 @@
               "$ref": "#/components/schemas/Candidate"
             },
             "title": "Candidates",
+            "type": "array"
+          },
+          "candidates_expire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates Expire At"
+          },
+          "excluded_candidates": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ExcludedCandidate"
+            },
+            "title": "Excluded Candidates",
             "type": "array"
           },
           "excluded_count": {
@@ -1186,6 +1353,16 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "identity_flag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityFlag"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "imdb_id": {
             "anyOf": [
@@ -1240,6 +1417,17 @@
               }
             ],
             "title": "Library State"
+          },
+          "next_search_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Search At"
           },
           "original_title": {
             "title": "Original Title",
@@ -1759,6 +1947,59 @@
         "title": "HomeData",
         "type": "object"
       },
+      "IdentityFlag": {
+        "description": "等待资源的影片：TMDB 识别与片单来源对不上时的标记（只提示，不自动改）。",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "suggested": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentitySuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "IdentityFlag",
+        "type": "object"
+      },
+      "IdentitySuggestion": {
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "title": "Tmdb Id",
+            "type": "integer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "tmdb_id",
+          "title"
+        ],
+        "title": "IdentitySuggestion",
+        "type": "object"
+      },
       "ImportPayload": {
         "properties": {
           "csv_text": {
@@ -2004,6 +2245,25 @@
             "title": "Candidates",
             "type": "array"
           },
+          "candidates_expire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates Expire At"
+          },
+          "excluded_candidates": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ExcludedCandidate"
+            },
+            "title": "Excluded Candidates",
+            "type": "array"
+          },
           "excluded_count": {
             "title": "Excluded Count",
             "type": "integer"
@@ -2018,6 +2278,16 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "identity_flag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityFlag"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "imdb_id": {
             "anyOf": [
@@ -2061,6 +2331,17 @@
               }
             ],
             "title": "Library State"
+          },
+          "next_search_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Search At"
           },
           "original_title": {
             "title": "Original Title",
@@ -5547,6 +5828,86 @@
         "summary": "Film Detail"
       }
     },
+    "/api/films/{item_id}/clear-candidates": {
+      "post": {
+        "description": "清除这部影片没选定的候选，让它回到“缺片”、重新进入批量寻片；已选定的保留。",
+        "operationId": "clear_film_candidates_api_films__item_id__clear_candidates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Film Candidates"
+      }
+    },
+    "/api/films/{item_id}/dismiss-failure": {
+      "post": {
+        "description": "忽略这部影片的“提交失败”标记（提交记录保留）。",
+        "operationId": "dismiss_film_failure_api_films__item_id__dismiss_failure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Film Failure"
+      }
+    },
     "/api/films/{item_id}/recognize": {
       "post": {
         "description": "按导入时的原名、年份与 IMDb 重新识别这一部影片（整体替换原有识别结果）。",
@@ -7139,6 +7500,16 @@
               "title": "Candidate Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -7762,7 +8133,7 @@
     },
     "/api/sync/webhooks": {
       "get": {
-        "description": "三方推送事件的地址（相对路径，含密钥）与 Transmission 脚本钩子的启用情况，供设置里的“联动”页展示。",
+        "description": "三方推送事件的地址（相对路径，含密钥）与 Transmission 脚本钩子的启用情况，供馆务里的“联动”页展示。",
         "operationId": "sync_webhooks_api_sync_webhooks_get",
         "responses": {
           "200": {

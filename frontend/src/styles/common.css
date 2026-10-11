@@ -84,7 +84,9 @@
 
 .page-head h1 {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
+  font-weight: var(--heading-weight);
   font-size: var(--fs-2xl);
   line-height: 1.2;
 }
@@ -116,7 +118,9 @@
 
 .section-title {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
+  font-weight: var(--heading-weight);
   font-size: var(--fs-xl);
   line-height: 1.3;
 }
@@ -160,31 +164,34 @@
   align-items: center;
   flex-shrink: 0;
   gap: var(--space-2);
-  padding: 2px var(--space-3);
-  border-radius: 999px;
+  padding: 1px var(--space-3);
+  border: var(--badge-border);
+  border-radius: var(--badge-radius);
+  font-family: var(--badge-font);
   font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 1.6;
   white-space: nowrap;
 }
 
-.st-unrecognized { color: var(--st-unrecognized-fg); background: var(--st-unrecognized-bg); }
+/* 徽标的形状、描边与底色浓度随主题（印章、竹签、描金方框、场记板）；颜色仍按状态。 */
+.st-unrecognized { color: var(--st-unrecognized-fg); background: color-mix(in srgb, var(--st-unrecognized-bg) var(--badge-fill), transparent); }
 
-.st-unchecked { color: var(--st-unchecked-fg); background: var(--st-unchecked-bg); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.st-unchecked { color: var(--st-unchecked-fg); background: color-mix(in srgb, var(--st-unchecked-bg) var(--badge-fill), transparent); }
 
-.st-missing { color: var(--st-missing-fg); background: var(--st-missing-bg); }
+.st-missing { color: var(--st-missing-fg); background: color-mix(in srgb, var(--st-missing-bg) var(--badge-fill), transparent); }
 
-.st-searching { color: var(--st-searching-fg); background: var(--st-searching-bg); }
+.st-searching { color: var(--st-searching-fg); background: color-mix(in srgb, var(--st-searching-bg) var(--badge-fill), transparent); }
 
-.st-candidates { color: var(--st-candidates-fg); background: var(--st-candidates-bg); }
+.st-candidates { color: var(--st-candidates-fg); background: color-mix(in srgb, var(--st-candidates-bg) var(--badge-fill), transparent); }
 
-.st-selected { color: var(--st-selected-fg); background: var(--st-selected-bg); box-shadow: inset 0 0 0 1px var(--st-candidates-fg); }
+.st-selected { color: var(--st-selected-fg); background: color-mix(in srgb, var(--st-selected-bg) var(--badge-fill), transparent); }
 
-.st-downloading { color: var(--st-downloading-fg); background: var(--st-downloading-bg); box-shadow: inset 0 0 0 1px var(--st-searching-fg); }
+.st-downloading { color: var(--st-downloading-fg); background: color-mix(in srgb, var(--st-downloading-bg) var(--badge-fill), transparent); }
 
-.st-in_library { color: var(--st-in_library-fg); background: var(--st-in_library-bg); }
+.st-in_library { color: var(--st-in_library-fg); background: color-mix(in srgb, var(--st-in_library-bg) var(--badge-fill), transparent); }
 
-.st-issue { color: var(--issue-fg); background: var(--issue-bg); }
+.st-issue { color: var(--issue-fg); background: color-mix(in srgb, var(--issue-bg) var(--badge-fill), transparent); }
 
 .poster {
   position: relative;
@@ -195,9 +202,23 @@
   aspect-ratio: 2 / 3;
   overflow: hidden;
   padding: var(--space-3);
-  border-radius: var(--radius-m);
+  border: var(--poster-border);
+  border-radius: var(--poster-radius);
   background: var(--poster-1);
+  box-shadow: var(--poster-shadow);
   color: var(--poster-ink);
+}
+
+/* 海报的装裱：金线双框、胶片孔边等，压在图片上面（随主题，无装裱时为空）。 */
+.poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background: var(--poster-sprocket);
+  box-shadow: var(--poster-inset);
+  pointer-events: none;
 }
 
 .poster img {
@@ -213,19 +234,37 @@
   opacity: 1;
 }
 
-/* 缺片等尚未入馆的海报降低饱和度；悬停或选中时恢复原色。 */
+/* 缺藏位：还没入馆、也没有进展的影片，海报淡出并换成虚线框，像书架上空着的位置；悬停或选中时恢复原样。 */
+.poster.is-muted {
+  border-style: dashed;
+  border-color: var(--vacant-line);
+  box-shadow: none;
+}
+
+.poster.is-muted::after {
+  background: none;
+  box-shadow: none;
+}
+
 .poster.is-muted img {
-  filter: saturate(0.35) brightness(0.94);
+  filter: saturate(0.3) brightness(0.9);
+  opacity: 0.45;
+}
+
+.poster.is-loaded.is-muted img {
+  opacity: 0.45;
 }
 
 .film-card:hover .poster.is-muted img,
 .film-card:focus-visible .poster.is-muted img,
 .film-card[aria-current="true"] .poster.is-muted img {
   filter: none;
+  opacity: 1;
 }
 
 .poster-dot {
   position: absolute;
+  z-index: 2;
   right: 8px;
   bottom: 8px;
   width: 10px;
@@ -236,12 +275,14 @@
 
 .poster-state {
   position: absolute;
+  z-index: 2;
   right: 6px;
   bottom: 6px;
   max-width: calc(100% - 12px);
   overflow: hidden;
-  padding: 2px var(--space-2);
-  border-radius: 999px;
+  padding: 1px var(--space-2);
+  border-radius: var(--badge-radius);
+  font-family: var(--badge-font);
   font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 1.6;
@@ -265,8 +306,14 @@
   font-size: var(--fs-xs);
 }
 
+/* 馆藏号：数字加主题的前缀（No. / 卷 / 藏 / REEL）。 */
+.rank-no::before {
+  content: var(--rank-prefix);
+}
+
 .poster .poster-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
+  letter-spacing: var(--heading-tracking);
   font-size: var(--fs-l);
   font-weight: 700;
   line-height: 1.3;
@@ -411,7 +458,7 @@
   min-height: var(--control-h);
   padding: 0 var(--space-3);
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-m);
   background: var(--surface);
   color: var(--ink);
   font-size: var(--fs-m);
@@ -458,6 +505,16 @@
   color: var(--ink);
   text-align: left;
   cursor: pointer;
+}
+
+/* 书架线：海报站在书架上，同一排的线首尾相接（随主题：墨线、铜轴、金线、红灯线）。 */
+.shelf-rail {
+  display: block;
+  height: var(--rail-h);
+  margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;
+  border-top: var(--rail-top);
+  border-bottom: var(--rail-bottom);
+  background: var(--rail-fill);
 }
 
 .film-card[aria-current="true"] .poster {

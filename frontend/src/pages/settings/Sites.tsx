@@ -346,7 +346,7 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
             <div class="card site-switches">
               <SwitchRow
                 label="经代理访问"
-                hint="需要在“设置 → 服务连接”底部的网络代理里填好代理地址并打开“站点允许走代理”；直连 Cloudflare 后面的站点常常很慢"
+                hint="需要在“馆务 → 往来”底部的网络代理里填好代理地址并打开“站点允许走代理”；直连 Cloudflare 后面的站点常常很慢"
                 checked={form.proxy}
                 onChange={(value) => set("proxy", value)}
               />
@@ -464,7 +464,7 @@ function SiteCard({ site, maxUp, maxDown, busy, missing, onEdit, onToggle, onChe
       </div>
       <footer class="site-card-foot" onClick={(event) => event.stopPropagation()}>
         <small class="muted">
-          {site.local_stats.total ? `近 30 天 ${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "近 30 天无搜索"}
+          {!participates(site) ? "不参与搜索" : site.local_stats.total ? `近 30 天 ${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "近 30 天无搜索"}
           {cookie.warn ? <span class="text-warn"> · {cookie.text}</span> : null}
         </small>
         <span class="site-card-actions">
@@ -638,7 +638,7 @@ export function Sites({ health }: { health: SettingsHealth }) {
                       </span>
                     </td>
                     <td class="site-col-detail num">
-                      {site.local_stats.total ? `${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "—"}
+                      {participates(site) && site.local_stats.total ? `${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "—"}
                     </td>
                     <td class="site-col-detail num">{site.account_stats.ratio == null ? "—" : Number(site.account_stats.ratio).toFixed(2)}</td>
                     <td class="site-col-detail">

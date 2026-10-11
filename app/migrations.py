@@ -39,6 +39,15 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "last_sync_status": "TEXT", "last_sync_message": "TEXT",
     },
     "playlist_items": {
+        # 等待资源：连续几次寻片都没有合格资源（wait_streak）与下一次自动寻片的时间；wait_task_id 避免同一个任务重复计数。
+        "wait_streak": "INTEGER NOT NULL DEFAULT 0",
+        "next_search_at": "TEXT",
+        "wait_task_id": "INTEGER",
+        # 忽略提交失败：这条及更早的提交记录里的失败不再算（提交记录本身保留）；清除候选：这个时间之前的寻片不再算“寻过片”。
+        "failure_dismissed_id": "INTEGER",
+        "candidates_cleared_at": "TEXT",
+        # 等待资源的影片对 TMDB 识别做的二次核实结果（JSON）：是否与片单来源一致、核实时间。
+        "identity_check": "TEXT",
         "library_state": "TEXT NOT NULL DEFAULT 'unknown'",
         "library_checked_at": "TEXT",
         "emby_item_id": "TEXT",

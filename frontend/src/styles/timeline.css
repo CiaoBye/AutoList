@@ -1,4 +1,4 @@
-/* 动态页。 */
+/* 馆志：每天一页账页。左边日栏，右边按时刻记账，栏线与行线随主题，重要的事盖批注章。 */
 
 .timeline-day {
   margin-bottom: var(--space-6);
@@ -9,6 +9,25 @@
   font-size: var(--fs-l);
 }
 
+/* 宽屏：日期做成账页左侧的日栏，随页面滚动时停在顶部。 */
+@media (min-width: 900px) {
+  .timeline-day {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  .timeline-date {
+    position: sticky;
+    top: calc(var(--nav-height) + var(--space-4));
+    margin: var(--space-3) 0 0;
+    padding-top: var(--space-2);
+    border-top: var(--ledger-margin);
+    font-size: var(--fs-xl);
+  }
+}
+
 .timeline {
   margin: 0;
   padding: var(--space-1) var(--space-5);
@@ -17,19 +36,33 @@
 
 .timeline-item {
   display: grid;
-  grid-template-columns: 52px 10px minmax(0, 1fr);
+  grid-template-columns: 52px 44px minmax(0, 1fr);
   gap: var(--space-3);
   align-items: baseline;
   padding: var(--space-3) 0;
-  border-top: 1px solid var(--wash);
+  border-top: var(--ledger-rule);
 }
 
 .timeline-item:first-child {
   border-top: 0;
 }
 
+/* 时刻栏右侧的栏线，上下相连成一条竖线（账页的朱栏）。 */
 .timeline-time {
+  align-self: stretch;
+  padding-right: var(--space-3);
+  border-right: var(--ledger-margin);
   font-size: var(--fs-s);
+}
+
+.timeline-mark {
+  display: flex;
+  justify-content: center;
+}
+
+.timeline-stamp {
+  justify-self: start;
+  transform: rotate(-3deg);
 }
 
 
@@ -43,7 +76,7 @@
 /* 宽屏下一条动态排成一行：时间、标题、详情各占一列，详情用满剩余宽度，不再两行堆叠把右边留空。 */
 @media (min-width: 1100px) {
   .timeline-item {
-    grid-template-columns: 56px 10px minmax(180px, 320px) minmax(0, 1fr);
+    grid-template-columns: 56px 44px minmax(180px, 320px) minmax(0, 1fr);
     gap: var(--space-4);
   }
 
@@ -106,7 +139,11 @@ a.timeline-title:hover {
   }
 
   .timeline-item {
-    grid-template-columns: 44px 10px minmax(0, 1fr);
+    grid-template-columns: 44px 48px minmax(0, 1fr);
     gap: var(--space-2);
+  }
+
+  .timeline-stamp {
+    transform: none;
   }
 }

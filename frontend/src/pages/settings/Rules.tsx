@@ -194,7 +194,7 @@ export function Rules() {
 
   return (
     <div class="settings-form">
-      <SectionHead title="入馆标准" />
+      <SectionHead title="馆规" />
 
       <div class="rules-layout">
         <form class="rules-main" onSubmit={save}>

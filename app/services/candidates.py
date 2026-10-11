@@ -12,13 +12,13 @@ import re
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-from ..candidate_policy import normalized_policy
+from ..candidate_policy import exclusion_overridable, normalized_policy
 from ..database import config_values
 from ..state import raw_candidates
 from ..domain.releases import ReleaseClusters
 from ..util import resource_fingerprint, rows_to_dicts, to_int, volume_factor_value
 from ..outbound import safe_detail_url
-from .films import current_candidate_tasks
+from .films import CANDIDATE_RETENTION_DAYS, current_candidate_tasks
 
 
 def publish_date(value: Any) -> str | None:
@@ -158,7 +158,30 @@ def candidate_view(rows: list[dict[str, Any]], site_rows: list[dict[str, Any]]) 
         if not keep and best is not None:
             keep = {id(best)}
         visible = [candidate for candidate in visible if candidate.get("recommendation") != "fallback" or id(candidate) in keep]
+    # 不符合入馆标准、但确实是这部影片的资源：可以人工放行（做种最多的在前）。
+    overridable = sorted(
+        (candidate for candidate in grouped if candidate.get("eligibility") == "excluded" and exclusion_overridable(candidate.get("exclusion_reason"))),
+        key=lambda item: -to_int(item.get("seeders") or 0),
+    )[:6]
+    expire_at = None
+    pending = [candidate for candidate in selectable if not candidate.get("in_selection") and candidate.get("created_at")]
+    if pending:
+        from datetime import datetime, timedelta
+
+        try:
+            newest = max(datetime.fromisoformat(str(candidate["created_at"])) for candidate in pending)
+            expire_at = (newest + timedelta(days=CANDIDATE_RETENTION_DAYS)).isoformat()
+        except ValueError:
+            expire_at = None
     return {
+        "candidates_expire_at": expire_at,
+        "excluded_candidates": [
+            {key: candidate.get(key) for key in (
+                "id", "title", "site_name", "detail_url", "publish_date", "size", "seeders", "resolution", "codec", "group_name",
+                "exclusion_reason", "context_available",
+            )}
+            for candidate in overridable
+        ],
         "candidates": visible,
         "excluded_summary": [
             {"reason": reason, "count": count} for reason, count in sorted(excluded.items(), key=lambda pair: -pair[1])

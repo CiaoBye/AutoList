@@ -171,7 +171,7 @@ export function Downloads({ route }: { route: Route }) {
   return (
     <main class="page">
       <div class="page-head">
-        <h1>下载</h1>
+        <h1>在途</h1>
         <span class="grow" />
         <SyncButton onDone={() => page.reload()} />
         {data?.checked_at ? (

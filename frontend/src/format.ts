@@ -36,6 +36,21 @@ export const formatEta = (seconds: number | null | undefined): string | null => 
 
 export const percent = (part: number, whole: number): number => (whole > 0 ? (part / whole) * 100 : 0);
 
+/** 寻片后全被排除时的一句话说明：多少个不是这部电影，多少个不符合入馆标准。 */
+export const excludedSentence = (summary: { reason: string; count: number }[], total: number): string => {
+  const wrongFilm = summary.filter((item) => /片名不匹配|IMDb 编号不匹配/.test(item.reason)).reduce((sum, item) => sum + item.count, 0);
+  const policyCount = summary.filter((item) => !/片名不匹配|IMDb 编号不匹配/.test(item.reason)).reduce((sum, item) => sum + item.count, 0);
+  if (!total) return "没有匹配的搜索结果";
+  const parts: string[] = [];
+  if (wrongFilm) parts.push(`${wrongFilm} 个不是这部电影`);
+  if (policyCount) parts.push(`${policyCount} 个不符合入馆标准`);
+  return `搜到 ${total} 个，${parts.join("，")}`;
+};
+
+/** 不符合入馆标准的具体原因（去重，供悬停提示）。 */
+export const excludedReasons = (summary: { reason: string }[]): string =>
+  [...new Set(summary.filter((item) => !/片名不匹配|IMDb 编号不匹配/.test(item.reason)).map((item) => item.reason.replace(/[：:].*$/, "")))].join("、");
+
 /** 百分比的显示文字：最多一位小数，整数不带小数点（2.8、68、<0.1），避免浮点误差露出 2.8000000000000003。 */
 export const percentLabel = (part: number, whole: number): string => {
   const value = percent(part, whole);
@@ -45,3 +60,10 @@ export const percentLabel = (part: number, whole: number): string => {
 
 /** 按影片编号稳定选取海报占位色，同一部电影每次颜色一致。 */
 export const posterTone = (id: number): number => (Math.abs(id) % 6) + 1;
+
+/** 人工放行前的确认文字：把片单里的影片（TMDB 识别的片名与年份）与这条资源的标题并排写出，放行前一眼核对。 */
+export const releaseConfirmText = (film: { title: string; year: number | null }, candidate: { title: string; exclusion_reason: string | null }): string =>
+  `片单影片：${film.title}${film.year ? `（${film.year}）` : ""}\n资源：${candidate.title}\n\n这条资源不符合你的入馆标准：${candidate.exclusion_reason ?? "未说明"}\n\n确认是这部影片，并人工放行加入待入馆清单？`;
+
+/** 馆藏号的数字部分（三位补零）；前缀（No. / 卷 / 藏 / REEL）由主题的 --rank-prefix 给出。 */
+export const rankDigits = (rank: number): string => String(rank).padStart(3, "0");

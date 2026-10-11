@@ -7,7 +7,7 @@
 
 <p align="center"><b>给一份电影片单，自动补齐你的私人影库。</b></p>
 
-当前版本：`2.50`
+当前版本：`2.68`
 
 你只管维护想收藏的片单；AutoList 负责对照 Emby 找出缺哪些、去你自己的站点寻片、按你的标准挑出合格的资源，交给 MoviePilot 下载，并一直盯到影片入库。
 
@@ -45,7 +45,7 @@ AutoList 把这条链路收成一个以“每一部电影”为单位的工作�
 - **对站点友好**：每个站点单独限速；遇到 Cookie 失效、二次验证或维护会明确提示并跳过，从不绕过验证码。可与 MoviePilot 共用 CookieCloud，Cookie 失效时自动重新拉取。
 - **状态可信**：影片状态由服务端统一计算；MoviePilot、Transmission、Emby 的变化既可主动轮询，也可通过 Webhook 即时推送。
 - **本地优先**：数据保存在本机 SQLite；密钥只在服务端处理，页面只显示“已配置”。
-- **上手顺手**：第一次打开有分步引导；亮 / 暗两套主题，桌面与手机都能用。
+- **上手顺手**：第一次打开有分步引导；四套主题（宣纸朱砂、青绿山水、玄漆描金、暗房红灯），不只是配色，连字体、海报边框与书架线都不同，桌面与手机都能用。
 
 AutoList 不下载、不整理文件，也不内置任何站点——站点由你自己添加（支持 NexusPHP 类站点、站点官方 API、Torznab、RSS）。
 
@@ -83,7 +83,7 @@ docker exec Autolist python -c "import sqlite3; s=sqlite3.connect('/data/playlis
 
 恢复时先停止容器，把当前数据库改名保留，删除它的 `-wal` / `-shm`，再把备份复制为 `playlist-autodown.db`。完整备份还应包含数据目录里的 `runtime-settings.json` 与 `candidate-context.key`。
 
-**CookieCloud**：浏览器插件把 Cookie 推送到 MoviePilot 自带的 CookieCloud，AutoList 从同一个服务拉取。在“设置 → 站点 → Cookie 来源”填写与插件相同的地址、用户 KEY 与加密密码即可；每 10 分钟拉取一次，寻片遇到 Cookie 失效时立即补拉。
+**CookieCloud**：浏览器插件把 Cookie 推送到 MoviePilot 自带的 CookieCloud，AutoList 从同一个服务拉取。在“馆务 → 站点 → Cookie 来源”填写与插件相同的地址、用户 KEY 与加密密码即可；每 10 分钟拉取一次，寻片遇到 Cookie 失效时立即补拉。
 
 </details>
 
@@ -104,6 +104,7 @@ DATA_DIR=./data .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port
 - 仅用于管理你自己合法获得的内容与账号，请遵守各站点规则。
 - 本项目使用 TMDB API，但未获得 TMDB 的认可或认证；影片信息与海报来自 TMDB（可选 fanart.tv）。
 - 与 MoviePilot、Emby、Transmission、TMDB 无隶属关系。
+- 内置字体：“暗房红灯”主题的标题使用 Noto Sans Mono CJK SC Bold 的子集（SIL OFL 1.1，见 `frontend/src/fonts/`）；logo 中的毛笔“藏”字形取自马善政楷书（OFL）。
 
 ## 许可证
 

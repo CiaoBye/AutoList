@@ -130,7 +130,7 @@ class InterfaceContractTests(unittest.TestCase):
     def test_themes_only_switch_tokens(self) -> None:
         styles = self.root / "frontend" / "src"
         self.assertNotIn("[data-theme", (styles / "app.css").read_text(encoding="utf-8"))
-        self.assertIn('[data-theme="cinema"]', (styles / "tokens.css").read_text(encoding="utf-8"))
+        self.assertIn('[data-theme="lacquer"]', (styles / "tokens.css").read_text(encoding="utf-8"))
 
     def test_format_size_reaches_terabytes(self) -> None:
         script = (

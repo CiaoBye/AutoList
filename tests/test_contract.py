@@ -85,7 +85,7 @@ class ResponseContractTests(FilmFixture):
         self.assertEqual(preview.status_code, 200, preview.text)
         detail = results[f"/api/films/{self.items['candidates']}"]
         self.assertEqual(detail["candidates"][0]["site_options"][0]["site_name"], "站点B")
-        self.assertEqual(results["/api/picks"]["counts"]["all"], 3)
+        self.assertEqual(results["/api/picks"]["counts"]["all"], 2)
         self.assertEqual(results[f"/api/search-tasks/{self.task_id}"]["attempt_summary"]["total"], 3)
         # 声明之外的字段不会返回：站点列表不带账户统计的原始列。
         self.assertNotIn("account_uploaded", results["/api/sites"][0])

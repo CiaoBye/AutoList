@@ -281,20 +281,13 @@
   font-size: var(--fs-xs);
 }
 
-.theme-swatch {
+.theme-tile {
+  display: inline-flex;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-m);
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line-strong);
-}
-
-.theme-option-archive .theme-swatch {
-  background: linear-gradient(135deg, #f4f1ea 50%, #9a3412 50%);
-}
-
-.theme-option-cinema .theme-swatch {
-  background: linear-gradient(135deg, #0f1618 50%, #e08a5b 50%);
+  border-radius: var(--radius-m);
 }
 
 /* ---------- 服务连接 ---------- */
@@ -858,7 +851,7 @@ input.switch:focus-visible {
 
 .site-tag {
   padding: 1px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   background: var(--wash);
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -1316,7 +1309,7 @@ input.switch:focus-visible {
   flex-shrink: 0;
   margin-left: var(--space-2);
   padding: 0 var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   background: var(--st-searching-bg);
   color: var(--st-searching-fg);
   font-size: var(--fs-xs);
@@ -1428,7 +1421,7 @@ input.switch:focus-visible {
   min-height: var(--control-h-s);
   padding: 0 var(--space-3);
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   background: var(--surface);
   color: var(--ink-2);
   font: inherit;

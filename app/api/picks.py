@@ -15,6 +15,7 @@ from ..services.films import (
     project_films,
 )
 from ..responses import PickPage
+from ..services.identity import identity_flag
 
 router = APIRouter()
 
@@ -46,14 +47,21 @@ async def picks(playlist_id: int | None = None, status: str = "all") -> dict[str
         searching = active_search_progress(conn, playlist_id)
     projected = await project_films(items)
     pickable = [film for film in projected if _pick_bucket(film)]
-    counts = {"all": len(pickable), **{bucket: sum(1 for film in pickable if _pick_bucket(film) == bucket) for bucket in PICK_BUCKETS}}
-    chosen = [film for film in pickable if status == "all" or _pick_bucket(film) == status]
+    # “全部”只放需要你动手的；等待资源的影片按自己的退避自动复查，点“等待资源”才看。
+    actionable = [film for film in pickable if _pick_bucket(film) != "no_eligible"]
+    counts = {"all": len(actionable), **{bucket: sum(1 for film in pickable if _pick_bucket(film) == bucket) for bucket in PICK_BUCKETS}}
+    chosen = actionable if status == "all" else [film for film in pickable if _pick_bucket(film) == status]
+    next_search = {item["id"]: item.get("next_search_at") for item in items}
+    flags = {item["id"]: identity_flag(item) for item in items}
     with connect() as conn:
         rows_by_item = latest_candidate_rows(conn, [film["id"] for film in chosen])
         site_rows = site_display_rows(conn)
     return {
         "items": [
-            {**film, "bucket": _pick_bucket(film), **candidate_view(rows_by_item.get(film["id"], []), site_rows)}
+            {
+                **film, "bucket": _pick_bucket(film), "next_search_at": next_search.get(film["id"]), "identity_flag": flags.get(film["id"]),
+                **candidate_view(rows_by_item.get(film["id"], []), site_rows),
+            }
             for film in chosen
         ],
         "counts": counts,

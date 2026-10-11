@@ -82,7 +82,7 @@
   height: var(--control-h);
   padding: 0 var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-m);
   background: var(--surface);
   color: var(--muted);
 }
@@ -111,7 +111,7 @@
 .download-tag {
   margin-left: var(--space-2);
   padding: 1px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   background: var(--wash);
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -155,7 +155,7 @@
   grid-template-columns: 52px minmax(0, 1fr);
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--line);
+  border-top: var(--ledger-rule);
 }
 
 .download-row:first-child {
@@ -211,11 +211,29 @@
   font-size: var(--fs-s);
 }
 
+/* 状态是盖在运单上的章：形状与描边随主题（和状态徽标一致）。 */
 .download-state {
   flex: none;
+  padding: 0 var(--space-2);
+  border: var(--badge-border);
+  border-radius: var(--badge-radius);
+  font-family: var(--badge-font);
   font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--ink-2);
+}
+
+/* 进度条上的路程刻度：四分之一、一半、四分之三与终点（入库）。 */
+.download-row .transfer-bar {
+  position: relative;
+}
+
+.download-row .transfer-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), var(--route-tick) calc(25% - 1px) 25%);
+  pointer-events: none;
 }
 
 .download-facts {

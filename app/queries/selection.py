@@ -15,6 +15,15 @@ def selection_candidate(conn: sqlite3.Connection, candidate_id: str) -> sqlite3.
     ).fetchone()
 
 
+def override_exclusion(conn: sqlite3.Connection, candidate_id: str, reason: str) -> None:
+    """人工放行一条被排除的资源：改成“人工确认”的可选候选，原来的排除原因记在推荐说明里。"""
+    conn.execute(
+        """UPDATE candidates SET eligibility='eligible', recommendation='manual', is_manual_only=1,
+                  recommendation_reason=?, exclusion_reason=NULL WHERE id=?""",
+        (reason, candidate_id),
+    )
+
+
 def is_selected(conn: sqlite3.Connection, candidate_id: str) -> bool:
     return conn.execute("SELECT 1 FROM selection_items WHERE candidate_id=?", (candidate_id,)).fetchone() is not None
 

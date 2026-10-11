@@ -22,8 +22,9 @@ from ..queries import films as film_queries
 from ..security import safe_error, sanitize_sensitive_text
 from ..util import utc_now
 from .downloads import enrich_torrent_media, identify_torrents
-from .films import items_with_usable_candidates, project_films, replaced_stalled_torrents
+from .films import clear_stale_candidates, items_with_usable_candidates, project_films, replaced_stalled_torrents
 from .history import organize_failures
+from .identity import verify_waiting_identities
 from .library import library_recheck_due, recheck_library_states
 from .search import begin_search_task_slot, fetch_downloads_now, invalidate_downloads_snapshot, run_search
 from .sites import test_site_config
@@ -161,6 +162,34 @@ def _recently_researched(conn: Any) -> set[int]:
     return ids
 
 
+def _start_film_search(item: dict[str, Any], trigger: str) -> bool | None:
+    """为一部影片启动一次单片寻片。成功返回 True；暂时启动不了（并发已满等）返回 None，调用方应停止本轮；没有可搜的站点返回 False。"""
+    item_id = int(item["id"])
+    try:
+        with connect() as conn:
+            begin_search_task_slot(conn)
+            site_ids = searchable_site_ids(conn)
+            if not site_ids:
+                return False
+            rank = int(item.get("rank_no") or 0)
+            task_id = insert_search_task(
+                conn, item["playlist_id"], range_start=rank, range_end=rank, trigger=trigger, site_ids=site_ids, item_ids=[item_id],
+            )
+    except Exception as exc:  # 已达并发上限等：下一次同步再试
+        event_logger().info("sync_auto_search_skipped", extra={"error": safe_error(exc)})
+        return None
+    SEARCH.start(task_id, run_search(task_id))
+    event_logger().info(
+        "sync_stalled_research" if trigger == "stalled" else "sync_waiting_research",
+        extra={
+            "detail": ("下载停滞且没有可用候选，已自动重新寻片：" if trigger == "stalled" else "等待资源的影片到了复查时间，已自动重新寻片：")
+            + sanitize_sensitive_text(str(item.get("original_title") or ""), 80),
+            "task_id": task_id,
+        },
+    )
+    return True
+
+
 async def research_stalled(projected: list[dict[str, Any]], pending: list[dict[str, Any]]) -> int:
     """停滞的下载没有可用的候选可换时，自动为这部影片重新寻片；返回启动的任务数。"""
     stalled = {film["id"] for film in projected if film["status"] == "downloading" and "download_stalled" in film["issues"]}
@@ -175,27 +204,39 @@ async def research_stalled(projected: list[dict[str, Any]], pending: list[dict[s
         item_id = int(item["id"])
         if item_id in usable:
             continue
-        try:
-            with connect() as conn:
-                if item_id in _recently_researched(conn) or item_in_active_search(conn, item["playlist_id"], item_id):
-                    continue
-                begin_search_task_slot(conn)
-                site_ids = searchable_site_ids(conn)
-                if not site_ids:
-                    return started
-                rank = int(item.get("rank_no") or 0)
-                task_id = insert_search_task(
-                    conn, item["playlist_id"], range_start=rank, range_end=rank, trigger="stalled", site_ids=site_ids, item_ids=[item_id],
-                )
-        except Exception as exc:  # 已达并发上限等：下一次同步再试
-            event_logger().info("sync_stalled_research_skipped", extra={"error": safe_error(exc)})
+        with connect() as conn:
+            if item_id in _recently_researched(conn) or item_in_active_search(conn, item["playlist_id"], item_id):
+                continue
+        result = _start_film_search(item, "stalled")
+        if result is not True:
             break
-        SEARCH.start(task_id, run_search(task_id))
         started += 1
-        event_logger().info(
-            "sync_stalled_research",
-            extra={"detail": f"下载停滞且没有可用候选，已自动重新寻片：{sanitize_sensitive_text(str(item.get('original_title') or ''), 80)}", "task_id": task_id},
-        )
+    return started
+
+
+# 等待资源的影片（连续没有合格资源）到了复查时间，自动再搜一次；每次同步最多启动几部。
+WAITING_RESEARCH_PER_RUN = 2
+
+
+async def research_waiting(projected: list[dict[str, Any]], pending: list[dict[str, Any]]) -> int:
+    """到了复查时间的“等待资源”影片自动重新寻片；返回启动的任务数。"""
+    now = datetime.now(timezone.utc).isoformat()
+    missing = {film["id"] for film in projected if film["status"] == "missing"}
+    due = sorted(
+        (item for item in pending if item["id"] in missing and item.get("next_search_at") and str(item["next_search_at"]) <= now),
+        key=lambda item: str(item["next_search_at"]),
+    )
+    started = 0
+    for item in due:
+        if started >= WAITING_RESEARCH_PER_RUN:
+            break
+        with connect() as conn:
+            if item_in_active_search(conn, item["playlist_id"], int(item["id"])):
+                continue
+        result = _start_film_search(item, "waiting")
+        if result is not True:
+            break
+        started += 1
     return started
 
 
@@ -203,14 +244,19 @@ async def _run() -> dict[str, Any]:
     started = time.monotonic()
     # 缓存在原地刷新：先读到新数据再替换，同时到达的页面请求读到的永远是完整的缓存，不必自己再去读一遍。
     sources: dict[str, dict[str, Any]] = {}
-    try:
-        sources["transmission"], torrents = await _check_transmission()
-    except Exception as exc:
-        sources["transmission"], torrents = _failed("Transmission", exc), []
-    sources["moviepilot"] = await _check_moviepilot()
+    # 三个系统互不依赖，同时检查：Transmission 忙的时候读一次要十来秒，不必让 MoviePilot 与 Emby 排在它后面。
+    transmission_result, sources["moviepilot"], sources["emby"] = await asyncio.gather(
+        _check_transmission(), _check_moviepilot(), _check_emby(), return_exceptions=True,
+    )
+    if isinstance(transmission_result, BaseException):
+        sources["transmission"], torrents = _failed("Transmission", transmission_result), []  # type: ignore[arg-type]
+    else:
+        sources["transmission"], torrents = transmission_result
+    for name, label in (("moviepilot", "MoviePilot"), ("emby", "Emby")):
+        if isinstance(sources[name], BaseException):
+            sources[name] = _failed(label, sources[name])  # type: ignore[arg-type]
     if sources["moviepilot"]["ok"]:
         await organize_failures(force=True)
-    sources["emby"] = await _check_emby()
 
     # 不是经 AutoList 提交的种子：识别出是哪部影片并缓存，片单影片才能对上它。
     if torrents and sources["moviepilot"]["ok"]:
@@ -234,6 +280,9 @@ async def _run() -> dict[str, Any]:
     arrived = 0
     removed = 0
     try:
+        cleared = clear_stale_candidates()
+        if cleared:
+            event_logger().info("sync_stale_candidates_cleared", extra={"detail": f"{cleared} 部影片的候选超过 7 天没选定，已自动清除，回到缺片"})
         with connect() as conn:
             pending = [item for item in film_queries.playlist_items(conn, None) if item.get("library_state") != "in_library"]
         if sources["transmission"]["ok"]:
@@ -241,6 +290,11 @@ async def _run() -> dict[str, Any]:
         projected = await project_films(pending)
         if sources["transmission"]["ok"]:
             await research_stalled(projected, pending)
+        await research_waiting(projected, pending)
+        waiting_ids = {film["id"] for film in projected if film["status"] == "missing" and "no_eligible" in film["issues"]}
+        flagged = await verify_waiting_identities([item for item in pending if item["id"] in waiting_ids])
+        if flagged:
+            event_logger().info("sync_identity_flagged", extra={"detail": f"{flagged} 部等待资源的影片 TMDB 识别可能有误，已标记，请核对"})
         downloading_ids = [film["id"] for film in projected if film["status"] == "downloading"]
         downloading = len(downloading_ids)
         # 正在下载的影片每次都向 Emby 复查；其余未入馆的影片按全量复查的间隔。

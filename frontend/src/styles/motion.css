@@ -148,7 +148,7 @@
   .film-card:hover .poster,
   .film-card:focus-visible .poster {
     transform: translateY(-3px);
-    box-shadow: var(--shadow-lift);
+    box-shadow: var(--poster-shadow), var(--shadow-lift);
   }
 
   /* 进度：进度条从左向右展开，任务进度与下载进度的变化平滑过渡。 */

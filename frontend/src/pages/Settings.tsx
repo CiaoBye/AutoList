@@ -15,13 +15,13 @@ import { Sites } from "./settings/Sites";
 
 const SECTION_LABELS: Record<SettingsSection, string> = {
   overview: "概览",
-  services: "服务连接",
+  services: "往来",
   sync: "联动",
   sites: "站点",
-  playlists: "片单管理",
-  rules: "入馆标准",
-  appearance: "外观与访问",
-  logs: "诊断日志",
+  playlists: "编目",
+  rules: "馆规",
+  appearance: "外观",
+  logs: "诊断",
 };
 
 const GROUPS: { label: string | null; items: SettingsSection[] }[] = [
@@ -148,10 +148,10 @@ export function Settings({ section, onThemeChange }: { section: SettingsSection;
   return (
     <main class={`page settings-page${isOverview ? " is-index" : ""}`}>
       <div class="page-head">
-        <h1>设置</h1>
+        <h1>馆务</h1>
       </div>
       <div class="settings-layout">
-        <nav class="settings-nav" aria-label="设置分区">
+        <nav class="settings-nav" aria-label="馆务分区">
           {GROUPS.map((group) => (
             <div key={group.label || "top"} class="settings-nav-group">
               {group.label ? <div class="settings-nav-heading">{group.label}</div> : null}

@@ -14,6 +14,7 @@ from ..clients import EmbyClient, MoviePilotClient, TransmissionClient
 from ..database import connect, json_value
 from ..queries import selection as queries
 from ..queries.sites import all_sites
+from ..candidate_policy import exclusion_overridable
 from ..domain.titles import is_transmission_downloading, normalized_download_name, torrent_matches_item
 from ..security import safe_error, sanitize_sensitive_text
 from ..services.history import long_stalled, playlist_item_snapshot
@@ -114,7 +115,7 @@ def _matches_active_torrent(candidate: Any, item: dict[str, Any], active_torrent
     return False
 
 @router.post("/api/selection/items/{candidate_id}", response_model=SelectionToggled)
-async def toggle_selection(candidate_id: str) -> dict[str, Any]:
+async def toggle_selection(candidate_id: str, force: bool = False) -> dict[str, Any]:
     prune_raw_candidates()
     with connect() as conn:
         # Serialize the check-and-insert across workers; the candidate primary
@@ -127,7 +128,15 @@ async def toggle_selection(candidate_id: str) -> dict[str, Any]:
             queries.remove_from_selection(conn, candidate_id)
             return {"candidate_id": candidate_id, "in_selection": False}
         if candidate["eligibility"] != "eligible":
-            raise HTTPException(422, f"该资源已被电影策略排除：{candidate['exclusion_reason'] or '不符合允许组合'}")
+            reason = str(candidate["exclusion_reason"] or "不符合允许组合")
+            # 人工放行：只允许“不符合入馆标准”的资源（格式、制作组、编码组合等），不允许别的影片、没人做种等。
+            if not (force and exclusion_overridable(reason)):
+                suffix = "（可在“等待资源”里人工放行）" if exclusion_overridable(reason) else "，不能放行"
+                raise HTTPException(422, f"该资源已被电影策略排除：{reason}{suffix}")
+            if candidate_id not in raw_candidates:
+                raise HTTPException(409, "该候选的搜索上下文已失效，请重新寻片后再放行")
+            queries.override_exclusion(conn, candidate_id, f"人工放行：{reason}")
+            event_logger().info("selection_manual_override", extra={"detail": f"人工放行了一条不符合入馆标准的资源：{reason}"})
         if candidate_id not in raw_candidates:
             raise HTTPException(409, "该候选的搜索上下文已失效，请重新寻片后再加入待入馆清单")
         # 同一影片、同一站点、同一发布已在清单中时不重复加入，避免跨任务重复提交。
@@ -159,6 +168,47 @@ async def selection() -> list[dict[str, Any]]:
         item["downloading"] = bool(active) and item["library_state"] != "in_library" and _matches_active_torrent(item, film, active)
     return items
 
+def _drop_from_selection(candidate_id: str) -> None:
+    """提交时被跳过的（已入馆、已在下载、已提交过）不会再被提交：从待入馆清单移出，免得它一直留在清单里。"""
+    with connect() as conn:
+        queries.remove_from_selection(conn, candidate_id)
+
+
+async def _check_emby(emby: EmbyClient, candidate: Any) -> str:
+    try:
+        state, _, _ = await library_details(
+            emby,
+            str(candidate["playlist_tmdb_title"] or candidate["playlist_chinese_title"] or candidate["playlist_original_title"]),
+            candidate["playlist_tmdb_year"] or candidate["playlist_year"],
+            candidate["playlist_tmdb_id"], candidate["playlist_tmdb_imdb_id"] or candidate["playlist_imdb_id"],
+        )
+    except Exception:
+        return "unknown"
+    return state
+
+
+async def _check_site(candidate: Any, raw: dict[str, Any], site: dict[str, Any] | None) -> tuple[bool | None, dict[str, Any], str | None]:
+    """回站点确认种子仍在；返回（是否还在，可能换上新下载地址的 raw，无法确认时的原因）。"""
+    if not site or str(site.get("adapter")) != "nexusphp":
+        return True, raw, None
+    try:
+        await wait_for_site_rate_limit(site)
+        detail_url = candidate["detail_url"] or (raw.get("torrent") or {}).get("detail_url")
+        # Cookie 失效时补拉 CookieCloud 并重试一次；新 Cookie 同时用于随后交给 MoviePilot 的种子。
+        enclosure = (raw.get("torrent") or {}).get("enclosure")
+        present, fresh_link = await with_cookie_refresh(
+            site, lambda current: verify_and_refresh(current, detail_url, enclosure),
+        )
+        # 部分站点的下载地址带时效签名（约一小时），用详情页上当前有效的地址提交。
+        if present and is_signed_download(enclosure):
+            if not fresh_link:
+                raise RuntimeError("下载地址已过期，详情页上没有找到新的下载地址")
+            raw = {**raw, "torrent": {**raw["torrent"], "enclosure": fresh_link}}
+        return present, raw, None
+    except Exception as exc:
+        return None, raw, f"无法确认种子仍在{site['name']}：{safe_error(exc, 200)}"
+
+
 @router.post("/api/selection/submit", response_model=SubmitResult)
 async def submit_selection() -> dict[str, Any]:
     prune_raw_candidates()
@@ -169,9 +219,34 @@ async def submit_selection() -> dict[str, Any]:
             rows = queries.selection_for_submission(conn)
         if not rows:
             raise HTTPException(422, "待入馆清单为空")
+        with connect() as conn:
+            sites = all_sites(conn)
+        emby = EmbyClient()
+        # 读 Transmission 列表要等好几秒：Emby 与站点的复查（只读）同时开始，轮到那个资源时直接取结果；
+        # 站点请求仍按各站点的频率排队，MoviePilot 的添加仍然逐个提交，不给 Transmission 添压力。
+        gate = asyncio.Semaphore(4)
+        prechecks: dict[str, tuple[asyncio.Future, asyncio.Future | None]] = {}
+
+        async def limited(func: Any, *args: Any) -> Any:
+            async with gate:
+                return await func(*args)
+
+        for candidate in rows:
+            raw_early = raw_candidates.get(candidate["id"])
+            if not raw_early:
+                continue
+            site_early = _candidate_site(raw_early.get("torrent") or {}, str(candidate["site_name"] or ""), sites)
+            prechecks[candidate["id"]] = (
+                asyncio.ensure_future(limited(_check_emby, emby, candidate)),
+                asyncio.ensure_future(limited(_check_site, candidate, raw_early, site_early)) if site_early else None,
+            )
         try:
             current_torrents = await downloads_for_submit()
         except Exception as exc:
+            for pair in prechecks.values():
+                for task in pair:
+                    if task is not None:
+                        task.cancel()
             raise HTTPException(503, "无法确认 Transmission 当前下载任务（可能正忙），已暂停提交，请稍后再试") from exc
         # 提交前 Transmission 里已有的种子：MoviePilot 响应超时后，靠“新出现的种子”确认它到底有没有添加成功。
         known_hashes = {str(torrent.get("hashString") or "").casefold() for torrent in current_torrents}
@@ -180,9 +255,6 @@ async def submit_selection() -> dict[str, Any]:
         active_torrents = [
             torrent for torrent in current_torrents if is_transmission_downloading(torrent) and not long_stalled(torrent)
         ]
-        with connect() as conn:
-            sites = all_sites(conn)
-        emby = EmbyClient()
         moviepilot, completed, needs_research, submitted_tasks, expired_items = MoviePilotClient(), 0, 0, [], []
         try:
             downloader = await moviepilot.transmission_downloader()
@@ -231,6 +303,7 @@ async def submit_selection() -> dict[str, Any]:
                 )
             if already_submitted:
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "该发布已提交过"})
+                _drop_from_selection(candidate["id"])
                 continue
             # 幂等复查 2：相同发布已在 Transmission 下载中时跳过；查询失败已在提交前阻断。
             playlist_item = {
@@ -242,41 +315,26 @@ async def submit_selection() -> dict[str, Any]:
             }
             if _matches_active_torrent(candidate, playlist_item, active_torrents):
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "Transmission 正在下载"})
+                _drop_from_selection(candidate["id"])
                 continue
             # 幂等复查 3：每次提交前都重新确认 Emby，避免旧的 not_found
             # 状态在 Emby 短暂故障时被误当成“肯定未入库”。
-            state, _, _ = await library_details(
-                emby,
-                str(candidate["playlist_tmdb_title"] or candidate["playlist_chinese_title"] or candidate["playlist_original_title"]),
-                candidate["playlist_tmdb_year"] or candidate["playlist_year"],
-                candidate["playlist_tmdb_id"], candidate["playlist_tmdb_imdb_id"] or candidate["playlist_imdb_id"],
-            )
+            state = await prechecks[candidate["id"]][0]
             if state == "in_library":
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "影片已入库"})
+                _drop_from_selection(candidate["id"])
                 continue
             if state == "unknown":
                 blocked_unknown.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "无法确认 Emby 媒体库状态"})
                 continue
             # 幂等复查 4：候选可能已存放数天，提交前回站点确认种子没有被删除。
             site = _candidate_site(raw.get("torrent") or {}, str(candidate["site_name"] or ""), sites)
-            if site and str(site.get("adapter")) == "nexusphp":
-                try:
-                    await wait_for_site_rate_limit(site)
-                    detail_url = candidate["detail_url"] or (raw.get("torrent") or {}).get("detail_url")
-                    # Cookie 失效时补拉 CookieCloud 并重试一次；新 Cookie 同时用于随后交给 MoviePilot 的种子。
-                    enclosure = (raw.get("torrent") or {}).get("enclosure")
-                    present, fresh_link = await with_cookie_refresh(
-                        site, lambda current: verify_and_refresh(current, detail_url, enclosure),
-                    )
-                    # 部分站点的下载地址带时效签名（约一小时），用详情页上当前有效的地址提交。
-                    if present and is_signed_download(enclosure):
-                        if not fresh_link:
-                            raise RuntimeError("下载地址已过期，详情页上没有找到新的下载地址")
-                        raw = {**raw, "torrent": {**raw["torrent"], "enclosure": fresh_link}}
-                except Exception as exc:
+            site_check = prechecks[candidate["id"]][1]
+            if site_check is not None:
+                present, raw, blocked_reason = await site_check
+                if blocked_reason:
                     blocked_site.append({
-                        "candidate_id": candidate["id"], "title": candidate["playlist_original_title"],
-                        "reason": f"无法确认种子仍在{site['name']}：{safe_error(exc, 200)}",
+                        "candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": blocked_reason,
                     })
                     continue
                 if present is False:
@@ -329,6 +387,10 @@ async def submit_selection() -> dict[str, Any]:
             if success:
                 # 事务提交后再删上下文，避免在同一数据库上等待自己的写锁。
                 forget_raw_candidate(candidate["id"])
+        for pair in prechecks.values():
+            for task in pair:
+                if task is not None and not task.done():
+                    task.cancel()
         if needs_research and completed == 0 and not (skipped or removed or blocked_site):
             raise HTTPException(409, f"待入馆清单中 {needs_research} 个资源的搜索上下文已失效，请重新寻片后加入")
         failed = len(rows) - completed - len(skipped) - needs_research - len(blocked_unknown) - len(removed) - len(blocked_site)

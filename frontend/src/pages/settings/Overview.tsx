@@ -1,9 +1,9 @@
 import { api } from "../../api";
 import { formatTime } from "../../format";
 import { href } from "../../router";
-import { readTheme } from "../../theme";
+import { readTheme, THEMES } from "../../theme";
 import type { CookieCloudSynced } from "../../types";
-import { STRENGTH_TEXT, THEMES } from "./Appearance";
+import { STRENGTH_TEXT } from "./Appearance";
 import { CHECKED_SERVICES, dotClass, serviceDetail, type SettingsHealth } from "./health";
 import { eventLabel, describe, LEVEL_CLASS, LEVEL_TEXT, levelOf, shortStamp } from "./logText";
 import { SectionHead, useAction } from "./shared";
@@ -39,7 +39,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
 
       <section class="card overview-card" aria-labelledby="overview-services">
         <header class="overview-head">
-          <h3 id="overview-services">服务连接</h3>
+          <h3 id="overview-services">往来</h3>
           {health.services.data ? <span class="badge st-in_library">{okCount} 个正常</span> : null}
           {health.failingServices ? <span class="badge st-issue">{health.failingServices} 个异常</span> : null}
           {health.checkedAt ? <span class="muted overview-meta">检测于 {clockOf(health.checkedAt)}</span> : null}
@@ -171,7 +171,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
         <section class="card overview-card" aria-labelledby="overview-problems">
           <header class="overview-head">
             <h3 id="overview-problems">最近的警告与错误</h3>
-            <a class="overview-more" href={href("/settings/logs")}>诊断日志 →</a>
+            <a class="overview-more" href={href("/settings/logs")}>诊断 →</a>
           </header>
           {!health.problems.data ? (
             <p class="muted overview-body">正在读取日志……</p>
@@ -199,7 +199,7 @@ export function Overview({ health }: { health: SettingsHealth }) {
         <section class="card overview-card" aria-labelledby="overview-access">
           <header class="overview-head">
             <h3 id="overview-access">访问与外观</h3>
-            <a class="overview-more" href={href("/settings/appearance")}>外观与访问 →</a>
+            <a class="overview-more" href={href("/settings/appearance")}>外观 →</a>
           </header>
           <div class="overview-body overview-stack">
             {strength && strength !== "missing" ? <p class={`notice${strength === "strong" ? "" : " notice-bad"}`}>{STRENGTH_TEXT[strength]}</p> : null}

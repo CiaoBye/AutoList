@@ -48,7 +48,7 @@ FILM_STATUS_LABELS = {
 }
 # 异常以标记挂在影片上，不改变主状态。
 FILM_ISSUE_LABELS = {
-    "no_eligible": "无合格资源",
+    "no_eligible": "等待资源",
     "submit_failed": "提交失败",
     "context_expired": "候选已过期",
     "organize_failed": "整理失败",
@@ -174,12 +174,18 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
     ids = sorted(item_ids)
     marks = _placeholders(ids)
     signals.active_search = _active_search_items(conn, item_ids)
-    signals.searched = {
-        to_int(row["playlist_item_id"]) for row in conn.execute(
-            f"SELECT DISTINCT playlist_item_id FROM search_attempts WHERE playlist_item_id IN ({marks})",  # nosec B608
-            ids,
-        ).fetchall()
-    }
+    meta = {to_int(item["id"]): item for item in items}
+    last_attempt: dict[int, str] = {}
+    signals.searched = set()
+    for row in conn.execute(
+        f"SELECT playlist_item_id, MAX(finished_at) AS finished FROM search_attempts WHERE playlist_item_id IN ({marks}) GROUP BY playlist_item_id",  # nosec B608
+        ids,
+    ).fetchall():
+        item_id = to_int(row["playlist_item_id"])
+        last_attempt[item_id] = str(row["finished"] or "")
+        # 清除过候选的影片：那之前的寻片不再算“寻过片”，回到“缺片”。
+        if not (meta[item_id].get("candidates_cleared_at") and last_attempt[item_id] <= str(meta[item_id]["candidates_cleared_at"])):
+            signals.searched.add(item_id)
     for item_id, task_ids in current_candidate_tasks(conn, ids).items():
         task_marks = _placeholders(task_ids)
         signals.eligible[item_id] = [
@@ -196,7 +202,7 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
     ).fetchall():
         signals.selected.setdefault(to_int(row["playlist_item_id"]), []).append(str(row["id"]))
     history_rows = conn.execute(
-        f"""SELECT h.id, h.success, h.submission_hash, h.torrent_name,
+        f"""SELECT h.id, h.success, h.submission_hash, h.torrent_name, h.created_at,
                    COALESCE(h.playlist_item_id, c.playlist_item_id) AS item_id
             FROM download_history h LEFT JOIN candidates c ON c.id=h.candidate_id
             WHERE COALESCE(h.playlist_item_id, c.playlist_item_id) IN ({marks})
@@ -204,12 +210,21 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
         ids,
     ).fetchall()
     latest_by_item: dict[int, bool] = {}
+    failed_at: dict[int, tuple[int, str]] = {}
     for row in history_rows:
         item_id = to_int(row["item_id"])
         latest_by_item[item_id] = bool(row["success"])
         if row["success"]:
             signals.submitted.setdefault(item_id, []).append(dict(row))
-    signals.last_submit_failed = {item_id for item_id, success in latest_by_item.items() if not success}
+        else:
+            failed_at[item_id] = (to_int(row["id"]), str(row["created_at"] or ""))
+    signals.last_submit_failed = {
+        item_id for item_id, success in latest_by_item.items()
+        # 最近一次提交是失败，且没被忽略、之后也没有新的寻片（重新寻片后要重新选定、重新提交，旧失败作废）。
+        if not success
+        and failed_at[item_id][0] > to_int(meta[item_id].get("failure_dismissed_id") if item_id in meta else 0)
+        and not (last_attempt.get(item_id, "") > failed_at[item_id][1])
+    }
     signals.contexts = raw_candidates.available(
         sorted({candidate for ids in (*signals.eligible.values(), *signals.selected.values()) for candidate in ids})
     )
@@ -537,6 +552,57 @@ def reidentify_item(item_id: int, media: dict[str, Any], fallback_imdb: str | No
             conn.execute("DELETE FROM candidates WHERE playlist_item_id=?", (item_id,))
     for candidate_id in stale:
         forget_raw_candidate(candidate_id)
+
+
+# 候选的保留天数：与下载上下文的有效期一致。过了没选定的候选会被自动清除，影片回到“缺片”。
+CANDIDATE_RETENTION_DAYS = 7
+
+
+def clear_candidates(item_id: int) -> int:
+    """清除一部影片没选定的候选（已选定的保留），让它回到“缺片”、重新进入批量寻片；返回清除的条数。"""
+    with connect() as conn:
+        stale = [row["id"] for row in conn.execute(
+            """SELECT id FROM candidates WHERE playlist_item_id=?
+               AND id NOT IN (SELECT candidate_id FROM selection_items) AND submitted_at IS NULL""", (item_id,),
+        ).fetchall()]
+        conn.executemany("DELETE FROM candidates WHERE id=?", [(candidate_id,) for candidate_id in stale])
+        # 这之前的寻片不再算“寻过片”；等待资源的退避也一并清零，下一批就能再搜。
+        conn.execute(
+            "UPDATE playlist_items SET candidates_cleared_at=?, wait_streak=0, next_search_at=NULL WHERE id=?", (utc_now(), item_id),
+        )
+    for candidate_id in stale:
+        forget_raw_candidate(candidate_id)
+    return len(stale)
+
+
+def dismiss_submit_failure(item_id: int) -> None:
+    """忽略这部影片目前的提交失败标记：到现在为止的失败不再算（提交记录本身保留）。"""
+    with connect() as conn:
+        latest = conn.execute(
+            """SELECT MAX(h.id) FROM download_history h LEFT JOIN candidates c ON c.id=h.candidate_id
+               WHERE COALESCE(h.playlist_item_id, c.playlist_item_id)=?""", (item_id,),
+        ).fetchone()[0]
+        conn.execute("UPDATE playlist_items SET failure_dismissed_id=? WHERE id=?", (to_int(latest), item_id))
+
+
+def clear_stale_candidates() -> int:
+    """超过保留天数仍没选定的候选自动清除，对应的影片回到“缺片”；返回清除候选的影片数。
+
+    只处理“有合格候选却一直没选”的影片：已选定的、已提交的不动；等待资源的影片（只有被排除的候选）按自己的退避复查，不在此列。"""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=CANDIDATE_RETENTION_DAYS)).isoformat()
+    with connect() as conn:
+        due = [to_int(row["playlist_item_id"]) for row in conn.execute(
+            """SELECT c.playlist_item_id FROM candidates c
+               JOIN playlist_items p ON p.id=c.playlist_item_id
+               WHERE c.eligibility='eligible' AND c.submitted_at IS NULL
+                 AND c.playlist_item_id NOT IN (SELECT c2.playlist_item_id FROM selection_items s JOIN candidates c2 ON c2.id=s.candidate_id)
+               GROUP BY c.playlist_item_id HAVING MAX(c.created_at) < ?""", (cutoff,),
+        ).fetchall()]
+    for item_id in due:
+        clear_candidates(item_id)
+    return len(due)
 
 
 def store_library_state(item_id: int, state: str, emby_item_id: str | None, image_tag: str | None) -> None:

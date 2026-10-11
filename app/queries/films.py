@@ -9,7 +9,7 @@ from ..util import rows_to_dicts, to_int, utc_now
 FILM_ITEM_COLUMNS = """i.id,i.playlist_id,i.rank_no,i.imdb_id,i.original_title,i.year,i.chinese_title,
     i.tmdb_id,i.tmdb_title,i.tmdb_original_title,i.tmdb_year,i.tmdb_imdb_id,i.tmdb_poster_path,i.fanart_poster_url,
     i.source_tmdb_id,i.source_ref,i.fanart_backdrop_url,i.tmdb_backdrop_path,
-    i.emby_item_id,i.emby_image_tag,i.library_state,i.library_checked_at"""
+    i.emby_item_id,i.emby_image_tag,i.library_state,i.library_checked_at,i.wait_streak,i.next_search_at,i.failure_dismissed_id,i.candidates_cleared_at,i.identity_check"""
 
 
 def playlist_summaries(conn: Any) -> list[dict[str, Any]]:

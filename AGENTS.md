@@ -16,14 +16,14 @@
 ## 架构与界面
 
 - 界面源码在 `frontend/`（Preact + Vite + TypeScript），构建到 `app/static/ui/`，不入库。
-- 页面：藏馆 `#/`（只做总览）、片单 `#/films[/:id]`、挑选 `#/pick`、下载 `#/downloads`（只读 Transmission）、动态 `#/timeline`、设置 `#/settings[/:section]`（不带分区是概览），均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
+- 页面：藏馆 `#/`（只做总览）、书目 `#/films[/:id]`、遴选 `#/pick`、在途 `#/downloads`（只读 Transmission）、馆志 `#/timeline`、馆务 `#/settings[/:section]`（不带分区是概览）；一级、二级菜单名统一两个字，均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
 - 影片状态只在服务端计算（`app/services/films.py`），前端不自行推断。
 - 前端读取的接口在 `app/responses.py` 声明返回格式（路由写 `response_model`）；前端接口类型只在 `frontend/src/types.ts` 引用生成的类型，不手写字段。改动返回格式后运行 `.venv/bin/python scripts/export_openapi.py` 更新 `frontend/openapi.json`，前端构建会据此重新生成类型。
 - 站点接入集中在 `app/sites/`：新增或修正站点优先改站点档案；修改解析逻辑必须用 `tests/fixtures/sites/` 的真实页面回归，新增样本前清除 passkey、签名、用户编号与用户名等账号信息。
 - 后台任务统一经 `app/tasks.py` 启动与取消（`SEARCH` / `RECOGNITION` / `LIBRARY` / `AUTOMATION`），不另建运行登记表；外部请求统一经 `app/outbound.py` 的 `safe_request`；新增查询放到 `app/queries/<领域>.py`，路由里不直接写 SQL。
 - 数据库结构或数据变更在 `app/migrations.py` 的 `MIGRATIONS` 末尾追加更大编号的步骤，并在 `tests/test_migrations.py` 补测试；新增列写进 `ADDED_COLUMNS`，不要在启动流程里加每次都执行的整理代码。
 - 字号、圆角、控件高度、动效时长与缓动只用 `tokens.css` 里的变量（`--fs-*`、`--radius-*`、`--space-*`、`--control-h*`、`--dur-*`、`--ease`），样式里不写裸的字号、圆角与间距数值（间距只用 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48，0、1、2px 的细微调整除外）；所有动效写在 `styles/motion.css` 且放在 `prefers-reduced-motion: no-preference` 里。
-- 主题只有 `archive` 与 `cinema`，只切换 `frontend/src/tokens.css` 中的变量；其他样式文件不写 `[data-theme` 选择器。
+- 主题有四套：`paper`（宣纸朱砂）、`jade`（青绿山水）、`lacquer`（玄漆描金）、`darkroom`（暗房红灯），只切换 `frontend/src/tokens.css` 中的变量；其他样式文件不写 `[data-theme` 选择器。主题不只是配色：标题字体、圆角、海报边框与装裱、书架线、徽标样式、馆藏号前缀、页面底纹、缺藏位线条也都是主题变量，组件只引用变量；新增装饰必须关掉后页面依然完整。
 - 样式按页面放在 `frontend/src/styles/`（外壳、通用组件与各页面各一个文件，页面的窄屏规则写在该页文件里），由 `app.css` 按固定顺序引入；新增文件要加到 `app.css` 的引入列表。
 - 桌面端与移动端都要检查导航、弹窗、空状态和横向溢出。
 - 密钥只允许在服务端处理，前端接口仅返回是否已配置；密钥输入留空表示保留原值，清除需显式发送 `clear_<字段>: true`。

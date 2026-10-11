@@ -15,6 +15,18 @@ const LEVEL_COLORS: Record<TimelineEvent["level"], string> = {
   error: "var(--issue-fg)",
 };
 
+/** 账页上的批注章：只给值得一眼看到的几类事件盖章，其余仍用小圆点。 */
+const stampOf = (event: TimelineEvent): { label: string; className: string } | null => {
+  if (event.kind === "library" && event.level === "success") return { label: "入藏", className: "st-in_library" };
+  if (event.kind === "submit") {
+    return event.level === "error" || event.level === "warning"
+      ? { label: "失败", className: "st-issue" }
+      : { label: "提交", className: "st-downloading" };
+  }
+  if (event.level === "error") return { label: "异常", className: "st-issue" };
+  return null;
+};
+
 const dayKey = (value: string | null): string => {
   if (!value) return "unknown";
   const date = new Date(value);
@@ -63,7 +75,7 @@ export function Timeline({ route }: { route: Route }) {
   }
 
   const tabs = (
-    <div class="segmented tabs" role="tablist" aria-label="动态视图">
+    <div class="segmented tabs" role="tablist" aria-label="馆志视图">
       <a role="tab" aria-selected={view === "timeline"} class="tab-link" href={href("/timeline")}>
         时间线
       </a>
@@ -77,7 +89,7 @@ export function Timeline({ route }: { route: Route }) {
     return (
       <main class="page">
         <div class="page-head">
-          <h1>动态</h1>
+          <h1>馆志</h1>
           <span class="grow" />
           {tabs}
         </div>
@@ -89,7 +101,7 @@ export function Timeline({ route }: { route: Route }) {
   return (
     <main class="page">
       <div class="page-head">
-        <h1>动态</h1>
+        <h1>馆志</h1>
         <span class="grow" />
         {tabs}
       </div>
@@ -106,13 +118,13 @@ export function Timeline({ route }: { route: Route }) {
 
       {events.error && !events.data ? (
         <div class="notice notice-bad" role="alert">
-          动态读取失败：{events.error.message}
+          馆志读取失败：{events.error.message}
         </div>
       ) : null}
-      {!events.data && !events.error ? <p class="muted">正在读取动态……</p> : null}
+      {!events.data && !events.error ? <p class="muted">正在读取馆志……</p> : null}
       {events.data && !events.data.items.length ? (
         <div class="card empty">
-          <strong>还没有动态</strong>
+          <strong>馆志里还没有记录</strong>
         </div>
       ) : null}
 
@@ -120,10 +132,16 @@ export function Timeline({ route }: { route: Route }) {
         <section key={group.key} class="timeline-day" aria-label={dayLabel(group.key)}>
           <h2 class="section-title timeline-date">{dayLabel(group.key)}</h2>
           <ol class="timeline card">
-            {group.items.map((event) => (
+            {group.items.map((event) => {
+              const stamp = stampOf(event);
+              return (
               <li key={event.id} class="timeline-item">
                 <span class="mono muted timeline-time">{timeLabel(event.at)}</span>
-                <span class="dot" style={{ color: LEVEL_COLORS[event.level] }} aria-hidden="true" />
+                {stamp ? (
+                  <span class={`badge timeline-stamp ${stamp.className}`}>{stamp.label}</span>
+                ) : (
+                  <span class="timeline-mark"><span class="dot" style={{ color: LEVEL_COLORS[event.level] }} aria-hidden="true" /></span>
+                )}
                 <span class="timeline-text">
                   {event.task_id ? (
                     <a class="timeline-title" href={href("/timeline", { ...baseQuery, task: event.task_id })}>
@@ -139,7 +157,8 @@ export function Timeline({ route }: { route: Route }) {
                   {event.detail ? <span class="timeline-detail">{event.detail}</span> : null}
                 </span>
               </li>
-            ))}
+              );
+            })}
           </ol>
         </section>
       ))}

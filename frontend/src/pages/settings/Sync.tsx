@@ -5,6 +5,7 @@ import { formatTime } from "../../format";
 import { useLoad, useToast } from "../../hooks";
 import type { SyncStatus, SyncWebhooks } from "../../types";
 import { CardHead, SectionHead } from "./shared";
+import { confirmDialog } from "../../components/ConfirmDialog";
 
 type Source = "transmission" | "moviepilot" | "emby";
 
@@ -76,7 +77,7 @@ export function SyncSettings() {
     }
   };
   const reset = async () => {
-    if (!window.confirm("重置事件密钥？Transmission 脚本、Emby 与 MoviePilot 里填的旧地址会立即失效，需要重新填写。")) return;
+    if (!(await confirmDialog({ title: "重置事件密钥？", message: "Transmission 脚本、Emby 与 MoviePilot 里填的旧地址会立即失效，需要重新填写。", confirmText: "重置", danger: true }))) return;
     setResetting(true);
     try {
       await api<SyncWebhooks>("/api/sync/token/reset", { method: "POST" });

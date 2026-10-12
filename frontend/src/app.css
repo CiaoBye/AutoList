@@ -9,6 +9,14 @@
 @import "./styles/film-drawer.css";
 @import "./styles/pick.css";
 @import "./styles/downloads.css";
+@import "./styles/status.css";
 @import "./styles/timeline.css";
 @import "./styles/settings.css";
+@import "./styles/settings-services.css";
+@import "./styles/settings-sites.css";
+@import "./styles/settings-overview.css";
+@import "./styles/settings-logs.css";
+@import "./styles/settings-backups.css";
+@import "./styles/settings-rules.css";
+@import "./styles/settings-playlists.css";
 @import "./styles/motion.css";

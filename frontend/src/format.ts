@@ -61,9 +61,5 @@ export const percentLabel = (part: number, whole: number): string => {
 /** 按影片编号稳定选取海报占位色，同一部电影每次颜色一致。 */
 export const posterTone = (id: number): number => (Math.abs(id) % 6) + 1;
 
-/** 人工放行前的确认文字：把片单里的影片（TMDB 识别的片名与年份）与这条资源的标题并排写出，放行前一眼核对。 */
-export const releaseConfirmText = (film: { title: string; year: number | null }, candidate: { title: string; exclusion_reason: string | null }): string =>
-  `片单影片：${film.title}${film.year ? `（${film.year}）` : ""}\n资源：${candidate.title}\n\n这条资源不符合你的入馆标准：${candidate.exclusion_reason ?? "未说明"}\n\n确认是这部影片，并人工放行加入待入馆清单？`;
-
 /** 馆藏号的数字部分（三位补零）；前缀（No. / 卷 / 藏 / REEL）由主题的 --rank-prefix 给出。 */
 export const rankDigits = (rank: number): string => String(rank).padStart(3, "0");

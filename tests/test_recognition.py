@@ -282,7 +282,7 @@ class TmdbClientTests(IsolatedAppTestCase):
         response.status_code = 200
         response.raise_for_status = Mock()
         try:
-            with patch("app.clients.safe_request", new=AsyncMock(return_value=response)) as request:
+            with patch("app.clients.tmdb.safe_request", new=AsyncMock(return_value=response)) as request:
                 result = await TMDBClient().check()
             self.assertEqual(result, {"ok": True, "configured": True})
             call = request.await_args
@@ -405,7 +405,7 @@ class RecognitionClientTests(IsolatedAppTestCase):
         settings.ai_base_url = "https://example.org/v1"
         settings.ai_api_key = "audit-placeholder"
         settings.ai_model = "audit-model"
-        with patch("app.clients.httpx.AsyncClient", side_effect=client_factory):
+        with patch("httpx.AsyncClient", side_effect=client_factory):
             result = await AIRecognitionClient().suggest("Movie", 2024)
         self.assertEqual(result, {"title": "Movie"})
         self.assertEqual(seen, ["/v1/chat/completions"])

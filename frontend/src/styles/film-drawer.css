@@ -458,3 +458,28 @@ a.candidate-site-name:hover {
   color: var(--accent);
   font-size: var(--fs-m);
 }
+
+/* 重复版本：Emby 里同一部影片有多个实体文件。 */
+.version-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.version-list li {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--fs-s);
+}
+
+.version-list .mono {
+  overflow-wrap: anywhere;
+}
+
+/* 升级画质：现有最高画质、升级候选与搜索按钮。 */
+.upgrade-panel .actions {
+  margin-top: var(--space-2);
+}

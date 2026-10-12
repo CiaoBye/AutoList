@@ -1298,7 +1298,7 @@ class ClearingTests(FilmFixture):
         self.assertEqual(by_id[self.items["no_eligible"]]["issues"], ["no_eligible"])
 
     async def test_the_detail_tells_when_the_unselected_candidates_will_be_cleared(self) -> None:
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timezone
 
         from app.api.films import film_detail
 
@@ -1366,3 +1366,32 @@ class IdentityCheckTests(FilmFixture):
         self._prepare(source_tmdb_id=None, identity_check=None, year=1960, tmdb_year=2015)
         self.assertEqual(await self._verify(), 1)
         self.assertIsNone((await self._flag())["suggested"])
+
+
+class DuplicateVersionTests(FilmFixture):
+    """Emby 里同一部影片有多个实体文件时，详情里列出全部版本。"""
+
+    async def _detail_with(self, versions: list[dict] | Exception) -> dict:
+        settings.emby_base_url, settings.emby_api_key = "http://emby.test", "emby-test"
+        with connect() as conn:
+            item_id = to_int(conn.execute(
+                "SELECT id FROM playlist_items WHERE playlist_id=? ORDER BY rank_no LIMIT 1", (self.playlist_id,),
+            ).fetchone()[0])
+            conn.execute("UPDATE playlist_items SET library_state='in_library' WHERE id=?", (item_id,))
+        mock = AsyncMock(side_effect=versions) if isinstance(versions, Exception) else AsyncMock(return_value=versions)
+        with patch("app.api.films.EmbyClient.versions", new=mock), \
+             patch("app.api.films.hydrate_recent_emby_posters", new=AsyncMock()), self._no_transmission():
+            return await film_routes.film_detail(item_id)
+
+    async def test_lists_versions_when_more_than_one(self) -> None:
+        versions = [
+            {"name": "A.2160p.mkv", "size": 40_000_000_000, "resolution": "3840×2160"},
+            {"name": "A.1080p.mkv", "size": 9_000_000_000, "resolution": "1920×1080"},
+        ]
+        detail = await self._detail_with(versions)
+        self.assertEqual(detail["library_versions"], versions)
+
+    async def test_single_version_or_emby_failure_shows_nothing(self) -> None:
+        one = [{"name": "A.mkv", "size": 1, "resolution": None}]
+        self.assertEqual((await self._detail_with(one))["library_versions"], [])
+        self.assertEqual((await self._detail_with(RuntimeError("Emby 离线")))["library_versions"], [])

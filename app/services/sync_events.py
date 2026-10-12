@@ -21,7 +21,7 @@ from ..logs import event_logger
 from ..queries import downloads as download_queries
 from ..queries import films as film_queries
 from ..security import safe_error, token_matches
-from ..util import looks_like_series, media_kind, to_int, utc_now
+from ..util import media_kind, to_int, utc_now
 from . import sync
 from .library import recheck_library_states
 

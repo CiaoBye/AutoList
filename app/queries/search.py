@@ -37,14 +37,15 @@ def item_in_active_search(conn: sqlite3.Connection, playlist_id: int, item_id: i
 
 def insert_search_task(
     conn: sqlite3.Connection, playlist_id: int, *, range_start: int, range_end: int, trigger: str,
-    site_ids: list[int], item_ids: list[int],
+    site_ids: list[int], item_ids: list[int], upgrade_above: int | None = None,
 ) -> int:
     now = utc_now()
     return to_int(conn.execute(
         """INSERT INTO search_tasks(
-             playlist_id,range_start,range_end,status,total,trigger,site_ids_json,item_ids_json,created_at,updated_at
-           ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-        (playlist_id, range_start, range_end, "queued", len(item_ids), trigger, json_value(site_ids), json_value(item_ids), now, now),
+             playlist_id,range_start,range_end,status,total,trigger,site_ids_json,item_ids_json,upgrade_above,created_at,updated_at
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        (playlist_id, range_start, range_end, "queued", len(item_ids), trigger, json_value(site_ids), json_value(item_ids),
+         upgrade_above, now, now),
     ).lastrowid)
 
 

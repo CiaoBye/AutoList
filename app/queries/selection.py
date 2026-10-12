@@ -63,7 +63,8 @@ def selection_for_submission(conn: sqlite3.Connection) -> list[sqlite3.Row]:
                   p.tmdb_title AS playlist_tmdb_title,p.tmdb_original_title AS playlist_tmdb_original_title,
                   p.tmdb_year AS playlist_tmdb_year,p.tmdb_imdb_id AS playlist_tmdb_imdb_id,
                   p.library_state AS playlist_library_state,p.library_checked_at AS playlist_library_checked_at,
-                  p.id AS playlist_snapshot_id
+                  p.id AS playlist_snapshot_id,
+                  (SELECT t.upgrade_above FROM search_tasks t WHERE t.id=c.task_id) AS task_upgrade_above
            FROM selection_items sel JOIN candidates c ON c.id=sel.candidate_id
            JOIN playlist_items p ON p.id=c.playlist_item_id ORDER BY sel.selected_at"""
     ).fetchall()

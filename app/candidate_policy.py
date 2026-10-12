@@ -186,7 +186,7 @@ def exclusion_overridable(reason: Any) -> bool:
     text = str(reason or "")
     if not text:
         return False
-    blocked = ("片名不匹配", "IMDb 编号不匹配", "0 人做种", "已被站点删除", "冒用组名")
+    blocked = ("片名不匹配", "IMDb 编号不匹配", "0 人做种", "已被站点删除", "冒用组名", "不高于现有")
     return not any(marker in text for marker in blocked)
 
 

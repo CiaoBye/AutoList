@@ -91,6 +91,21 @@ async def films(
     }
 
 
+async def _library_versions(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """已入馆影片在 Emby 里的全部实体文件版本；Emby 查询失败不影响详情。"""
+    if not settings.emby_base_url or not settings.emby_api_key:
+        return []
+    try:
+        return await EmbyClient().versions(item.get("tmdb_id"), item.get("tmdb_imdb_id") or item.get("imdb_id"))
+    except Exception:
+        return []
+
+
+def _best_tier(versions: list[dict[str, Any]]) -> int | None:
+    tiers = [version["tier"] for version in versions if version.get("tier")]
+    return max(tiers) if tiers else None
+
+
 @router.get("/api/films/{item_id}", response_model=FilmDetail)
 async def film_detail(item_id: int) -> dict[str, Any]:
     with connect() as conn:
@@ -102,8 +117,13 @@ async def film_detail(item_id: int) -> dict[str, Any]:
         history = film_history(conn, item_id)
         search = search_summary(conn, item_id)
         search_sites = len(searchable_site_ids(conn))
+        searching_now = item_in_active_search(conn, item["playlist_id"], item_id)
     await hydrate_recent_emby_posters([item])
     film = (await project_films([item]))[0]
+    versions = await _library_versions(item) if film["library_state"] == "in_library" else []
+    library_versions = versions if len(versions) > 1 else []
+    upgrade_above = next((row["upgrade_above"] for row in candidate_rows if row.get("upgrade_above") is not None), None)
+    upgrade_searching = film["library_state"] == "in_library" and searching_now
     for record in history:
         record["message"] = sanitize_sensitive_text(record.get("message") or "", 300)
     return {
@@ -114,6 +134,10 @@ async def film_detail(item_id: int) -> dict[str, Any]:
         **candidate_view(candidate_rows, site_rows),
         "next_search_at": item.get("next_search_at"),
         "identity_flag": identity_flag(item) if "no_eligible" in film["issues"] else None,
+        "library_versions": library_versions,
+        "library_tier": _best_tier(versions),
+        "upgrade_above": upgrade_above,
+        "upgrade_searching": upgrade_searching,
         "history": history,
         "search": search,
         "search_site_count": search_sites,
@@ -159,6 +183,39 @@ async def search_film(item_id: int) -> dict[str, Any]:
         task_id = insert_search_task(
             conn, item["playlist_id"], range_start=rank, range_end=rank, trigger="film", site_ids=site_ids, item_ids=[item_id],
         )
+    SEARCH.start(task_id, run_search(task_id))
+    return {"id": task_id, "status": "queued", "total": 1}
+
+
+@router.post("/api/films/{item_id}/upgrade-search", response_model=FilmSearchStarted)
+async def upgrade_search_film(item_id: int) -> dict[str, Any]:
+    """升级搜索（洗版）：影片已入馆时找画质更高的资源；只保留高于 Emby 里现有最高画质的候选，选定后照常经 MoviePilot 提交。"""
+    with connect() as conn:
+        item = film_item(conn, item_id)
+    if not item:
+        raise HTTPException(404, "影片不存在")
+    if item["library_state"] != "in_library":
+        raise HTTPException(409, "只有已入馆的影片才能升级")
+    if not settings.emby_base_url or not settings.emby_api_key:
+        raise HTTPException(422, "未配置 Emby，无法知道现有画质")
+    tier = _best_tier(await _library_versions(item))
+    if tier is None:
+        raise HTTPException(409, "Emby 里没有读到这部影片的画质，无法判断是否需要升级")
+    if tier >= 2160:
+        raise HTTPException(409, "已经是 2160p，没有更高的画质可升级")
+    with connect() as conn:
+        if item_in_active_search(conn, item["playlist_id"], item_id):
+            raise HTTPException(409, "这部影片正在寻片")
+        begin_search_task_slot(conn)
+        site_ids = searchable_site_ids(conn)
+        if not site_ids:
+            raise HTTPException(422, "请先在馆务中选择至少一个参与搜索的站点")
+        rank = to_int(item["rank_no"] or 0)
+        task_id = insert_search_task(
+            conn, item["playlist_id"], range_start=rank, range_end=rank, trigger="upgrade", site_ids=site_ids,
+            item_ids=[item_id], upgrade_above=tier,
+        )
+    event_logger().info("film_upgrade_search", extra={"movie": item["original_title"], "detail": f"升级搜索：现有最高 {tier}p"})
     SEARCH.start(task_id, run_search(task_id))
     return {"id": task_id, "status": "queued", "total": 1}
 

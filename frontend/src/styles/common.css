@@ -733,3 +733,54 @@
   border-radius: inherit;
   background: var(--accent);
 }
+
+/* 确认框：居中弹出，窄一些，按钮靠右。 */
+.confirm-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.confirm-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: var(--fs-l);
+}
+
+.confirm-message {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-m);
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.confirm-facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--wash);
+  font-size: var(--fs-s);
+}
+
+.confirm-facts > div {
+  display: grid;
+  grid-template-columns: 5em minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.confirm-facts dt {
+  color: var(--muted);
+}
+
+.confirm-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

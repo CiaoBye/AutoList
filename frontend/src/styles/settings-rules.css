@@ -1,0 +1,150 @@
+/* 馆务 → 馆规：入馆标准与保存栏。 */
+
+/* ---------- 入馆标准 ---------- */
+
+.rules-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.rules-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.rules-trial {
+  position: sticky;
+  top: calc(var(--nav-height) + 20px);
+}
+
+.rules-trial-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.rules-trial-inputs .switch {
+  margin: var(--space-2) 0;
+}
+
+.rules-order {
+  flex: 0 1 auto;
+}
+
+.rule-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.rule-tag {
+  min-height: var(--control-h-s);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-s);
+  cursor: pointer;
+}
+
+.rule-tag[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--issue-bg);
+  color: var(--issue-fg);
+}
+
+.rule-tag:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.trial-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-m);
+  transition: opacity 0.15s;
+}
+
+.trial-verdict strong {
+  font-size: var(--fs-l);
+}
+
+.trial-verdict.is-ok {
+  background: var(--st-in_library-bg);
+  color: var(--st-in_library-fg);
+}
+
+.trial-verdict.is-warn {
+  background: var(--st-candidates-bg);
+  color: var(--st-candidates-fg);
+}
+
+.trial-verdict.is-bad {
+  background: var(--issue-bg);
+  color: var(--issue-fg);
+}
+
+.trial-verdict[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+.trial-facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.trial-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px dashed var(--line-strong);
+  font-size: var(--fs-s);
+}
+
+.trial-facts div:last-child {
+  border-bottom: 0;
+}
+
+.trial-facts dt {
+  color: var(--muted);
+}
+
+.trial-facts dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* 保存栏：有未保存的修改时贴在视口底部。 */
+.save-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.save-bar .grow {
+  flex: 1 1 auto;
+}
+
+.save-bar .btn-primary {
+  margin-left: auto;
+}
+
+.save-bar.is-dirty {
+  position: sticky;
+  bottom: 16px;
+  z-index: 5;
+}

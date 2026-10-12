@@ -154,6 +154,13 @@ class FilmSearchSummary(Model):
     finished_at: str | None
 
 
+class LibraryVersion(Model):
+    name: str
+    size: int | None
+    resolution: str | None
+    tier: int | None = None
+
+
 class FilmDetail(Film):
     backdrop_url: str | None
     playlist_name: str
@@ -165,6 +172,13 @@ class FilmDetail(Film):
     excluded_candidates: list[ExcludedCandidate] = []
     next_search_at: str | None = None
     identity_flag: IdentityFlag | None = None
+    # Emby 里同一部影片有多个实体文件版本时才有内容（只提示，不自动处理）。
+    library_versions: list[LibraryVersion] = []
+    # Emby 里这部影片现有版本的最高画质档（2160 / 1080 / 720 / 480），未知为空；只在已入馆时给出。
+    library_tier: int | None = None
+    # 当前显示的候选是升级搜索（洗版）的结果时，为搜索时的画质档：候选都高于这一档。
+    upgrade_above: int | None = None
+    upgrade_searching: bool = False
     # 没选定的候选自动清除的时间（保留 7 天）。
     candidates_expire_at: str | None = None
     history: list[FilmHistoryRecord]
@@ -559,9 +573,9 @@ class Site(Model):
     rss_url: str
     icon_url: str
     proxy: int
-    render: int
     limit_interval: int | None
     limit_count: int | None
+    limit_gap: int | None = None
     enabled: int
     search_enabled: int
     supplement_only: int
@@ -629,13 +643,6 @@ class CookieCloudSynced(Model):
     unchanged: int
     sites: list[str]
     missing: list[str]
-    message: str
-
-
-class SiteCookieRefreshed(Model):
-    ok: bool
-    id: int
-    name: str
     message: str
 
 
@@ -816,3 +823,105 @@ class LogEvent(Model):
     ts: str
     level: str
     event: str
+
+
+class BackupRecord(Model):
+    name: str
+    kind: Literal["manual", "deploy"]
+    size: int
+    created_at: str
+    restorable: bool
+
+
+class BackupCreated(Model):
+    name: str
+
+
+class BackupRestored(Model):
+    restored: str
+    safety_backup: str
+
+
+class BackupsDeleted(Model):
+    deleted: int
+
+
+class SiteCookieHealth(Model):
+    state: Literal["ok", "expired", "missing", "failing", "none"]
+    text: str
+    source: Literal["cookiecloud", "manual", "moviepilot"] | None
+    updated_at: str | None
+    age_days: int | None
+
+
+class SiteSearchStats(Model):
+    total: int
+    succeeded: int
+    success_rate: Number | None
+    average_ms: int | None
+    result_count: int
+
+
+class SiteSubmitStats(Model):
+    total: int
+    succeeded: int
+    success_rate: Number | None
+
+
+class SiteSeeding(Model):
+    count: int
+    size: int
+
+
+class SiteStatusAccount(Model):
+    uploaded: Number | None
+    downloaded: Number | None
+    ratio: Number | None
+
+
+class SiteDayStat(Model):
+    day: str
+    total: int
+    failed: int
+
+
+class SiteStatusRow(Model):
+    id: int
+    name: str
+    enabled: bool
+    search_enabled: bool
+    icon_endpoint: str
+    profile: str
+    cookie: SiteCookieHealth
+    failure_streak: int
+    last_success_at: str | None
+    last_status: str
+    last_message: str | None
+    search: SiteSearchStats
+    submissions: SiteSubmitStats
+    seeding: SiteSeeding | None
+    account: SiteStatusAccount
+    history: list[SiteDayStat]
+    problem: bool
+
+
+class SiteStatusPage(Model):
+    sites: list[SiteStatusRow]
+    problem_count: int
+    transmission_available: bool
+    history_days: int
+    stats_days: int
+
+
+class UpgradeFilm(Model):
+    """升级搜索找到了更高画质候选的已入馆影片。"""
+
+    id: int
+    rank_no: int | None
+    title: str
+    year: int | None
+    from_tier: int
+    candidate_count: int
+    selected_count: int
+    best_resolution: str | None
+    searched_at: str

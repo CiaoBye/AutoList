@@ -937,7 +937,6 @@ class RewriteKeepsSelectionTests(IsolatedAppTestCase):
 
 class SiteSafetyAndSupplementTests(IsolatedAppTestCase):
     async def test_same_site_requests_are_spaced_and_never_concurrent(self) -> None:
-        from app.services import search as search_service
 
         with connect() as conn:
             playlist_id = to_int(conn.execute("INSERT INTO playlists(name,created_at) VALUES('P',?)", (utc_now(),)).lastrowid)
@@ -975,7 +974,7 @@ class SiteSafetyAndSupplementTests(IsolatedAppTestCase):
         with patch("app.services.search.recognize_item", new=recognize), \
              patch("app.services.search.library_details", AsyncMock(return_value=("not_found", None, None))), \
              patch("app.services.search.NexusPHPClient", return_value=Client()), \
-             patch.object(search_service, "SITE_REQUEST_GAP_SECONDS", 0.05):
+             patch("app.services.site_limits.SITE_REQUEST_GAP_SECONDS", 0.05):
             await run_search(task_id)
         # 三部影片并行，但每个站点同一时间只有一个请求，相邻两次至少隔 0.05 秒。
         self.assertEqual(peak, {"one": 1, "two": 1})
@@ -1133,8 +1132,8 @@ class SearchQueueGuardTests(IsolatedAppTestCase):
         self.assertEqual(unknown["download_state"], "unknown")
         self.assertEqual(unknown["items"], [])
         settings.tr_base_url = ""
-        from app.services import search as search_module
-        search_module._transmission_snapshot_cache.clear()
+        from app.services import transmission_snapshot
+        transmission_snapshot._transmission_snapshot_cache.clear()
         with patch.object(TransmissionClient, "current_downloads", new=AsyncMock(return_value=[])):
             empty = await searchable_playlist_items(playlist_id, limit=10)
         self.assertEqual(empty["download_state"], "known_empty")
@@ -1168,6 +1167,21 @@ class SiteRateLimitTests(IsolatedAppTestCase):
         elapsed = time.monotonic() - started
         self.assertGreaterEqual(elapsed, 0.18)
         self.assertLess(elapsed, 0.6)
+
+
+    async def test_limit_gap_overrides_the_default_gap_between_requests(self) -> None:
+        from app.services.search import wait_for_site_rate_limit
+
+        # 访问间隔 0：相邻请求不额外等待（没设置时默认至少隔 3 秒）。
+        site = {"id": 4343, "limit_gap": 0}
+        started = time.monotonic()
+        await asyncio.gather(*(wait_for_site_rate_limit(site) for _ in range(3)))
+        self.assertLess(time.monotonic() - started, 0.3)
+        # 访问间隔 0.2 秒：三个请求至少隔开两个间隔。
+        site = {"id": 4344, "limit_gap": 0.2}
+        started = time.monotonic()
+        await asyncio.gather(*(wait_for_site_rate_limit(site) for _ in range(3)))
+        self.assertGreaterEqual(time.monotonic() - started, 0.38)
 
 
 class SiteSearchIntervalTests(IsolatedAppTestCase):

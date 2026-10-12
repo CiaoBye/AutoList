@@ -218,7 +218,7 @@ class PlaylistSourceFetcher:
                             if len(all_items) >= limit:
                                 break
                 except ET.ParseError:
-                    rss_parsed = False  # RSS 片段解析失败时回退到页面抓取
+                    pass  # RSS 片段解析失败时回退到页面抓取
             if all_items:
                 return {"source_type": "letterboxd", "source_name": name, "source_url": url, "items": all_items}
             embed_base = f"https://embed.letterboxd.com/{username}/list/{slug}"

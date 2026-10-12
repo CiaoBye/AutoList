@@ -11,6 +11,7 @@ import { href, navigate } from "../router";
 import { STATUS_LABELS } from "../status";
 import type { ActiveTask, Film, FilmStatus, HomeData, SearchTaskStarted, Todo } from "../types";
 import { forgetCurrentPlaylist, readCurrentPlaylist, rememberCurrentPlaylist } from "../currentPlaylist";
+import { confirmDialog } from "../components/ConfirmDialog";
 
 const BAR_ORDER: FilmStatus[] = [
   "in_library",
@@ -448,8 +449,8 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
                       class="btn btn-small"
                       type="button"
                       disabled={busy}
-                      onClick={() => {
-                        if (!window.confirm("取消这个寻片任务？已找到的候选会保留。")) return;
+                      onClick={async () => {
+                        if (!(await confirmDialog({ title: "取消这个寻片任务？", message: "已找到的候选会保留。", confirmText: "取消任务", danger: true }))) return;
                         void post(`/api/search-tasks/${task.id}/cancel`, "寻片任务已取消")();
                       }}
                     >

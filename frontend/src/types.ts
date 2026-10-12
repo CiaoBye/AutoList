@@ -21,6 +21,12 @@ export type FilmHistoryRecord = Schemas["FilmHistoryRecord"];
 export type FilmSearchSummary = Schemas["FilmSearchSummary"];
 export type FilmDetail = Schemas["FilmDetail"];
 export type TmdbMatch = Schemas["TmdbMatch"];
+export type SiteStatusPage = Schemas["SiteStatusPage"];
+export type UpgradeFilm = Schemas["UpgradeFilm"];
+export type SiteStatusRow = SiteStatusPage["sites"][number];
+export type BackupRecord = Schemas["BackupRecord"];
+export type BackupRestored = Schemas["BackupRestored"];
+export type BackupsDeleted = Schemas["BackupsDeleted"];
 
 export type ActiveTask = Schemas["ActiveTask"];
 export type Todo = Schemas["Todo"];
@@ -55,7 +61,6 @@ export type SiteSaved = Schemas["SiteSaved"];
 export type SiteSecrets = Schemas["SiteSecrets"];
 export type MoviePilotSitesSynced = Schemas["MoviePilotSitesSynced"];
 export type CookieCloudSynced = Schemas["CookieCloudSynced"];
-export type SiteCookieRefreshed = Schemas["SiteCookieRefreshed"];
 export type CookieCloudStatus = Schemas["CookieCloudStatus"];
 
 export type PlaylistRow = Schemas["PlaylistRow"];

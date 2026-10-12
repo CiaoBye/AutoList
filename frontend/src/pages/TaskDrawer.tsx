@@ -38,7 +38,7 @@ export function TaskDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   useEffect(() => {
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !document.querySelector(".confirm-dialog[open]")) onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

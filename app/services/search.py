@@ -9,7 +9,7 @@ import sqlite3
 import time
 import uuid
 from datetime import datetime, timezone
-from collections import Counter, deque
+from collections import Counter
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 from ..candidate_policy import normalized_policy
 from .cookiecloud import with_cookie_refresh
-from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, TorznabClient, TransmissionClient
+from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, TorznabClient
 from ..schemas import MAX_SEARCH_ITEMS
 from ..database import config_values, connect, json_value
 from ..logs import event_logger
@@ -37,142 +37,17 @@ from ..sites import SiteError
 from ..sites.errors import SearchCaptcha
 from ..state import forget_raw_candidate, prune_raw_candidates, remember_raw_candidate
 from ..tasks import SEARCH
-from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, to_float, to_int, utc_now
+from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, to_int, utc_now
 from ..outbound import safe_detail_url
 from .library import library_details
 from .recognition import analyze_candidate, ensure_alt_titles, persist_tmdb_item, recognize_item
-
-
-# Transmission 下载列表短 TTL 缓存（审计 3-25）：避免片单每次刷新重复 RPC。
-_transmission_snapshot_cache: dict[int, tuple[float, list[dict[str, Any]], str]] = {}
-TRANSMISSION_SNAPSHOT_TTL_SECONDS = 10
-# 站点访问频率（与 MoviePilot 站点字段语义一致）：limit_interval 秒内最多 limit_count 次请求；
-# 只配置 limit_interval 时视为两次请求之间的最小间隔。每个站点一把锁，保证并发任务也按序等待。
-_site_request_times: dict[int, deque[float]] = {}
-_site_rate_locks: dict[int, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
-
-
-# 同一站点相邻两次搜索请求至少间隔的秒数（站点自己配置了更严格的频率时以站点为准）。
-SITE_REQUEST_GAP_SECONDS = 3.0
-_site_last_request: dict[int, float] = {}
-
-
-async def wait_for_site_rate_limit(site: dict[str, Any]) -> None:
-    site_id = to_int(site.get("id") or 0)
-    if not site_id:
-        return
-    await _wait_for_site_gap(site_id)
-    interval = to_float(site.get("limit_interval")) if site.get("limit_interval") is not None else 0.0
-    if interval <= 0:
-        return
-    count = max(1, to_int(site.get("limit_count") or 1))
-    loop = asyncio.get_running_loop()
-    entry = _site_rate_locks.get(site_id)
-    if entry is None or entry[0] is not loop:
-        entry = (loop, asyncio.Lock())
-        _site_rate_locks[site_id] = entry
-    async with entry[1]:
-        history = _site_request_times.setdefault(site_id, deque())
-        now = time.monotonic()
-        while history and now - history[0] >= interval:
-            history.popleft()
-        if len(history) >= count:
-            await asyncio.sleep(max(0.0, interval - (now - history[0])))
-            now = time.monotonic()
-            while history and now - history[0] >= interval:
-                history.popleft()
-        history.append(time.monotonic())
-
-
-async def _wait_for_site_gap(site_id: int) -> None:
-    """同一站点的请求排队，相邻两次之间至少隔 SITE_REQUEST_GAP_SECONDS 秒。"""
-    loop = asyncio.get_running_loop()
-    entry = _site_gap_locks.get(site_id)
-    if entry is None or entry[0] is not loop:
-        entry = (loop, asyncio.Lock())
-        _site_gap_locks[site_id] = entry
-    async with entry[1]:
-        last = _site_last_request.get(site_id)
-        if last is not None:
-            remaining = SITE_REQUEST_GAP_SECONDS - (time.monotonic() - last)
-            if remaining > 0:
-                await asyncio.sleep(remaining)
-        _site_last_request[site_id] = time.monotonic()
-
-
-_site_gap_locks: dict[int, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
-
-
-def invalidate_downloads_snapshot() -> None:
-    _transmission_snapshot_cache.clear()
-
-
-# 最近一次成功读到的下载列表。Transmission 正忙（大量下载、校验）时读取会超时，
-# 短时间内沿用它，免得状态忽明忽暗、提交被无谓地挡住。
-_last_good_downloads: tuple[float, list[dict[str, Any]]] | None = None
-TRANSMISSION_READ_TIMEOUT_SECONDS = 15
-TRANSMISSION_STALE_SECONDS = 300
-
-
-def _recent_downloads(max_age: float) -> list[dict[str, Any]] | None:
-    import time as _time
-
-    if _last_good_downloads is not None and _time.monotonic() - _last_good_downloads[0] <= max_age:
-        return _last_good_downloads[1]
-    return None
-
-
-async def _read_downloads(timeout: float) -> list[dict[str, Any]]:
-    import time as _time
-
-    global _last_good_downloads
-    torrents = await asyncio.wait_for(TransmissionClient().current_downloads(), timeout=timeout)
-    _last_good_downloads = (_time.monotonic(), torrents)
-    return torrents
-
-
-async def fetch_downloads_now() -> list[dict[str, Any]]:
-    """实时读取 Transmission 的下载列表（失败直接抛出），并刷新页面展示用的缓存。
-
-    自动删除与提交前的防重复只认这一份实时数据：旧快照不能证明某个任务“现在”是否存在。"""
-    import time as _time
-
-    torrents = await _read_downloads(TRANSMISSION_READ_TIMEOUT_SECONDS)
-    _transmission_snapshot_cache[0] = (_time.monotonic(), torrents, "known_present" if torrents else "known_empty")
-    return torrents
-
-
-async def downloads_for_submit() -> list[dict[str, Any]]:
-    """提交前确认 Transmission 里正在下载什么，用来跳过已在下载的相同发布。
-
-    必须是实时读取的结果：先等 15 秒，失败再重试一次（30 秒）；仍失败就报错、暂缓提交。
-    旧快照只用来展示，不能当作防重复的依据（新加入的下载不在里面）。"""
-    last_error: Exception | None = None
-    for timeout in (TRANSMISSION_READ_TIMEOUT_SECONDS, TRANSMISSION_READ_TIMEOUT_SECONDS * 2):
-        try:
-            return await _read_downloads(timeout)
-        except Exception as exc:
-            last_error = exc
-    raise RuntimeError("无法读取 Transmission 的下载列表") from last_error
-
-
-async def _current_downloads_cached(force: bool = False) -> tuple[list[dict[str, Any]], str]:
-    import time as _time
-
-    now = _time.monotonic()
-    cached = _transmission_snapshot_cache.get(0)
-    if not force and cached is not None and now - cached[0] < TRANSMISSION_SNAPSHOT_TTL_SECONDS:
-        return cached[1], cached[2]
-    try:
-        torrents = await _read_downloads(TRANSMISSION_READ_TIMEOUT_SECONDS)
-        state = "known_present" if torrents else "known_empty"
-    except Exception:
-        # 只用于页面展示：读取失败时沿用 5 分钟内的上一次结果，而不是立刻把所有影片的下载状态变成“未知”。
-        # 自动删除与提交不走这里（见 fetch_downloads_now / downloads_for_submit）。
-        recent = _recent_downloads(TRANSMISSION_STALE_SECONDS)
-        torrents, state = (recent, "known_present" if recent else "known_empty") if recent is not None else ([], "unknown")
-    _transmission_snapshot_cache[0] = (_time.monotonic(), torrents, state)
-    return torrents, state
+from .site_limits import SITE_REQUEST_GAP_SECONDS, _site_request_times, wait_for_site_rate_limit  # noqa: F401  （其他模块与测试仍从这里导入）
+from .transmission_snapshot import (  # noqa: F401  （其他模块与测试仍从这里导入）
+    _current_downloads_cached,
+    downloads_for_submit,
+    fetch_downloads_now,
+    invalidate_downloads_snapshot,
+)
 
 
 async def searchable_playlist_items(playlist_id: int, limit: int | None = None) -> dict[str, Any]:
@@ -535,6 +410,23 @@ async def search_one_site(
             return site, [], reason, max(1, query_count), error_code
 
 
+def resolution_height(value: Any) -> int | None:
+    """“2160p” → 2160；认不出（“其他”）返回 None。"""
+    match = re.match(r"^(\d{3,4})p$", str(value or ""), re.I)
+    return int(match.group(1)) if match else None
+
+
+def apply_upgrade_floor(analysis: dict[str, Any], above: int | None) -> dict[str, Any]:
+    """升级搜索：分辨率不高于现有版本的资源记为排除（不能放行），其余照常按入馆标准评估。"""
+    if above is None:
+        return analysis
+    height = resolution_height(analysis.get("resolution"))
+    if height is not None and height > above:
+        return analysis
+    reason = f"不高于现有的 {above}p"
+    return {**analysis, "eligible": False, "manual": True, "recommendation": "excluded", "reason": reason, "exclusion_reason": reason}
+
+
 def _snapshot_ids(raw_value: Any, label: str) -> list[int] | None:
     if raw_value is None:
         return None
@@ -557,6 +449,7 @@ async def run_search(task_id: int) -> None:
     if task["status"] not in {"queued", "running"}:
         return
     pair_scope: set[tuple[int, int]] = set()
+    upgrade_above: int | None = task["upgrade_above"]
     try:
         selected_item_ids = _snapshot_ids(task["item_ids_json"], "影片")
         selected_site_ids = _snapshot_ids(task["site_ids_json"], "站点")
@@ -672,9 +565,11 @@ async def run_search(task_id: int) -> None:
                 (state, utc_now(), emby_item_id, image_tag, item["id"]),
             )
         task_log(task_id, "info", "library", f"Emby 状态：{state}")
-        if state == "in_library":
+        if state == "in_library" and upgrade_above is None:
             task_log(task_id, "info", "search", f"{label} 已有实体文件，跳过站点搜索")
             return None
+        if state == "in_library":
+            task_log(task_id, "info", "search", f"{label} 升级搜索：只保留高于 {upgrade_above}p 的资源")
         queries = build_search_queries(item, media)
         task_log(task_id, "info", "search", "检索词：" + " → ".join(query[2] for query in queries))
         return {
@@ -778,6 +673,7 @@ async def run_search(task_id: int) -> None:
                     "eligible": False, "manual": True, "recommendation": "excluded",
                     "reason": identity_reason, "exclusion_reason": identity_reason,
                 })
+            analysis = apply_upgrade_floor(analysis, upgrade_above)
             if not analysis["eligible"]:
                 exclusion_counts[str(analysis.get("exclusion_reason") or "不符合允许组合")] += 1
             # 保留数量按不同发布计：同一种子在多个站点、标题写法不同，只占一个名额。
@@ -824,6 +720,7 @@ async def run_search(task_id: int) -> None:
                     "eligible": False, "manual": True, "recommendation": "excluded",
                     "reason": identity_reason, "exclusion_reason": identity_reason,
                 })
+            analyzed = apply_upgrade_floor(analyzed, upgrade_above)
             metadata = secret_free({
                 "description": torrent.get("description"), "labels": torrent.get("labels", []),
                 "volume_factor": torrent.get("volume_factor"), "publish_time": first_value(torrent, ("pubdate", "publish_time")),
@@ -852,7 +749,8 @@ async def run_search(task_id: int) -> None:
             task_id, "info", "candidate",
             f"{label} 保留 {len(eligible_keys)} 个可下载候选，记录 {len(excluded_keys)} 个排除样本",
         )
-        record_search_outcome(task_id, to_int(item["id"]), len(eligible_keys), bool(site_failures))
+        if upgrade_above is None:  # 升级搜索不影响“等待资源”的退避
+            record_search_outcome(task_id, to_int(item["id"]), len(eligible_keys), bool(site_failures))
         return len(eligible_keys)
 
     async def process(item: sqlite3.Row) -> dict[str, Any] | None:
@@ -1022,10 +920,11 @@ def create_followup_search_task(task_id: int, failed_only: bool) -> tuple[int, i
         new_id = conn.execute(
             """INSERT INTO search_tasks(
                  playlist_id,range_start,range_end,status,total,parent_task_id,trigger,site_ids_json,item_ids_json,
-                 pair_scope_json,created_at,updated_at
-               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 pair_scope_json,upgrade_above,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (source["playlist_id"], source["range_start"], source["range_end"], "queued", total, task_id,
              "retry" if failed_only else "restart", json_value(site_ids) if site_ids else None,
-             json_value(item_ids) if item_ids else None, json_value(pair_scope) if pair_scope else None, now, now),
+             json_value(item_ids) if item_ids else None, json_value(pair_scope) if pair_scope else None,
+             source["upgrade_above"], now, now),
         ).lastrowid
     return to_int(new_id), total

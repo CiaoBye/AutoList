@@ -1,0 +1,157 @@
+/* 馆务 → 诊断：诊断日志。 */
+
+/* ---------- 诊断日志 ---------- */
+
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.log-filters .chips {
+  margin: 0;
+}
+
+.log-search {
+  flex: 1 1 240px;
+  max-width: 420px;
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.log-collapse {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  color: var(--ink-2);
+  font-size: var(--fs-m);
+  cursor: pointer;
+}
+
+.log-table {
+  overflow: hidden;
+}
+
+.log-day {
+  padding: var(--space-3) var(--space-5) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 76px 52px minmax(120px, 190px) minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-5);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.log-row:hover,
+.log-row[aria-expanded="true"] {
+  background: var(--wash);
+}
+
+.log-clock {
+  color: var(--muted);
+}
+
+.log-event {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.log-event-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-repeat {
+  flex-shrink: 0;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--st-searching-bg);
+  color: var(--st-searching-fg);
+  font-size: var(--fs-xs);
+}
+
+.log-summary {
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-toggle {
+  color: var(--muted);
+}
+
+.log-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-5) var(--space-3) 162px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  font-size: var(--fs-s);
+}
+
+.log-detail-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.log-fields {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.log-fields > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.log-fields dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.log-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.log-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--fs-s);
+}

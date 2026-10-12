@@ -13,7 +13,6 @@ from typing import Any
 from ..clients import TMDBClient
 from ..config import settings
 from ..database import connect
-from ..queries import films as film_queries
 from ..util import to_int, utc_now
 from .recognition import _title_overlaps, is_year_close
 
@@ -77,7 +76,7 @@ def identity_flag(item: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _needs_check(item: dict[str, Any], now: str) -> bool:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     try:
         data = json.loads(item.get("identity_check") or "null")

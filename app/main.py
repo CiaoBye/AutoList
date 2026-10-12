@@ -19,6 +19,9 @@ from .api import films as film_routes
 from .api import history as history_routes
 from .api import home as home_routes
 from .api import images as image_routes
+from .api import backups as backup_routes
+from .api import site_status as site_status_routes
+from .api import upgrades as upgrade_routes
 from .api import logs as log_routes
 from .api import picks as pick_routes
 from .api import playlists as playlist_routes
@@ -33,7 +36,6 @@ from .config import (
     access_token_is_strong,
     access_token_required,
     access_token_strength_enforced,
-    access_token_validation_error,
     load_runtime_settings,
 )
 from .database import cleanup_old_data, connect, initialize
@@ -91,6 +93,9 @@ app.include_router(pick_routes.router)
 app.include_router(timeline_routes.router)
 app.include_router(image_routes.router)
 app.include_router(log_routes.router)
+app.include_router(backup_routes.router)
+app.include_router(site_status_routes.router)
+app.include_router(upgrade_routes.router)
 
 
 @app.exception_handler(StarletteHTTPException)

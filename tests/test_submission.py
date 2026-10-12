@@ -42,14 +42,14 @@ class MoviePilotGatewayTests(unittest.IsolatedAsyncioTestCase):
             return respond(kwargs["json"])  # type: ignore[arg-type]
 
         client = MoviePilotClient()
-        with patch("app.clients.safe_request", new=fake_request), \
+        with patch("app.clients.moviepilot.safe_request", new=fake_request), \
              patch.object(MoviePilotClient, "recognize", new=AsyncMock(return_value={"tmdb_id": 123678, "type": "电影"})):
             result = await client.download({"tmdb_id": 123678}, {"title": "The Act of Killing 2012 DC"}, downloader="TR")
         self.assertTrue(result["success"])
         self.assertEqual(["media_id" in body for body in bodies], [True, False])
         # 种子名识别出的不是同一部影片时不改道，保持 MoviePilot 的拒绝结果。
         bodies.clear()
-        with patch("app.clients.safe_request", new=fake_request), \
+        with patch("app.clients.moviepilot.safe_request", new=fake_request), \
              patch.object(MoviePilotClient, "recognize", new=AsyncMock(return_value={"tmdb_id": 1, "type": "电影"})):
             result = await client.download({"tmdb_id": 123678}, {"title": "Other"}, downloader="TR")
         self.assertFalse(result["success"])
@@ -73,8 +73,8 @@ class MoviePilotGatewayTests(unittest.IsolatedAsyncioTestCase):
 
         media = {"tmdb_id": 101, "tmdb_title": "这个杀手不太冷", "tmdb_original_title": "Léon", "tmdb_year": 1994}
         client = MoviePilotClient()
-        with patch("app.clients.safe_request", new=fake_request), \
-             patch("app.clients._tmdb_has_tv", new=AsyncMock(return_value=True)), \
+        with patch("app.clients.moviepilot.safe_request", new=fake_request), \
+             patch("app.clients.moviepilot._tmdb_has_tv", new=AsyncMock(return_value=True)), \
              patch.object(MoviePilotClient, "recognize", new=recognize):
             result = await client.download(media, {"title": "Leon The Professional 1994 BluRay 2160p x265"}, downloader="TR")
         self.assertTrue(result["success"])
@@ -83,8 +83,8 @@ class MoviePilotGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bodies[0]["torrent_in"]["title"], "这个杀手不太冷 Léon 1994 BluRay 2160p x265")
         # 种子名与补上的片名都认不出这部电影：不提交。
         bodies.clear()
-        with patch("app.clients.safe_request", new=fake_request), \
-             patch("app.clients._tmdb_has_tv", new=AsyncMock(return_value=True)), \
+        with patch("app.clients.moviepilot.safe_request", new=fake_request), \
+             patch("app.clients.moviepilot._tmdb_has_tv", new=AsyncMock(return_value=True)), \
              patch.object(MoviePilotClient, "recognize", new=AsyncMock(return_value={"tmdb_id": 101, "type": "电视剧"})):
             with self.assertRaisesRegex(RuntimeError, "同时是电影和电视剧"):
                 await client.download(media, {"title": "Go.1983.S01"}, downloader="TR")
@@ -819,7 +819,7 @@ class SubmissionGuardTests(IsolatedAppTestCase):
         with patch.object(TransmissionClient, "current_downloads", new=busy), self.assertRaises(RuntimeError):
             await search_module.downloads_for_submit()
         # 页面展示仍可沿用最近一次的结果，不会因为一次超时就整体变成“未知”。
-        search_module._last_good_downloads = (__import__("time").monotonic() - 30, listed)
+        __import__("app.services.transmission_snapshot", fromlist=["x"])._last_good_downloads = (__import__("time").monotonic() - 30, listed)
         with patch.object(TransmissionClient, "current_downloads", new=busy):
             torrents, state = await search_module._current_downloads_cached(force=True)
         self.assertEqual((torrents, state), (listed, "known_present"))
@@ -940,7 +940,7 @@ class HistoryIdentityTests(IsolatedAppTestCase):
         torrent = {"name": "The.Thing.2011.1080p.Release", "status": 4, "percentDone": 0.2}
         candidate = {"title": "The.Thing.1982.1080p.Release"}
         self.assertFalse(_matches_active_torrent(candidate, item, [torrent]))
-        with patch("app.services.search.TransmissionClient.current_downloads", new=AsyncMock(return_value=[torrent])):
+        with patch("app.services.transmission_snapshot.TransmissionClient.current_downloads", new=AsyncMock(return_value=[torrent])):
             queue = await searchable_playlist_items(playlist_id)
             history = await projected_download_history()
         self.assertEqual([row["id"] for row in queue["items"]], [item_id])

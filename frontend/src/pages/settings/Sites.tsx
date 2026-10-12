@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api } from "../../api";
+import { api, ApiError } from "../../api";
 import { formatSize, formatTime } from "../../format";
-import type { MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteSaved, SiteSecrets } from "../../types";
+import type { CookieCloudSynced, MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteSaved, SiteSecrets } from "../../types";
 import { CookieCloudPanel } from "./CookieCloudPanel";
 import type { SettingsHealth } from "./health";
 import { SectionHead, SwitchRow, TextField, useAction } from "./shared";
 import { DrawerLayer } from "../../components/DrawerLayer";
 import { VerifyLink } from "../../components/VerifyLink";
+import { confirmDialog } from "../../components/ConfirmDialog";
 
 const ADAPTER_LABELS: Record<string, string> = {
   mteam: "M-Team API",
@@ -71,12 +72,13 @@ interface SiteForm {
   supplement_only: boolean;
   limit_interval: string;
   limit_count: string;
+  limit_gap: string;
 }
 
 const emptyForm = (): SiteForm => ({
   name: "", base_url: "", api_key: "", cookie: "", user_agent: "", priority: "100", timeout_seconds: "30",
   rss_url: "", icon_url: "", proxy: true, enabled: true, search_enabled: true, supplement_only: false,
-  limit_interval: "", limit_count: "",
+  limit_interval: "", limit_count: "", limit_gap: "",
 });
 
 const formFromSite = (site: Site): SiteForm => ({
@@ -85,12 +87,20 @@ const formFromSite = (site: Site): SiteForm => ({
   icon_url: site.icon_url && !site.icon_url.startsWith("data:") ? site.icon_url : "", proxy: Boolean(site.proxy),
   enabled: Boolean(site.enabled), search_enabled: Boolean(site.search_enabled), supplement_only: Boolean(site.supplement_only),
   limit_interval: site.limit_interval ? String(site.limit_interval) : "", limit_count: site.limit_count ? String(site.limit_count) : "",
+  limit_gap: site.limit_gap === null || site.limit_gap === undefined ? "" : String(site.limit_gap),
 });
 
 /** 访问频率：留空表示不限（仍按全局每 3 秒一次）；只填秒数时视为两次请求之间的最小间隔。 */
 const positiveOrNull = (value: string): number | null => {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+};
+
+/** 访问间隔：留空用默认（3 秒），0 表示不额外等待。 */
+const nonNegativeOrNull = (value: string): number | null => {
+  if (value.trim() === "") return null;
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(3600, parsed) : null;
 };
 
 type Secrets = { cookie: string; api_key: string; rss_url: string };
@@ -111,9 +121,9 @@ const sitePayload = (form: SiteForm, site: Site | null, base: Secrets) => {
     // 自定义图标以 data: 形式保存时不在表单里回显，保存时沿用原值。
     icon_url: form.icon_url.trim() || (site?.icon_url?.startsWith("data:") ? site.icon_url : ""),
     proxy: form.proxy,
-    render: Boolean(site?.render),
     limit_interval: positiveOrNull(form.limit_interval),
     limit_count: positiveOrNull(form.limit_interval) ? positiveOrNull(form.limit_count) : null,
+    limit_gap: nonNegativeOrNull(form.limit_gap),
     enabled: form.enabled,
     search_enabled: form.search_enabled,
     supplement_only: form.supplement_only,
@@ -174,15 +184,16 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
-  const close = () => {
-    if (dirtyRef.current && !window.confirm("站点有未保存的修改，确定放弃并关闭？")) return;
+  const close = async () => {
+    if (dirtyRef.current && !(await confirmDialog({ title: "放弃未保存的修改？", message: "站点有未保存的修改，关闭后会丢失。", confirmText: "放弃并关闭", danger: true }))) return;
     onClose();
   };
 
   useEffect(() => {
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      // 确认框打开时，Esc 只关确认框。
+      if (event.key === "Escape" && !document.querySelector(".confirm-dialog[open]")) void close();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -198,7 +209,7 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
 
   const set = <K extends keyof SiteForm>(name: K, value: SiteForm[K]) => setForm((current) => ({ ...current, [name]: value }));
   const valid = form.name.trim() && form.base_url.trim();
-  const limitOn = form.limit_interval.trim() !== "";
+  const limitOn = form.limit_interval.trim() !== "" || form.limit_gap.trim() !== "";
 
   const submit = (event: Event) => {
     event.preventDefault();
@@ -285,6 +296,10 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                   <TextField label="名称" value={form.name} onInput={(value) => set("name", value)} />
                   <TextField label="站点地址" value={form.base_url} onInput={(value) => set("base_url", value)} placeholder="https://example.org" inputMode="url" />
                   <TextField label="图标地址（可选）" value={form.icon_url} onInput={(value) => set("icon_url", value)} placeholder="留空使用站点 favicon" inputMode="url" />
+                  <div class="field-pair">
+                    <TextField label="优先级（1 最高）" type="number" value={form.priority} onInput={(value) => set("priority", value)} />
+                    <TextField label="超时（秒）" type="number" value={form.timeout_seconds} onInput={(value) => set("timeout_seconds", value)} />
+                  </div>
                 </div>
               </section>
 
@@ -347,27 +362,17 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                     onChange={(value) => {
                       set("limit_interval", value ? form.limit_interval || "30" : "");
                       set("limit_count", value ? form.limit_count || "1" : "");
+                      set("limit_gap", value ? form.limit_gap || "3" : "");
                     }}
                   />
                   {limitOn ? (
-                    <div class="site-limit-row">
-                      <span>每</span>
-                      <input type="number" aria-label="每 N 秒" value={form.limit_interval} onInput={(event) => set("limit_interval", (event.target as HTMLInputElement).value)} />
-                      <span>秒最多</span>
-                      <input type="number" aria-label="最多 M 次" value={form.limit_count} placeholder="1" onInput={(event) => set("limit_count", (event.target as HTMLInputElement).value)} />
-                      <span>次</span>
+                    <div class="site-limit-grid">
+                      <TextField label="单位周期（秒）" type="number" value={form.limit_interval} placeholder="0" onInput={(value) => set("limit_interval", value)} />
+                      <TextField label="周期内访问次数" type="number" value={form.limit_count} placeholder="1" onInput={(value) => set("limit_count", value)} />
+                      <TextField label="访问间隔（秒）" type="number" value={form.limit_gap} placeholder="3" onInput={(value) => set("limit_gap", value)} />
                     </div>
                   ) : null}
-                  <SwitchRow
-                    label="使用代理访问"
-                    hint="先在 馆务 → 往来 配置代理"
-                    checked={form.proxy}
-                    onChange={(value) => set("proxy", value)}
-                  />
-                </div>
-                <div class="field-pair">
-                  <TextField label="优先级（1 最高）" type="number" value={form.priority} onInput={(value) => set("priority", value)} />
-                  <TextField label="超时（秒）" type="number" value={form.timeout_seconds} onInput={(value) => set("timeout_seconds", value)} />
+                  <SwitchRow label="使用代理访问" checked={form.proxy} onChange={(value) => set("proxy", value)} />
                 </div>
               </section>
             </div>
@@ -379,8 +384,8 @@ function SiteDrawer({ site, onClose, onSaved }: { site: Site | null; onClose: ()
                 class="btn btn-danger"
                 type="button"
                 disabled={busy}
-                onClick={() => {
-                  if (!window.confirm(`确定删除站点“${site.name}”？搜索记录会保留，站点配置无法恢复。`)) return;
+                onClick={async () => {
+                  if (!(await confirmDialog({ title: `删除站点“${site.name}”？`, message: "搜索记录会保留，站点配置无法恢复。", confirmText: "删除", danger: true }))) return;
                   void run(() => api(`/api/sites/${site.id}`, { method: "DELETE" }), "站点已删除", async () => {
                     await onSaved();
                     onClose();
@@ -520,7 +525,33 @@ export function Sites({ health }: { health: SettingsHealth }) {
     }
   };
   const { busy, run } = useAction();
+  const [ccOpen, setCcOpen] = useState(false);
   const missing = health.cookiecloud.data?.last_sync?.missing || [];
+  /** 同步：先从 MoviePilot 同步站点列表，再从 CookieCloud 拉取 Cookie（配置了才拉）；两步各自的结果合成一句提示。 */
+  const syncAll = () =>
+    void run(
+      async () => {
+        const parts: string[] = [];
+        try {
+          parts.push((await api<MoviePilotSitesSynced>("/api/sites/sync-moviepilot", { method: "POST", timeoutMs: 120000 })).message);
+        } catch (error) {
+          parts.push(`MoviePilot 同步失败：${error instanceof ApiError ? error.message : "未知错误"}`);
+        }
+        if (health.cookiecloud.data?.configured) {
+          try {
+            parts.push((await api<CookieCloudSynced>("/api/sites/sync-cookiecloud", { method: "POST", timeoutMs: 60000 })).message || "已拉取站点 Cookie");
+          } catch (error) {
+            parts.push(`CookieCloud 拉取失败：${error instanceof ApiError ? error.message : "未知错误"}`);
+          }
+        }
+        return parts.filter(Boolean).join("；");
+      },
+      (message) => message,
+      async () => {
+        await sites.reload();
+        await health.cookiecloud.reload();
+      },
+    );
 
   const needle = query.trim().toLowerCase();
   const all = sites.data || [];
@@ -553,8 +584,11 @@ export function Sites({ health }: { health: SettingsHealth }) {
         title="站点"
         actions={
           <>
-            <button class="btn" type="button" disabled={busy} onClick={() => void run(() => api<MoviePilotSitesSynced>("/api/sites/sync-moviepilot", { method: "POST", timeoutMs: 120000 }), (result) => result.message, () => sites.reload())}>
-              从 MoviePilot 同步
+            <button class="btn" type="button" aria-expanded={ccOpen} onClick={() => setCcOpen(!ccOpen)} title="CookieCloud 的服务器地址、用户 KEY、加密密码与定时拉取间隔">
+              连接设置
+            </button>
+            <button class="btn" type="button" disabled={busy} onClick={syncAll} title="从 MoviePilot 同步站点列表，并从 CookieCloud 拉取站点 Cookie">
+              同步
             </button>
             <button class="btn" type="button" disabled={busy} onClick={() => void run(() => api<SiteChecks>("/api/sites/test", { method: "POST", timeoutMs: 180000 }), (result) => `检测完成：${result.ok} / ${result.total} 个可用`, () => sites.reload())}>
               {busy ? "处理中…" : "检测全部"}
@@ -566,7 +600,7 @@ export function Sites({ health }: { health: SettingsHealth }) {
         }
       />
 
-      <CookieCloudPanel health={health} onSynced={() => void sites.reload()} />
+      <CookieCloudPanel health={health} open={ccOpen} />
 
       <div class="site-filters">
         <div class="chips" role="group" aria-label="筛选站点">

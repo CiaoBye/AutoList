@@ -311,7 +311,6 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
             timeout = max(30, min(to_int(s.get("timeout") or 30), 60))
             # 站点默认经代理访问（直连 Cloudflare 后面的站点常常很慢）；MoviePilot 里的代理开关不覆盖本地选择。
             proxy = 1
-            render = 1 if s.get("render") else 0
             is_active = 1 if s.get("is_active", True) else 0
 
             site_name = raw_name
@@ -326,7 +325,7 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
                 adapter = resolve_site_adapter(raw_url, effective_rss, cookie=effective_cookie, from_moviepilot=True)
                 conn.execute(
                     """UPDATE pt_sites
-                       SET adapter=?, base_url=?, render=?,
+                       SET adapter=?, base_url=?,
                            rss_url=CASE WHEN ? != '' THEN ? ELSE rss_url END,
                            cookie_updated_at=CASE WHEN ? != '' AND ? != COALESCE(cookie, '') THEN ? ELSE cookie_updated_at END,
                            cookie_source=CASE WHEN ? != '' AND ? != COALESCE(cookie, '') THEN 'moviepilot' ELSE cookie_source END,
@@ -334,7 +333,7 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
                            api_key=CASE WHEN ? != '' AND COALESCE(api_key, '') = '' THEN ? ELSE api_key END,
                            user_agent=CASE WHEN COALESCE(user_agent, '') = '' THEN ? ELSE user_agent END
                        WHERE id=?""",
-                    (adapter, raw_url, render, rss_url, rss_url,
+                    (adapter, raw_url, rss_url, rss_url,
                      cookie, cookie, utc_now(), cookie, cookie, cookie, cookie,
                      api_key, api_key, ua, existing["id"]),
                 )
@@ -345,10 +344,10 @@ async def sync_sites_from_moviepilot() -> dict[str, Any]:
                 site_id = conn.execute(
                     """INSERT INTO pt_sites(name, adapter, base_url, api_key, cookie, user_agent,
                                            priority, timeout_seconds, rss_url, icon_url, proxy,
-                                           render, enabled, search_enabled, created_at, cookie_updated_at, cookie_source)
-                       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 1, ?, ?, ?)""",
+                                           enabled, search_enabled, created_at, cookie_updated_at, cookie_source)
+                       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 1, ?, ?, ?)""",
                     (site_name, adapter, raw_url, api_key, cookie, ua or f"AutoList/{APP_VERSION}", priority, timeout,
-                     rss_url, proxy, render, is_active, utc_now(),
+                     rss_url, proxy, is_active, utc_now(),
                      utc_now() if cookie else None, "moviepilot" if cookie else None),
                 ).lastrowid
             except sqlite3.IntegrityError:

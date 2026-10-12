@@ -50,9 +50,10 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
         state.raw_candidates.clear()
         # 站点请求间隔在测试里关掉（需要验证间隔的用例单独设置），并清空上一个用例留下的请求时间。
         from app.services import search as search_service
+        from app.services import site_limits
 
-        search_service._site_last_request.clear()
-        self._site_gap = patch.object(search_service, "SITE_REQUEST_GAP_SECONDS", 0.0)
+        site_limits._site_last_request.clear()
+        self._site_gap = patch.object(site_limits, "SITE_REQUEST_GAP_SECONDS", 0.0)
         self._site_gap.start()
         # 人机验证后的等待恢复：测试里不等（需要验证等待的用例单独设置）。
         self._captcha_wait = patch.multiple(search_service, CAPTCHA_PROBE_SECONDS=0, CAPTCHA_WAIT_SECONDS=0)
@@ -83,14 +84,15 @@ class IsolatedAppTestCase(unittest.IsolatedAsyncioTestCase):
         state.site_icon_cache.clear()
         from app.services import cookiecloud as cookiecloud_module
         cookiecloud_module.reset_pull_clock()
-        from app.services import search as search_module
-        search_module._transmission_snapshot_cache.clear()
-        search_module._last_good_downloads = None
+        from app.services import site_limits
+        from app.services import transmission_snapshot
+        transmission_snapshot._transmission_snapshot_cache.clear()
+        transmission_snapshot._last_good_downloads = None
         from app.services import downloads as downloads_module
 
         downloads_module._last_overview = None
-        search_module._site_request_times.clear()
-        search_module._site_rate_locks.clear()
+        site_limits._site_request_times.clear()
+        site_limits._site_rate_locks.clear()
         from app.clients import close_search_clients
         await close_search_clients()
         import app.outbound as outbound_module

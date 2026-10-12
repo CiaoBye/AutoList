@@ -1,0 +1,9 @@
+# 静态检查：只开 pyflakes（未使用的导入与变量、未定义的名字等）和 pycodestyle 的语法类错误，
+# 不强制排版（项目没有统一格式化器，行宽也不限）。
+target-version = "py312"
+line-length = 160
+extend-exclude = ["frontend", ".scratch", "app/static"]
+
+[lint]
+select = ["F", "E4", "E7", "E9"]
+ignore = ["E731"]  # 小函数用 lambda 赋值没问题

@@ -1,7 +1,7 @@
 {
   "name": "autolist-next",
   "private": true,
-  "version": "2.77.0",
+  "version": "2.86.0",
   "description": "AutoList “电影藏馆”界面",
   "type": "module",
   "engines": {
@@ -11,12 +11,14 @@
     "gen:api": "openapi-typescript openapi.json -o src/api-schema.d.ts",
     "dev": "npm run gen:api && vite",
     "build": "npm run gen:api && tsc --noEmit && vite build",
-    "typecheck": "npm run gen:api && tsc --noEmit"
+    "typecheck": "npm run gen:api && tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "preact": "10.29.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
     "vite": "8.3.1"

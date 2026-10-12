@@ -6,6 +6,7 @@ import { useLoad, useToast } from "../../hooks";
 import { href, navigate } from "../../router";
 import type { AutomationStarted, PlaylistRow, PlaylistSynced } from "../../types";
 import { SectionHead, useAction } from "./shared";
+import { confirmDialog } from "../../components/ConfirmDialog";
 
 const INTERVALS = [6, 12, 24, 48, 72, 168];
 
@@ -97,8 +98,8 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
             type="button"
             disabled={busy}
             title="补齐每部影片的 IMDb 编号，按 IMDb 换算 TMDB 核对已有识别，不一致的改正后重新核对 Emby"
-            onClick={() => {
-              if (!window.confirm("按 IMDb 编号校准整份片单：补齐编号并核对已有识别，不一致的会改正并重新核对 Emby。确定开始？")) return;
+            onClick={async () => {
+              if (!(await confirmDialog({ title: "按 IMDb 编号校准整份片单？", message: "补齐编号并核对已有识别，不一致的会改正并重新核对 Emby。", confirmText: "开始校准" }))) return;
               void post(`/api/playlists/${playlist.id}/recognize?mode=verify`, "已开始按 IMDb 校准");
             }}
           >
@@ -158,8 +159,8 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
                 class="btn btn-small"
                 type="button"
                 disabled={busy}
-                onClick={() => {
-                  if (!window.confirm("完整刷新会按来源重新生成整份片单的顺序与条目（已识别信息会尽量保留）。确定继续？")) return;
+                onClick={async () => {
+                  if (!(await confirmDialog({ title: "完整刷新这份片单？", message: "会按来源重新生成整份片单的顺序与条目（已识别信息会尽量保留）。", confirmText: "刷新" }))) return;
                   post(`/api/playlists/${playlist.id}/refresh-source`, "已按来源完整刷新");
                 }}
               >
@@ -213,8 +214,8 @@ function PlaylistCard({ playlist, index, total, busy, run, reload, onMove }: {
           class="btn btn-small btn-danger"
           type="button"
           disabled={busy}
-          onClick={() => {
-            if (!window.confirm(`确定删除片单“${playlist.name}”？片单条目、候选与搜索记录会一并删除，下载历史会保留。`)) return;
+          onClick={async () => {
+            if (!(await confirmDialog({ title: `删除片单“${playlist.name}”？`, message: "片单条目、候选与搜索记录会一并删除，下载历史会保留。", confirmText: "删除", danger: true }))) return;
             void run(() => api(`/api/playlists/${playlist.id}`, { method: "DELETE" }), "片单已删除", reload);
           }}
         >

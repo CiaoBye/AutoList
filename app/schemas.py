@@ -102,9 +102,9 @@ class SitePayload(BaseModel):
     rss_url: str = Field(default="", max_length=2048)
     icon_url: str = Field(default="", max_length=1_500_000)
     proxy: bool = True
-    render: bool = False
     limit_interval: int | None = Field(default=None, ge=1)
     limit_count: int | None = Field(default=None, ge=1)
+    limit_gap: int | None = Field(default=None, ge=0, le=3600)
     enabled: bool = True
     search_enabled: bool = False
     supplement_only: bool = False
@@ -138,3 +138,7 @@ class FilmTmdbPayload(BaseModel):
     """Manually pin a film to a TMDB movie id when automatic recognition picked the wrong one."""
 
     tmdb_id: int = Field(ge=1, le=100_000_000)
+
+
+class BackupDeletePayload(BaseModel):
+    names: list[str] = Field(min_length=1, max_length=200)

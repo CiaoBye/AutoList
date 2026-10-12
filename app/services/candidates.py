@@ -110,7 +110,8 @@ def latest_candidate_rows(conn: Any, item_ids: list[int]) -> dict[int, list[dict
     rows = conn.execute(
         f"""SELECT c.*, p.rank_no, p.original_title, p.year, p.chinese_title,
                    p.tmdb_title,p.tmdb_original_title,p.tmdb_year,p.tmdb_imdb_id,
-                   CASE WHEN sel.candidate_id IS NULL THEN 0 ELSE 1 END AS in_selection
+                   CASE WHEN sel.candidate_id IS NULL THEN 0 ELSE 1 END AS in_selection,
+                   (SELECT t.upgrade_above FROM search_tasks t WHERE t.id=c.task_id) AS upgrade_above
             FROM candidates c
             JOIN playlist_items p ON p.id=c.playlist_item_id
             LEFT JOIN selection_items sel ON sel.candidate_id=c.id

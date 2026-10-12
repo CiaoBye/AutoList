@@ -3,7 +3,7 @@ import { api, ApiError } from "../api";
 import { Poster } from "../components/Poster";
 import { DrawerSkeleton } from "../components/Skeleton";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
-import { formatTime, rankDigits, releaseConfirmText } from "../format";
+import { formatSize, formatTime, rankDigits } from "../format";
 import { useLoad, useToast } from "../hooks";
 import { href } from "../router";
 import { rememberLastPick } from "../lastPick";
@@ -13,6 +13,7 @@ import type { FilmDetail, TmdbMatch } from "../types";
 import { DrawerLayer } from "../components/DrawerLayer";
 import { CandidateTools } from "../components/CandidateTools";
 import { ExcludedPanel } from "../components/ExcludedPanel";
+import { confirmDialog, releaseConfirm } from "../components/ConfirmDialog";
 
 interface Step {
   title: string;
@@ -154,14 +155,14 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const film = useLoad<FilmDetail>(
     (signal) => api<FilmDetail>(`/api/films/${id}`, { signal }),
     [id],
-    (data) => (data?.status === "searching" ? 4000 : null),
+    (data) => (data?.status === "searching" || data?.upgrade_searching ? 4000 : null),
     `film:${id}`,
   );
 
   useEffect(() => {
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !document.querySelector(".confirm-dialog[open]")) onClose();
     };
     document.addEventListener("keydown", onKey);
     const previousOverflow = document.body.style.overflow;
@@ -269,6 +270,57 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             </ol>
             )}
 
+            {data.library_versions.length > 1 ? (
+              <section class="panel library-versions">
+                <h3>Emby 里有 {data.library_versions.length} 个版本</h3>
+                <p class="muted">同一部影片重复入库，占用空间；可在 Emby 或 MoviePilot 中保留一个、删除其余。</p>
+                <ul class="version-list">
+                  {data.library_versions.map((version) => (
+                    <li key={version.name}>
+                      <span class="mono">{version.name}</span>
+                      <span class="muted">{[version.resolution, version.size ? formatSize(version.size) : null].filter(Boolean).join(" · ")}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {data.status === "in_library" && data.library_tier ? (
+              <section class="panel upgrade-panel">
+                <h3>升级画质</h3>
+                <p class="muted">
+                  Emby 里现有最高 {data.library_tier}p。
+                  {data.library_tier >= 2160 ? "已是最高画质，不需要升级。" : "可以到站点找更高画质的资源，选定后照常提交，Emby 里会多出一个版本。"}
+                </p>
+                {data.upgrade_above !== null && data.candidates.length ? (
+                  <>
+                    {data.candidates.map((candidate) => (
+                      <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={(candidateId) => void toggle(candidateId)} />
+                    ))}
+                    {data.candidates.some((candidate) => candidate.in_selection) ? (
+                      <span class="actions">
+                        <a class="btn btn-primary" href="#/pick">去遴选提交</a>
+                      </span>
+                    ) : null}
+                  </>
+                ) : data.upgrade_above !== null && !data.upgrade_searching ? (
+                  <p class="muted">上次升级搜索没有找到高于 {data.upgrade_above}p 的合格资源。</p>
+                ) : null}
+                {data.library_tier < 2160 ? (
+                  <span class="actions">
+                    <button
+                      class="btn"
+                      type="button"
+                      disabled={busy || data.upgrade_searching}
+                      onClick={() => void act(() => api(`/api/films/${id}/upgrade-search`, { method: "POST" }), "已开始升级搜索")}
+                    >
+                      {data.upgrade_searching ? "正在搜索…" : data.upgrade_above !== null ? "重新找更高画质" : "找更高画质"}
+                    </button>
+                  </span>
+                ) : null}
+              </section>
+            ) : null}
+
             {data.status === "unrecognized" ? (
               <section class="panel">
                 <h3>还没有对上 TMDB</h3>
@@ -312,12 +364,12 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                     nextSearchAt={data.next_search_at}
                     busy={busy}
                     identity={data.identity_flag}
-                    onFixIdentity={(tmdbId) => {
-                      if (!window.confirm("改用 TMDB 反查到的这部影片？之后会按它重新识别、寻片。")) return;
+                    onFixIdentity={async (tmdbId) => {
+                      if (!(await confirmDialog({ title: "改用 TMDB 反查到的这部影片？", message: "之后会按它重新识别、寻片。" }))) return;
                       void act(() => api(`/api/films/${id}/tmdb`, { method: "POST", body: { tmdb_id: tmdbId }, timeoutMs: 60000 }), "已改用新的 TMDB 识别");
                     }}
-                    onRelease={(candidate) => {
-                      if (!window.confirm(releaseConfirmText({ title: data.title, year: data.year }, candidate))) return;
+                    onRelease={async (candidate) => {
+                      if (!(await confirmDialog(releaseConfirm({ title: data.title, year: data.year }, candidate)))) return;
                       rememberLastPick(id);
                       void act(() => api(`/api/selection/items/${encodeURIComponent(candidate.id)}?force=true`, { method: "POST" }), "已放行并加入待入馆清单");
                     }}
@@ -367,8 +419,8 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                   canClear={data.status === "selected" && data.candidates.some((candidate) => !candidate.in_selection)}
                   failed={data.issues.includes("submit_failed")}
                   busy={busy}
-                  onClear={() => {
-                    if (!window.confirm("清除这部影片没选定的候选？它会回到缺片，下一批寻片会重新搜（已选定的保留）。")) return;
+                  onClear={async () => {
+                    if (!(await confirmDialog({ title: "清除这部影片没选定的候选？", message: "它会回到缺片，下一批寻片会重新搜（已选定的保留）。", confirmText: "清除" }))) return;
                     void act(() => api(`/api/films/${id}/clear-candidates`, { method: "POST" }), "已清除没选定的候选");
                   }}
                   onDismiss={() => void act(() => api(`/api/films/${id}/dismiss-failure`, { method: "POST" }), "已忽略提交失败（提交记录保留）")}

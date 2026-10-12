@@ -306,10 +306,10 @@ class LiveReadOnlyDeletionTests(IsolatedAppTestCase):
     async def test_an_unreadable_transmission_blocks_every_automatic_action_even_with_a_recent_snapshot(self) -> None:
         import time
 
-        from app.services import search as search_module
+        from app.services import transmission_snapshot
 
         # 5 分钟内读到过一份列表（里面有停滞旧任务与新任务），但这一轮实时读取失败：不能据此删除任何任务。
-        search_module._last_good_downloads = (time.monotonic() - 60, [{"hashString": "a" * 40, "name": "Old", "status": 4}])
+        transmission_snapshot._last_good_downloads = (time.monotonic() - 60, [{"hashString": "a" * 40, "name": "Old", "status": 4}])
         with patch("app.services.sync.TransmissionClient", return_value=type("T", (), {"base_url": "http://tr"})()), \
              patch("app.services.sync.fetch_downloads_now", new=AsyncMock(side_effect=TimeoutError())):
             source, torrents = await sync._check_transmission()

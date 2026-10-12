@@ -4,6 +4,7 @@ import { useLoad, useToast } from "../../hooks";
 import type { LogEvent } from "../../types";
 import { clock, dayLabel, describe, eventLabel, LEVEL_CLASS, LEVEL_TEXT, levelOf } from "./logText";
 import { SectionHead, useAction } from "./shared";
+import { confirmDialog } from "../../components/ConfirmDialog";
 
 const PAGE_SIZE = 100;
 
@@ -94,8 +95,8 @@ export function Logs() {
               class="btn btn-danger"
               type="button"
               disabled={busy}
-              onClick={() => {
-                if (!window.confirm("清空诊断日志？已轮转的旧日志文件不受影响。")) return;
+              onClick={async () => {
+                if (!(await confirmDialog({ title: "清空诊断日志？", message: "已轮转的旧日志文件不受影响。", confirmText: "清空", danger: true }))) return;
                 void run(() => api("/api/logs/events", { method: "DELETE" }), "日志已清空", () => first.reload());
               }}
             >

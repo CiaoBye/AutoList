@@ -16,7 +16,7 @@
 ## 架构与界面
 
 - 界面源码在 `frontend/`（Preact + Vite + TypeScript），构建到 `app/static/ui/`，不入库。
-- 页面：藏馆 `#/`（只做总览）、书目 `#/films[/:id]`、遴选 `#/pick`、在途 `#/downloads`（只读 Transmission）、馆志 `#/timeline`、馆务 `#/settings[/:section]`（不带分区是概览）；一级、二级菜单名统一两个字，均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
+- 页面：藏馆 `#/`（只做总览）、书目 `#/films[/:id]`、遴选 `#/pick`、在途 `#/downloads`（只读 Transmission）、站况 `#/status`（站点 Cookie 健康、搜索与提交统计、做种）、馆志 `#/timeline`、馆务 `#/settings[/:section]`（不带分区是概览）；一级、二级菜单名统一两个字，均为 hash 路由，必须支持直接访问、刷新恢复以及浏览器前进和后退。
 - 影片状态只在服务端计算（`app/services/films.py`），前端不自行推断。
 - 前端读取的接口在 `app/responses.py` 声明返回格式（路由写 `response_model`）；前端接口类型只在 `frontend/src/types.ts` 引用生成的类型，不手写字段。改动返回格式后运行 `.venv/bin/python scripts/export_openapi.py` 更新 `frontend/openapi.json`，前端构建会据此重新生成类型。
 - 站点接入集中在 `app/sites/`：新增或修正站点优先改站点档案；修改解析逻辑必须用 `tests/fixtures/sites/` 的真实页面回归，新增样本前清除 passkey、签名、用户编号与用户名等账号信息。
@@ -30,9 +30,9 @@
 
 ## 验证与部署
 
-- 修改 Python 后运行 `python3 -m compileall -q app` 与 `.venv/bin/python -m unittest discover -s tests`。
+- 修改 Python 后运行 `python3 -m compileall -q app`、`.venv/bin/ruff check .`（开发依赖见 `requirements-dev.txt`，规则见 `ruff.toml`）与 `.venv/bin/python -m unittest discover -s tests`。
 - 测试按领域放在 `tests/test_<领域>.py`（app、security、settings、playlists、recognition、search、sites、submission、tasks、migrations、films），直接从业务模块导入；需要临时数据目录的用例继承 `tests/support.py` 的 `IsolatedAppTestCase`，不要在测试里自建隔离样板。
-- 修改前端后在 `frontend/` 运行 `npm run build`（含 `tsc --noEmit` 类型检查与 Vite 构建）。
+- 修改前端后在 `frontend/` 运行 `npm run build`（含 `tsc --noEmit` 类型检查与 Vite 构建）；改动页面或路由后再运行 `npm run test:e2e`（Playwright 冒烟测试，本机可设 `PW_CHANNEL=chrome`；新增页面要加进 `frontend/e2e/smoke.spec.ts` 的路由列表）。
 - 完成前运行 `git diff --check`。
 - 至少验证健康检查、设置脱敏、TMDB / Emby / Transmission / MoviePilot 连接和现有数据完整性。
 - 下载只经 MoviePilot 提交到 Transmission，由其写入 `MOVIEPILOT` 与站点名标签，供 MoviePilot 接管整理；AutoList 不直连 Transmission 添加任务；对 Transmission 唯一的写操作是同步时删除“已被新资源取代的停滞旧任务”（`app/services/sync.py`），其余只读。

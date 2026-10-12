@@ -29,7 +29,7 @@ from ..state import remember_site_icon, site_icon_cache
 from ..util import raster_image_media_type, to_int
 from ..outbound import safe_request, validate_remote_icon_url
 from ..outbound import validated_base_url, validate_outbound_url
-from ..responses import CookieCloudSynced, MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteCookieRefreshed, SiteSaved, SiteSecrets
+from ..responses import CookieCloudSynced, MoviePilotSitesSynced, Site, SiteCheck, SiteChecks, SiteSaved, SiteSecrets
 
 router = APIRouter()
 MAX_SITE_ICON_BYTES = 512 * 1024
@@ -83,8 +83,8 @@ def _site_form_values(
     return {
         "name": payload.name.strip(), "adapter": adapter, "base_url": base_url, "api_key": api_key, "cookie": cookie,
         "user_agent": payload.user_agent, "priority": payload.priority, "timeout_seconds": payload.timeout_seconds,
-        "rss_url": rss_url, "icon_url": payload.icon_url, "proxy": to_int(payload.proxy), "render": to_int(payload.render),
-        "limit_interval": payload.limit_interval, "limit_count": payload.limit_count,
+        "rss_url": rss_url, "icon_url": payload.icon_url, "proxy": to_int(payload.proxy),
+        "limit_interval": payload.limit_interval, "limit_count": payload.limit_count, "limit_gap": payload.limit_gap,
         "enabled": to_int(payload.enabled), "search_enabled": to_int(payload.search_enabled),
         "supplement_only": to_int(payload.supplement_only),
     }
@@ -327,42 +327,4 @@ async def sync_sites_from_cookiecloud() -> dict[str, Any]:
         "sites": updated,
         "missing": missing,
         "message": message,
-    }
-
-@router.post("/api/sites/{site_id}/refresh-cookie", response_model=SiteCookieRefreshed)
-async def refresh_site_cookie(site_id: int) -> dict[str, Any]:
-    """Refresh one local site's Cookie from the configured CookieCloud source."""
-    with connect() as conn:
-        row = queries.get_site(conn, site_id)
-    if not row:
-        raise HTTPException(404, "站点不存在")
-    applied = await pull_cookiecloud("manual", site_id)
-    if applied["unchanged"]:
-        event_logger().info(
-            "site_cookie_refreshed",
-            extra={
-                "site": str(row["name"]),
-                "detail": f"【{row['name']}】的 Cookie 与 CookieCloud 一致，无需更新",
-            },
-        )
-        return {
-            "ok": True,
-            "id": to_int(row["id"]),
-            "name": str(row["name"]),
-            "message": f"{row['name']} 的 Cookie 与 CookieCloud 一致，无需更新",
-        }
-    if not applied["updated"]:
-        raise HTTPException(404, f"CookieCloud 中没有匹配 {row['name']} 域名的 Cookie")
-    event_logger().info(
-        "site_cookie_refreshed",
-        extra={
-            "site": str(row["name"]),
-            "detail": f"已从 CookieCloud 刷新【{row['name']}】的 Cookie",
-        },
-    )
-    return {
-        "ok": True,
-        "id": to_int(row["id"]),
-        "name": str(row["name"]),
-        "message": f"已从 CookieCloud 刷新 {row['name']} 的 Cookie；UA 保留现有配置",
     }

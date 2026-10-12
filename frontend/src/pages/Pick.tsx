@@ -5,11 +5,12 @@ import { CandidateTools } from "../components/CandidateTools";
 import { ExcludedPanel } from "../components/ExcludedPanel";
 import { Poster } from "../components/Poster";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
-import { formatSize, rankDigits, releaseConfirmText } from "../format";
+import { formatSize, rankDigits } from "../format";
 import { useLoad, useToast } from "../hooks";
 import { readLastPick, rememberLastPick } from "../lastPick";
 import { href, navigate, type Route } from "../router";
 import type { SelectionItem, PickBucket, PickItem, PickPage, SubmitResult } from "../types";
+import { confirmDialog, releaseConfirm } from "../components/ConfirmDialog";
 
 const BUCKET_LABELS: Record<PickBucket | "all", string> = {
   all: "全部",
@@ -189,13 +190,13 @@ export function Pick({ route }: { route: Route }) {
     void act(() => api(`/api/selection/items/${encodeURIComponent(candidateId)}`, { method: "POST" }), "已更新待入馆清单");
   };
   // 人工放行：确实是这部影片、只是不符合入馆标准的资源，确认后改成“人工确认”并加入待入馆清单。
-  const release = (film: PickItem, candidate: PickItem["excluded_candidates"][number]) => {
-    if (!window.confirm(releaseConfirmText(film, candidate))) return;
+  const release = async (film: PickItem, candidate: PickItem["excluded_candidates"][number]) => {
+    if (!(await confirmDialog(releaseConfirm(film, candidate)))) return;
     rememberLastPick(film.id);
     void act(() => api(`/api/selection/items/${encodeURIComponent(candidate.id)}?force=true`, { method: "POST" }), "已放行并加入待入馆清单");
   };
-  const clearCandidates = (filmId: number) => {
-    if (!window.confirm("清除这部影片没选定的候选？它会回到缺片，下一批寻片会重新搜（已选定的保留）。")) return;
+  const clearCandidates = async (filmId: number) => {
+    if (!(await confirmDialog({ title: "清除这部影片没选定的候选？", message: "它会回到缺片，下一批寻片会重新搜（已选定的保留）。", confirmText: "清除" }))) return;
     void act(() => api(`/api/films/${filmId}/clear-candidates`, { method: "POST" }), "已清除没选定的候选");
   };
   const dismissFailure = (filmId: number) =>

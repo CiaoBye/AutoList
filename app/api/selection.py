@@ -10,7 +10,7 @@ import httpx
 
 from fastapi import APIRouter, HTTPException
 
-from ..clients import EmbyClient, MoviePilotClient, TransmissionClient
+from ..clients import EmbyClient, MoviePilotClient
 from ..database import connect, json_value
 from ..queries import selection as queries
 from ..queries.sites import all_sites
@@ -320,7 +320,8 @@ async def submit_selection() -> dict[str, Any]:
             # 幂等复查 3：每次提交前都重新确认 Emby，避免旧的 not_found
             # 状态在 Emby 短暂故障时被误当成“肯定未入库”。
             state = await prechecks[candidate["id"]][0]
-            if state == "in_library":
+            # 升级搜索（洗版）产生的候选：影片本来就在库里，不当作“已入库”跳过。
+            if state == "in_library" and candidate["task_upgrade_above"] is None:
                 skipped.append({"candidate_id": candidate["id"], "title": candidate["playlist_original_title"], "reason": "影片已入库"})
                 _drop_from_selection(candidate["id"])
                 continue

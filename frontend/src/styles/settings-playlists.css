@@ -1,0 +1,365 @@
+/* 馆务 → 编目与联动，以及设置各分区共用的窄屏规则。 */
+
+/* ---------- 片单管理 ---------- */
+
+.playlist-head-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.playlist-head h3 {
+  font-size: var(--fs-l);
+}
+
+.playlist-head h3 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.playlist-head h3 a:hover {
+  color: var(--accent);
+}
+
+.playlist-head-title .muted {
+  font-size: var(--fs-s);
+}
+
+.playlist-rename {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.playlist-rename input {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+@media (max-width: 1100px) {
+  .site-col-detail {
+    display: none;
+  }
+
+  .site-status .site-note {
+    max-width: 130px;
+  }
+
+  .rules-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rules-trial {
+    position: static;
+  }
+
+  .site-note,
+  .site-cell-text small {
+    max-width: 200px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* 窄屏的检测列只留结果标签，原因与耗时悬停可见（点开行可看完整信息）。 */
+  .site-status .site-note {
+    display: none;
+  }
+
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* 手机：设置首页先列出分区（带状态），进入分区后只显示内容与“‹ 设置”返回。 */
+  .settings-nav {
+    position: static;
+    gap: var(--space-2);
+  }
+
+  .settings-page:not(.is-index) .settings-nav {
+    display: none;
+  }
+
+  .settings-page:not(.is-index) .page-head {
+    display: none;
+  }
+
+  .settings-nav-group {
+    gap: var(--space-2);
+  }
+
+  .settings-nav-heading {
+    padding: var(--space-1) var(--space-1) 0;
+  }
+
+  .settings-nav-items {
+    overflow: hidden;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-l);
+    background: var(--surface);
+  }
+
+  .settings-nav-link {
+    min-height: 52px;
+    padding: 0 var(--space-4);
+    border-radius: 0;
+  }
+
+  .settings-nav-link + .settings-nav-link {
+    border-top: 1px solid var(--line);
+  }
+
+  .settings-nav-link[aria-current="page"] {
+    box-shadow: none;
+    font-weight: 400;
+  }
+
+  .settings-nav-mark {
+    display: none;
+  }
+
+  .settings-nav-state {
+    display: inline;
+    font-size: var(--fs-s);
+  }
+
+  .settings-nav-chevron {
+    display: inline;
+    color: var(--muted);
+    font-size: var(--fs-l);
+  }
+
+  .settings-back {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-bottom: var(--space-1);
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .settings-nav-group:first-child {
+    display: none;
+  }
+
+  .overview-grid,
+  .service-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .service-tile,
+  .service-tile:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .service-tile:nth-last-child(-n + 3) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .service-tile:last-child {
+    border-bottom: 0;
+  }
+
+  .overview-head,
+  .overview-figure,
+  .overview-rows li,
+  .overview-facts > div,
+  .service-tile {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .log-collapse {
+    margin-left: 0;
+  }
+
+  .log-search {
+    max-width: none;
+  }
+
+  .log-row {
+    grid-template-columns: auto auto minmax(0, 1fr) 16px;
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .log-toggle {
+    grid-row: 1;
+    grid-column: 4;
+  }
+
+  .log-summary {
+    grid-column: 1 / -1;
+    white-space: normal;
+    font-size: var(--fs-s);
+  }
+
+  .log-detail {
+    padding: var(--space-3) var(--space-4) var(--space-3);
+  }
+
+  .log-fields > div {
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+
+  .service-row-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .service-row-summary {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .service-row-toggle {
+    display: none;
+  }
+
+  .service-row-error {
+    padding: 0 var(--space-4) var(--space-3);
+  }
+
+  .service-row-body {
+    padding: var(--space-3) var(--space-4) var(--space-4);
+  }
+
+  .setting-row {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .setting-row-field,
+  .setting-row-actions {
+    flex-wrap: wrap;
+  }
+
+  .setting-row-control {
+    flex: 1 1 100%;
+  }
+
+  .setting-row-control-narrow {
+    flex: 0 0 auto;
+  }
+
+  .setting-row-buttons {
+    justify-content: flex-start;
+  }
+
+  .setting-card-head,
+  .setting-card-body {
+    padding-right: var(--space-4);
+    padding-left: var(--space-4);
+  }
+
+  .save-bar {
+    flex-wrap: nowrap;
+  }
+
+  .save-bar .service-row-dirty {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .save-bar .grow {
+    display: none;
+  }
+
+  .save-bar.is-dirty {
+    bottom: calc(var(--tab-height) + env(safe-area-inset-bottom) + 12px);
+  }
+
+  .site-col-edit {
+    display: none;
+  }
+
+  .site-filters .log-search {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .site-note,
+  .site-cell-text small {
+    max-width: 140px;
+  }
+
+  .site-table th,
+  .site-table td {
+    padding: var(--space-3);
+  }
+
+  .site-drawer-head,
+  .site-drawer-body,
+  .site-drawer-foot {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .drawer.drawer-site {
+    width: 100vw;
+    max-height: 100vh;
+    height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .site-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cc-strip-main,
+  .cc-config {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
+/* 联动：事件地址与脚本。 */
+.sync-base .setting-row-control {
+  flex: 0 1 320px;
+  min-width: 0;
+}
+
+.sync-source {
+  align-items: flex-start;
+}
+
+.sync-url {
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+.sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+@media (max-width: 720px) {
+  .sync-source,
+  .sync-base {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sync-actions {
+    justify-content: flex-start;
+  }
+
+  .sync-base .setting-row-control {
+    flex-basis: auto;
+  }
+}

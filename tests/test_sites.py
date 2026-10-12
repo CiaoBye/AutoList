@@ -459,26 +459,6 @@ class SiteApiTests(SeededPlaylistTestCase):
         self.assertEqual(cookie, "session=fresh-cookie")
         self.assertEqual(result["updated"], 1)
 
-    async def test_single_site_cookie_refresh_uses_autolist_cookiecloud(self) -> None:
-        with connect() as conn:
-            site_id = conn.execute(
-                "INSERT INTO pt_sites(name,adapter,base_url,cookie,user_agent,created_at) VALUES(?,?,?,?,?,?)",
-                ("单站刷新", "nexusphp", "https://tracker.example", "old=1", "Local UA", utc_now()),
-            ).lastrowid
-        with patch("app.services.cookiecloud.fetch_cookiecloud", new=AsyncMock(return_value={
-            "cookie_data": {
-                ".tracker.example": [
-                    {"domain": ".tracker.example", "name": "session", "value": "new-cookie"},
-                ],
-            },
-        })):
-            result = await site_routes.refresh_site_cookie(to_int(site_id))
-        with connect() as conn:
-            row = conn.execute("SELECT cookie,user_agent FROM pt_sites WHERE id=?", (site_id,)).fetchone()
-        self.assertTrue(result["ok"])
-        self.assertEqual(row["cookie"], "session=new-cookie")
-        self.assertEqual(row["user_agent"], "Local UA")
-
     async def test_cookie_groups_apply_automatically_without_overwriting_user_agent(self) -> None:
         with connect() as conn:
             site_id = to_int(conn.execute(
@@ -644,7 +624,7 @@ class SiteParsingTests(IsolatedAppTestCase):
         client = AsyncMock()
         client.get.return_value = response
         # 共享 client 工厂直接返回 AsyncClient 实例（审计 3-24），不再经过 __aenter__。
-        with patch("app.clients.httpx.AsyncClient", return_value=client):
+        with patch("httpx.AsyncClient", return_value=client):
             rows = await NexusPHPClient().search(
                 {"name": "测试站", "base_url": "https://tracker.example", "cookie": "dummy"},
                 "Movie",
@@ -668,7 +648,7 @@ class SiteParsingTests(IsolatedAppTestCase):
         details.raise_for_status = Mock()
         client = AsyncMock()
         client.get.side_effect = [home, details]
-        with patch("app.clients.httpx.AsyncClient", return_value=client):
+        with patch("httpx.AsyncClient", return_value=client):
             stats = await NexusPHPClient().account_stats({
                 "name": "测试站",
                 "base_url": "https://tracker.example",
@@ -704,7 +684,7 @@ class RSSBadEnclosureTests(IsolatedAppTestCase):
             "name": "RSS 测试站", "rss_url": "https://feed.example/rss.xml", "user_agent": "AutoList",
             "cookie": "", "timeout_seconds": 30,
         }
-        with patch("app.clients.safe_request", new=AsyncMock(return_value=response)) as request:
+        with patch("app.clients.sites.safe_request", new=AsyncMock(return_value=response)) as request:
             results = await RSSClient().search(site, "Movie 2020")
         request.assert_awaited_once()
         self.assertEqual(len(results), 3)
@@ -945,13 +925,6 @@ class CookieCloudAndRssTests(IsolatedAppTestCase):
                     self.assertEqual(call_args[0][0], "cookiecloud_sync")
                     self.assertIn("detail", call_args[1].get("extra", {}))
 
-                with patch.object(event_logger(), "info") as mock_info:
-                    refresh_res = await site_routes.refresh_site_cookie(site_id)
-                    self.assertTrue(refresh_res["ok"])
-                    mock_info.assert_called()
-                    call_args = mock_info.call_args
-                    self.assertEqual(call_args[0][0], "site_cookie_refreshed")
-                    self.assertIn("detail", call_args[1].get("extra", {}))
         finally:
             with connect() as conn:
                 conn.execute("DELETE FROM pt_sites WHERE id=?", (site_id,))
@@ -1023,7 +996,7 @@ class TrackerAuthenticationTests(unittest.IsolatedAsyncioTestCase):
             "api_key": "configured-test-key",
             "timeout_seconds": 5,
         }
-        with patch("app.clients.safe_request", new=AsyncMock(return_value=upstream)):
+        with patch("app.clients.sites.safe_request", new=AsyncMock(return_value=upstream)):
             with self.assertRaisesRegex(RuntimeError, "INVALID_TOKEN"):
                 await MTeamClient().search(site, "AutoListConnectionProbe")
 

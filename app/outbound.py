@@ -346,7 +346,7 @@ async def _bind_outbound_host(
     try:
         ipaddress.ip_address(hostname)
     except ValueError:
-        hostname_is_ip = False  # 非 IP 字面量；走域名解析路径
+        pass  # 非 IP 字面量；走域名解析路径
     else:
         # IP 字面量已由 validate_outbound_url 校验，无需再解析。
         return str(url), None

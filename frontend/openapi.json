@@ -132,6 +132,105 @@
         "title": "AutomationStarted",
         "type": "object"
       },
+      "BackupCreated": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "BackupCreated",
+        "type": "object"
+      },
+      "BackupDeletePayload": {
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "title": "BackupDeletePayload",
+        "type": "object"
+      },
+      "BackupRecord": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "manual",
+              "deploy"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "restorable": {
+            "title": "Restorable",
+            "type": "boolean"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "size",
+          "created_at",
+          "restorable"
+        ],
+        "title": "BackupRecord",
+        "type": "object"
+      },
+      "BackupRestored": {
+        "properties": {
+          "restored": {
+            "title": "Restored",
+            "type": "string"
+          },
+          "safety_backup": {
+            "title": "Safety Backup",
+            "type": "string"
+          }
+        },
+        "required": [
+          "restored",
+          "safety_backup"
+        ],
+        "title": "BackupRestored",
+        "type": "object"
+      },
+      "BackupsDeleted": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "BackupsDeleted",
+        "type": "object"
+      },
       "Candidate": {
         "properties": {
           "codec": {
@@ -1418,6 +1517,25 @@
             ],
             "title": "Library State"
           },
+          "library_tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Tier"
+          },
+          "library_versions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LibraryVersion"
+            },
+            "title": "Library Versions",
+            "type": "array"
+          },
           "next_search_at": {
             "anyOf": [
               {
@@ -1528,6 +1646,22 @@
               }
             ],
             "title": "Transfer"
+          },
+          "upgrade_above": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upgrade Above"
+          },
+          "upgrade_searching": {
+            "default": false,
+            "title": "Upgrade Searching",
+            "type": "boolean"
           },
           "year": {
             "anyOf": [
@@ -2156,6 +2290,54 @@
           "original_title"
         ],
         "title": "ImportSample",
+        "type": "object"
+      },
+      "LibraryVersion": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          }
+        },
+        "required": [
+          "name",
+          "size",
+          "resolution"
+        ],
+        "title": "LibraryVersion",
         "type": "object"
       },
       "LogEvent": {
@@ -4019,6 +4201,17 @@
             ],
             "title": "Limit Count"
           },
+          "limit_gap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Gap"
+          },
           "limit_interval": {
             "anyOf": [
               {
@@ -4058,10 +4251,6 @@
           },
           "proxy": {
             "title": "Proxy",
-            "type": "integer"
-          },
-          "render": {
-            "title": "Render",
             "type": "integer"
           },
           "rss_url": {
@@ -4117,7 +4306,6 @@
           "rss_url",
           "icon_url",
           "proxy",
-          "render",
           "limit_interval",
           "limit_count",
           "enabled",
@@ -4391,32 +4579,93 @@
         "title": "SiteChecks",
         "type": "object"
       },
-      "SiteCookieRefreshed": {
+      "SiteCookieHealth": {
         "properties": {
-          "id": {
-            "title": "Id",
-            "type": "integer"
+          "age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Days"
           },
-          "message": {
-            "title": "Message",
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cookiecloud",
+                  "manual",
+                  "moviepilot"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "expired",
+              "missing",
+              "failing",
+              "none"
+            ],
+            "title": "State",
             "type": "string"
           },
-          "name": {
-            "title": "Name",
+          "text": {
+            "title": "Text",
             "type": "string"
           },
-          "ok": {
-            "title": "Ok",
-            "type": "boolean"
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
           }
         },
         "required": [
-          "ok",
-          "id",
-          "name",
-          "message"
+          "state",
+          "text",
+          "source",
+          "updated_at",
+          "age_days"
         ],
-        "title": "SiteCookieRefreshed",
+        "title": "SiteCookieHealth",
+        "type": "object"
+      },
+      "SiteDayStat": {
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "total",
+          "failed"
+        ],
+        "title": "SiteDayStat",
         "type": "object"
       },
       "SiteLocalStats": {
@@ -4647,6 +4896,19 @@
             ],
             "title": "Limit Count"
           },
+          "limit_gap": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Gap"
+          },
           "limit_interval": {
             "anyOf": [
               {
@@ -4675,11 +4937,6 @@
           "proxy": {
             "default": true,
             "title": "Proxy",
-            "type": "boolean"
-          },
-          "render": {
-            "default": false,
-            "title": "Render",
             "type": "boolean"
           },
           "rss_url": {
@@ -4751,6 +5008,56 @@
         "title": "SiteSaved",
         "type": "object"
       },
+      "SiteSearchStats": {
+        "properties": {
+          "average_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Ms"
+          },
+          "result_count": {
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "success_rate",
+          "average_ms",
+          "result_count"
+        ],
+        "title": "SiteSearchStats",
+        "type": "object"
+      },
       "SiteSecrets": {
         "description": "站点编辑弹窗按需读取的明文（内网自用）：站点列表接口仍只返回“是否已配置”。",
         "properties": {
@@ -4773,6 +5080,258 @@
           "rss_url"
         ],
         "title": "SiteSecrets",
+        "type": "object"
+      },
+      "SiteSeeding": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "size"
+        ],
+        "title": "SiteSeeding",
+        "type": "object"
+      },
+      "SiteStatusAccount": {
+        "properties": {
+          "downloaded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "uploaded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded"
+          }
+        },
+        "required": [
+          "uploaded",
+          "downloaded",
+          "ratio"
+        ],
+        "title": "SiteStatusAccount",
+        "type": "object"
+      },
+      "SiteStatusPage": {
+        "properties": {
+          "history_days": {
+            "title": "History Days",
+            "type": "integer"
+          },
+          "problem_count": {
+            "title": "Problem Count",
+            "type": "integer"
+          },
+          "sites": {
+            "items": {
+              "$ref": "#/components/schemas/SiteStatusRow"
+            },
+            "title": "Sites",
+            "type": "array"
+          },
+          "stats_days": {
+            "title": "Stats Days",
+            "type": "integer"
+          },
+          "transmission_available": {
+            "title": "Transmission Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sites",
+          "problem_count",
+          "transmission_available",
+          "history_days",
+          "stats_days"
+        ],
+        "title": "SiteStatusPage",
+        "type": "object"
+      },
+      "SiteStatusRow": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/SiteStatusAccount"
+          },
+          "cookie": {
+            "$ref": "#/components/schemas/SiteCookieHealth"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "failure_streak": {
+            "title": "Failure Streak",
+            "type": "integer"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/SiteDayStat"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "icon_endpoint": {
+            "title": "Icon Endpoint",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message"
+          },
+          "last_status": {
+            "title": "Last Status",
+            "type": "string"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "problem": {
+            "title": "Problem",
+            "type": "boolean"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "search": {
+            "$ref": "#/components/schemas/SiteSearchStats"
+          },
+          "search_enabled": {
+            "title": "Search Enabled",
+            "type": "boolean"
+          },
+          "seeding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SiteSeeding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submissions": {
+            "$ref": "#/components/schemas/SiteSubmitStats"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "enabled",
+          "search_enabled",
+          "icon_endpoint",
+          "profile",
+          "cookie",
+          "failure_streak",
+          "last_success_at",
+          "last_status",
+          "last_message",
+          "search",
+          "submissions",
+          "seeding",
+          "account",
+          "history",
+          "problem"
+        ],
+        "title": "SiteStatusRow",
+        "type": "object"
+      },
+      "SiteSubmitStats": {
+        "properties": {
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "success_rate"
+        ],
+        "title": "SiteSubmitStats",
         "type": "object"
       },
       "SubmissionNote": {
@@ -5455,6 +6014,81 @@
         "title": "TransmissionHooks",
         "type": "object"
       },
+      "UpgradeFilm": {
+        "description": "升级搜索找到了更高画质候选的已入馆影片。",
+        "properties": {
+          "best_resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Resolution"
+          },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "from_tier": {
+            "title": "From Tier",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "rank_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank No"
+          },
+          "searched_at": {
+            "title": "Searched At",
+            "type": "string"
+          },
+          "selected_count": {
+            "title": "Selected Count",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "rank_no",
+          "title",
+          "year",
+          "from_tier",
+          "candidate_count",
+          "selected_count",
+          "best_resolution",
+          "searched_at"
+        ],
+        "title": "UpgradeFilm",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -5510,6 +6144,121 @@
           }
         },
         "summary": "Index"
+      }
+    },
+    "/api/backups": {
+      "get": {
+        "operationId": "list_backups_api_backups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BackupRecord"
+                  },
+                  "title": "Response List Backups Api Backups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Backups"
+      },
+      "post": {
+        "operationId": "create_backup_api_backups_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Create Backup"
+      }
+    },
+    "/api/backups/delete": {
+      "post": {
+        "operationId": "delete_backups_api_backups_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupDeletePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupsDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Backups"
+      }
+    },
+    "/api/backups/{name}/restore": {
+      "post": {
+        "operationId": "restore_backup_api_backups__name__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupRestored"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Backup"
       }
     },
     "/api/config": {
@@ -6148,6 +6897,46 @@
           }
         },
         "summary": "Tmdb Matches"
+      }
+    },
+    "/api/films/{item_id}/upgrade-search": {
+      "post": {
+        "description": "升级搜索（洗版）：影片已入馆时找画质更高的资源；只保留高于 Emby 里现有最高画质的候选，选定后照常经 MoviePilot 提交。",
+        "operationId": "upgrade_search_film_api_films__item_id__upgrade_search_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmSearchStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upgrade Search Film"
       }
     },
     "/api/health": {
@@ -7709,6 +8498,24 @@
         "summary": "Test Runtime Settings"
       }
     },
+    "/api/site-status": {
+      "get": {
+        "operationId": "site_status_api_site_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteStatusPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Site Status"
+      }
+    },
     "/api/sites": {
       "get": {
         "operationId": "sites_api_sites_get",
@@ -7999,46 +8806,6 @@
         "summary": "Site Icon"
       }
     },
-    "/api/sites/{site_id}/refresh-cookie": {
-      "post": {
-        "description": "Refresh one local site's Cookie from the configured CookieCloud source.",
-        "operationId": "refresh_site_cookie_api_sites__site_id__refresh_cookie_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "site_id",
-            "required": true,
-            "schema": {
-              "title": "Site Id",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SiteCookieRefreshed"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Refresh Site Cookie"
-      }
-    },
     "/api/sites/{site_id}/secrets": {
       "get": {
         "description": "站点的 Cookie、API Key 与 RSS 地址明文：只给站点编辑弹窗按需读取，站点列表仍不返回；不缓存。",
@@ -8297,6 +9064,28 @@
           }
         },
         "summary": "Timeline"
+      }
+    },
+    "/api/upgrades": {
+      "get": {
+        "operationId": "upgrades_api_upgrades_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UpgradeFilm"
+                  },
+                  "title": "Response Upgrades Api Upgrades Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Upgrades"
       }
     }
   }

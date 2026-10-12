@@ -1,7 +1,4 @@
-import { useState } from "preact/hooks";
-import { api } from "../../api";
 import { formatTime } from "../../format";
-import type { CookieCloudSynced } from "../../types";
 import type { SettingsHealth } from "./health";
 import { DirtyNote, ProviderBadge, SecretField, useAction, useProviderTest } from "./shared";
 import { useSettingsDraft } from "./useSettingsForm";
@@ -16,37 +13,36 @@ const INTERVALS: { value: number; label: string }[] = [
 ];
 export const pullLabel = (minutes: number): string =>
   minutes <= 0 ? "只在 Cookie 失效或手动同步时拉取" : minutes % 1440 === 0 ? `每 ${minutes / 1440} 天拉取` : minutes % 60 === 0 ? `每 ${minutes / 60} 小时拉取` : `每 ${minutes} 分钟拉取`;
-const ORIGIN_LABELS: Record<string, string> = { schedule: "定时拉取", expired: "Cookie 失效后重新拉取", manual: "手动同步" };
+const ORIGIN_SHORT: Record<string, string> = { schedule: "定时", expired: "失效后补拉", manual: "手动" };
 
-/** 站点页顶部的 Cookie 来源：一条状态（拉取方式、最近一次同步、未覆盖的站点），连接设置按需展开。 */
-export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth; onSynced: () => void }) {
+/** 站点页顶部的 Cookie 来源：一行状态（上次拉取的时间、状态、结果），连接设置由页头的“连接设置”按钮展开；操作按钮都在页头。 */
+export function CookieCloudPanel({ health, open }: { health: SettingsHealth; open: boolean }) {
   const { form, set, cleared, toggleClear, configured, dirty, save, reset } = useSettingsDraft(FIELDS, health.settings);
   const { results, testing, test } = useProviderTest();
   const { busy, run } = useAction();
   const cc = health.cookiecloud.data;
-  const [open, setOpen] = useState(false);
   const expanded = open || (cc !== null && !cc.configured);
   const text = (name: string) => String(form[name] ?? "");
   const last = cc?.last_sync;
   const missing = last?.missing || [];
 
+  const origin = last ? ORIGIN_SHORT[last.origin] || "" : "";
   const facts = !cc
-    ? "正在读取 CookieCloud 状态……"
+    ? "正在读取状态……"
     : !cc.configured
       ? "尚未配置"
       : [
-          `${pullLabel(cc.pull_interval_minutes)}（来自 ${cc.url || "CookieCloud 服务器"}）`,
-          last
-            ? `最近 ${formatTime(last.at)} ${ORIGIN_LABELS[last.origin] || "同步"}，更新 ${last.updated.length} 个、${last.unchanged} 个已是最新`
-            : "服务重启后还没有同步过",
+          last ? `上次拉取 ${formatTime(last.at)}${origin ? `（${origin}）` : ""}` : "还没有拉取过",
+          last ? `更新 ${last.updated.length} 个 · ${last.unchanged} 个已是最新` : "",
           missing.length ? `${missing.join("、")} 不在 CookieCloud 中` : "",
         ].filter(Boolean).join(" · ");
+  const detail = cc?.configured ? `${pullLabel(cc.pull_interval_minutes)}，来自 ${cc.url || "CookieCloud 服务器"}` : undefined;
 
   return (
     <section class="card cc-strip" aria-labelledby="cookiecloud-title">
       <div class="cc-strip-main">
         <img class="cc-strip-icon" src="/assets/service-cookiecloud.svg" alt="" width="22" height="22" />
-        <div class="cc-strip-facts">
+        <div class="cc-strip-facts" title={detail}>
           <strong id="cookiecloud-title">Cookie 来源 · CookieCloud</strong>
           <span>{facts}</span>
         </div>
@@ -54,31 +50,9 @@ export function CookieCloudPanel({ health, onSynced }: { health: SettingsHealth;
           <ProviderBadge status={results.cookiecloud} />
         ) : cc ? (
           <span class={`badge ${cc.configured ? (last ? "st-in_library" : "st-unchecked") : "st-missing"}`}>
-            {cc.configured ? (last ? "同步正常" : "等待首次同步") : "未配置"}
+            {cc.configured ? (last ? "正常" : "等待首次拉取") : "未配置"}
           </span>
         ) : null}
-        <span class="cc-strip-actions">
-          <button
-            class="btn btn-small"
-            type="button"
-            disabled={busy || !cc?.configured}
-            onClick={() =>
-              void run(
-                () => api<CookieCloudSynced>("/api/sites/sync-cookiecloud", { method: "POST", timeoutMs: 60000 }),
-                (result) => result.message || "已同步站点 Cookie",
-                () => {
-                  void health.cookiecloud.reload();
-                  onSynced();
-                },
-              )
-            }
-          >
-            立即同步
-          </button>
-          <button class="btn btn-small" type="button" aria-expanded={expanded} onClick={() => setOpen(!open)} disabled={cc !== null && !cc.configured}>
-            连接设置
-          </button>
-        </span>
       </div>
       {expanded ? (
         <form

@@ -1,0 +1,612 @@
+/* 馆务 → 站点：站点卡片、表格、CookieCloud 连接设置与站点编辑弹窗。 */
+
+/* ---------- 站点 ---------- */
+
+.cc-strip {
+  overflow: hidden;
+}
+
+.cc-strip-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+}
+
+.cc-strip-icon {
+  flex-shrink: 0;
+}
+
+.cc-strip-facts {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cc-strip-facts span {
+  color: var(--muted);
+  font-size: var(--fs-s);
+}
+
+.cc-strip-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.cc-config {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+/* 连接设置：服务器地址、用户 KEY、加密密码、定时拉取并排；清除按钮都在各自的标签行最右边。 */
+.cc-fields {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+
+.site-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.site-filters .chips {
+  margin: 0;
+}
+
+.site-filters .log-search {
+  margin-left: auto;
+  max-width: 280px;
+}
+
+.site-table-card {
+  position: relative;
+  overflow-x: auto;
+}
+
+.site-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-m);
+}
+
+.site-table th {
+  padding: var(--space-3) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.site-table td {
+  padding: var(--space-3) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.site-table td.num {
+  white-space: nowrap;
+}
+
+.site-table tbody tr {
+  cursor: pointer;
+}
+
+.site-table tbody tr:hover {
+  background: var(--wash);
+}
+
+.site-table tr.is-disabled td {
+  color: var(--muted);
+}
+
+.site-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.site-cell-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.site-cell-text small,
+.site-note {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-note.text-warn {
+  color: var(--st-candidates-fg);
+}
+
+.site-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  background: var(--wash);
+  object-fit: contain;
+}
+
+.site-name {
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-name:hover,
+.site-name:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.site-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.site-status .badge {
+  flex-shrink: 0;
+}
+
+.site-status .site-note {
+  max-width: 180px;
+}
+
+.site-cell-text small {
+  max-width: 210px;
+}
+
+.site-col-switch {
+  white-space: nowrap;
+}
+
+.site-col-edit {
+  width: 1%;
+  text-align: right;
+}
+
+.site-edit {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-s);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.site-table tbody tr:hover .site-edit,
+.site-edit:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.site-supplement {
+  display: inline-block;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+/* 站点卡片：顶边的颜色条表示检测状态。 */
+.site-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.site-card {
+  --tone: var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: inset 0 3px 0 var(--tone);
+  cursor: pointer;
+}
+
+.site-card:hover {
+  border-color: var(--line-strong);
+}
+
+.site-card.is-ok { --tone: var(--st-in_library-fg); }
+.site-card.is-warn { --tone: var(--st-candidates-fg); }
+.site-card.is-bad { --tone: var(--issue-fg); }
+.site-card.is-idle { --tone: var(--line-strong); }
+
+.site-card.is-off {
+  opacity: 0.6;
+}
+
+.site-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.site-card-title {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.site-card-title small,
+.site-card-foot small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-card-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.site-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.site-tag {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--wash);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.site-tag.is-accent {
+  background: var(--st-searching-bg);
+  color: var(--st-searching-fg);
+}
+
+.site-card-traffic {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.site-meter {
+  display: grid;
+  grid-template-columns: var(--space-4) minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--fs-s);
+}
+
+.site-meter small {
+  color: var(--muted);
+}
+
+.site-meter strong {
+  min-width: 72px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.site-meter-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--wash);
+}
+
+.site-meter-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.site-meter.is-up .site-meter-bar span { background: var(--st-searching-fg); }
+.site-meter.is-down .site-meter-bar span { background: var(--st-candidates-fg); }
+
+.site-card-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--space-6);
+}
+
+.site-card-status .site-note {
+  max-width: none;
+}
+
+.site-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.site-card-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+.site-table-foot {
+  padding: var(--space-3) var(--space-3);
+  font-size: var(--fs-xs);
+}
+
+/* 站点编辑：居中的弹窗，头部与底部固定，中间滚动。 */
+.drawer.drawer-site {
+  inset: 0;
+  width: min(1080px, calc(100vw - 32px));
+  height: fit-content;
+  max-height: min(90vh, 880px);
+  margin: auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+}
+
+.site-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--line);
+}
+
+.site-drawer-head .site-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.site-drawer-title {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.site-drawer-title h2 {
+  margin: 0;
+  font-size: var(--fs-l);
+}
+
+.site-drawer-title .muted {
+  overflow: hidden;
+  font-size: var(--fs-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 弹窗头部右侧的“启用”开关。 */
+.site-head-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-right: var(--space-2);
+  cursor: pointer;
+}
+
+.site-drawer-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.site-drawer-meta .muted {
+  min-width: 0;
+}
+
+/* 打开站点编辑时，后面的页面模糊并压暗。 */
+.drawer-backdrop:has(+ .drawer.drawer-site) {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* 所有设置排在一页：宽屏三列（基本 / 认证 / 搜索与网络），窄一点两列，手机一列。 */
+.site-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.site-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.site-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.site-block .field textarea {
+  min-height: 64px;
+}
+
+/* 宽屏（三列）：设置区固定一个高度，不管“限制访问频率”开没开、弹窗都一样高；
+   三列等高，Cookie 输入框、开关行与字段间距把多出的高度撑满，不留空洞。 */
+@media (min-width: 1100px) {
+  .site-sections {
+    height: 350px;
+    align-items: stretch;
+  }
+
+  .site-block .field-stack {
+    flex: 1 1 auto;
+    justify-content: space-between;
+  }
+
+  .site-block .field-stack > .field:has(textarea) {
+    flex: 1 1 auto;
+  }
+
+  .site-block .field-stack > .field:has(textarea) textarea {
+    flex: 1 1 auto;
+    resize: none;
+  }
+
+  .site-block .site-switches {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  .site-block .site-switches > .setting-row {
+    flex: 1 1 auto;
+  }
+}
+
+.site-block-title {
+  margin: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+/* 限制访问频率打开后：单位周期、周期内访问次数、访问间隔三个数字并排，和 MoviePilot 的站点设置一致。 */
+.site-limit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
+.field-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+/* 站点概况：上传、下载、分享率、近 30 天搜索，四个并排的小块。 */
+.site-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.site-stats > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+}
+
+.site-stats strong {
+  font-size: var(--fs-l);
+}
+
+.site-stats small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.site-drawer-form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.site-drawer-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-6) var(--space-5);
+}
+
+.site-drawer-note {
+  font-size: var(--fs-s);
+}
+
+.drawer-section-title {
+  padding-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.12em;
+}
+
+.site-cookie-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+}
+
+.site-switches {
+  overflow: hidden;
+}
+
+.site-switches .setting-row {
+  padding: var(--space-3) var(--space-4);
+}
+
+.site-drawer-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6) calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.site-drawer-foot .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { href, type SettingsSection } from "../router";
 import type { Theme } from "../theme";
 import { Appearance } from "./settings/Appearance";
+import { Backups } from "./settings/Backups";
 import { useSettingsHealth, type SettingsHealth } from "./settings/health";
 import { levelOf } from "./settings/logText";
 import { Logs } from "./settings/Logs";
@@ -21,6 +22,7 @@ const SECTION_LABELS: Record<SettingsSection, string> = {
   playlists: "编目",
   rules: "馆规",
   appearance: "外观",
+  backups: "备份",
   logs: "诊断",
 };
 
@@ -28,7 +30,7 @@ const GROUPS: { label: string | null; items: SettingsSection[] }[] = [
   { label: null, items: ["overview"] },
   { label: "连接", items: ["services", "sync"] },
   { label: "内容", items: ["sites", "playlists", "rules"] },
-  { label: "系统", items: ["appearance", "logs"] },
+  { label: "系统", items: ["appearance", "backups", "logs"] },
 ];
 
 type Tone = "ok" | "bad" | "warn";
@@ -139,6 +141,9 @@ export function Settings({ section, onThemeChange }: { section: SettingsSection;
       break;
     case "appearance":
       body = <Appearance onThemeChange={onThemeChange} />;
+      break;
+    case "backups":
+      body = <Backups />;
       break;
     case "logs":
       body = <Logs />;

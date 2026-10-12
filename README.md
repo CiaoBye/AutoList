@@ -7,7 +7,7 @@
 
 <p align="center"><b>给一份电影片单，自动补齐你的私人影库。</b></p>
 
-当前版本：`2.77`
+当前版本：`2.86`
 
 你只管维护想收藏的片单；AutoList 负责对照 Emby 找出缺哪些、去你自己的站点寻片、按你的标准挑出合格的资源，交给 MoviePilot 下载，并一直盯到影片入库。
 
@@ -44,6 +44,7 @@ AutoList 把这条链路收成一个以“每一部电影”为单位的工作�
 - **不重复、不遗漏**：提交前再核对 Emby 与 Transmission，已入馆、已在下载的相同发布会被跳过；换了资源后自动清理被取代的停滞旧任务。
 - **对站点友好**：每个站点单独限速；遇到 Cookie 失效、二次验证或维护会明确提示并跳过，从不绕过验证码。可与 MoviePilot 共用 CookieCloud，Cookie 失效时自动重新拉取。
 - **状态可信**：影片状态由服务端统一计算；MoviePilot、Transmission、Emby 的变化既可主动轮询，也可通过 Webhook 即时推送。
+- **站况与升级**：“站况”页逐站点显示 Cookie 健康（失效、没填、连续失败会集中提醒）、搜索趋势、提交与做种；已入馆的影片可以按 Emby 里现有画质手动“找更高画质”，选定后照常提交。
 - **本地优先**：数据保存在本机 SQLite；各服务的密钥只在服务端处理、页面只显示“已配置”；站点的 Cookie、API Key、RSS 地址在站点编辑弹窗里按需读取并明文显示（面向内网自用，请配合访问令牌）。
 - **上手顺手**：第一次打开有分步引导；四套主题（宣纸朱砂、青绿山水、玄漆描金、暗房红灯），不只是配色，连字体、海报边框与书架线都不同，桌面与手机都能用。
 
@@ -75,7 +76,7 @@ docker compose up -d
 
 **升级**：`docker compose pull && docker compose up -d`。
 
-**备份**：数据库使用 SQLite WAL，请用备份接口在线备份，不要直接复制文件：
+**备份**：“馆务 → 备份”可一键备份与恢复数据库（只含数据库，不含 `runtime-settings.json` 与 `candidate-context.key`）。命令行备份：数据库使用 SQLite WAL，请用备份接口在线备份，不要直接复制文件：
 
 ```bash
 docker exec Autolist python -c "import sqlite3; s=sqlite3.connect('/data/playlist-autodown.db'); d=sqlite3.connect('/data/playlist-autodown.db.bak'); s.backup(d); d.close()"
@@ -90,12 +91,12 @@ docker exec Autolist python -c "import sqlite3; s=sqlite3.connect('/data/playlis
 ## 开发
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 cd frontend && npm ci && npm run build        # 构建到 app/static/ui
 DATA_DIR=./data .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8599
 ```
 
-后端 FastAPI + SQLite，前端 Preact + Vite + TypeScript。验证：`python3 -m compileall -q app`、`.venv/bin/python -m unittest discover -s tests`、`frontend` 下 `npm run build`。接口类型由后端声明生成，改动返回格式后运行 `.venv/bin/python scripts/export_openapi.py`。
+后端 FastAPI + SQLite，前端 Preact + Vite + TypeScript。验证：`python3 -m compileall -q app`、`.venv/bin/ruff check .`、`.venv/bin/python -m unittest discover -s tests`、`frontend` 下 `npm run build`；浏览器冒烟测试：`frontend` 下 `npx playwright install chromium && npm run test:e2e`（本机可设 `PW_CHANNEL=chrome` 用已安装的 Chrome）。接口类型由后端声明生成，改动返回格式后运行 `.venv/bin/python scripts/export_openapi.py`。
 
 协作规范见 [AGENTS.md](AGENTS.md)，领域术语见 [CONTEXT.md](CONTEXT.md)，版本记录见 [CHANGELOG.md](CHANGELOG.md)。`scripts/deploy-fnos.sh` 是作者自用的局域网部署脚本，个人参数放在不入库的 `scripts/deploy.local.env`。
 

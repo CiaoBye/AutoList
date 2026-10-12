@@ -4,6 +4,7 @@ import { formatEta, formatRate, formatTime } from "../format";
 import { useLoad } from "../hooks";
 import { useAction } from "./settings/shared";
 import type { HistoryCleared, HistoryRecord } from "../types";
+import { confirmDialog } from "../components/ConfirmDialog";
 
 const STATUS_OPTIONS: { id: string; label: string }[] = [
   { id: "all", label: "全部" },
@@ -97,8 +98,8 @@ export function History() {
           class="btn btn-danger"
           type="button"
           disabled={busy || !rows.length}
-          onClick={() => {
-            if (!window.confirm(`清除“${label}”分组的 ${rows.length} 条提交记录？已提交过的资源仍会被识别为重复，不会重新下载。`)) return;
+          onClick={async () => {
+            if (!(await confirmDialog({ title: `清除“${label}”分组的 ${rows.length} 条提交记录？`, message: "已提交过的资源仍会被识别为重复，不会重新下载。", confirmText: "清除", danger: true }))) return;
             void run(() => api<HistoryCleared>(`/api/history?status=${encodeURIComponent(status)}`, { method: "DELETE" }), (result) => `已清除 ${result.deleted} 条`, () => history.reload());
           }}
         >

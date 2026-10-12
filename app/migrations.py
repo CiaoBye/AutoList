@@ -79,7 +79,9 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "user_agent": "TEXT NOT NULL DEFAULT ''", "priority": "INTEGER NOT NULL DEFAULT 100",
         "timeout_seconds": "INTEGER NOT NULL DEFAULT 30", "rss_url": "TEXT NOT NULL DEFAULT ''",
         "icon_url": "TEXT NOT NULL DEFAULT ''", "proxy": "INTEGER NOT NULL DEFAULT 0",
-        "render": "INTEGER NOT NULL DEFAULT 0", "limit_interval": "INTEGER", "limit_count": "INTEGER",
+        "limit_interval": "INTEGER", "limit_count": "INTEGER",
+        # 访问间隔（秒）：同一站点相邻两次请求之间至少隔多久。NULL = 用默认的 3 秒，0 = 不额外等待。
+        "limit_gap": "INTEGER",
         "last_status": "TEXT NOT NULL DEFAULT 'untested'",
         "last_message": "TEXT", "last_tested_at": "TEXT", "last_duration_ms": "INTEGER",
         "search_enabled": "INTEGER NOT NULL DEFAULT 1", "migration_note": "TEXT",
@@ -96,6 +98,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "site_ids_json": "TEXT", "item_ids_json": "TEXT", "pair_scope_json": "TEXT",
         # 已搜完的影片：任务进行中这些影片不再算“寻片中”，候选立即出现在挑选台。
         "done_item_ids_json": "TEXT",
+        # 升级搜索（洗版）：影片已入馆，只要比这个分辨率（如 1080）更高的资源；普通寻片为空。
+        "upgrade_above": "INTEGER",
     },
     "search_attempts": {"query_count": "INTEGER NOT NULL DEFAULT 1"},
     "download_history": {

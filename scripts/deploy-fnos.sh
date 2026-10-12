@@ -62,6 +62,8 @@ print(name)
 \"") || { echo "❌ 数据库备份失败，已中止部署。"; exit 1; }
   ssh "${FNOS_HOST}" "docker exec ${CONTAINER} chmod 600 ${BACKUP_NAME}" || { echo "❌ 备份文件权限设置失败，已中止部署。"; exit 1; }
   echo "   已备份：${BACKUP_NAME}"
+  # 只保留最近 3 个备份（按修改时间），更早的删除，免得数据目录越攒越大。
+  ssh "${FNOS_HOST}" "docker exec ${CONTAINER} sh -c 'ls -1t /data/playlist-autodown.db.bak-* 2>/dev/null | tail -n +4 | xargs -r rm -f'" || echo "⚠️  清理旧备份失败（不影响部署）。"
 else
   echo "⚠️  未找到运行中的 ${CONTAINER} 容器，跳过备份。"
 fi
@@ -88,4 +90,7 @@ for i in {1..15}; do
     echo "⚠️ 容器已启动，但健康检查接口暂未就绪，请稍后访问 ${WEB_URL} 查看日志。"
   fi
 done
+# 6. 清理被替换下来的 AutoList 悬空镜像：只删 Cmd 含 app.main:app 的（飞牛上还有别的项目的悬空镜像，不能碰）。
+CLEANED=$(ssh "${FNOS_HOST}" 'n=0; for id in $(docker images -f dangling=true -q); do c=$(docker image inspect -f "{{.Config.Cmd}}{{.Config.Entrypoint}}" $id 2>/dev/null); case "$c" in *app.main:app*) docker rmi $id >/dev/null 2>&1 && n=$((n+1));; esac; done; echo $n' 2>/dev/null || echo 0)
+echo "🧹 已清理 AutoList 悬空镜像 ${CLEANED} 个"
 echo "==============================================="

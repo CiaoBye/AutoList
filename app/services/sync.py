@@ -102,7 +102,8 @@ async def retest_failing_sites() -> int:
         return 0
     with connect() as conn:
         rows = conn.execute(
-            """SELECT * FROM pt_sites WHERE enabled=1 AND search_enabled=1 AND last_status IN ('error','empty')
+            """SELECT * FROM pt_sites WHERE enabled=1
+                 AND ((search_enabled=1 AND last_status IN ('error','empty')) OR auto_paused_at IS NOT NULL)
                  AND (last_tested_at IS NULL OR datetime(last_tested_at) < datetime('now', ?))
                ORDER BY last_tested_at LIMIT ?""",
             (f"-{SITE_RETEST_MINUTES} minutes", SITE_RETEST_PER_RUN),

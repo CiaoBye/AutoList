@@ -141,6 +141,16 @@ def update_library_task(task_id: int, **values: Any) -> None:
         conn.execute(f"UPDATE library_scan_tasks SET {assignments} WHERE id=?", (*values.values(), task_id))  # nosec B608
 
 
+async def library_tier(emby: EmbyClient, tmdb_id: Any, imdb_id: Any) -> int | None:
+    """Emby 里这部影片现有版本的最高画质档；读不到（Emby 出错、没有视频流信息）返回 None。"""
+    try:
+        versions = await emby.versions(tmdb_id, imdb_id)
+    except Exception:
+        return None
+    tiers = [version["tier"] for version in versions if version.get("tier")]
+    return max(tiers) if tiers else None
+
+
 async def run_library_scan(task_id: int) -> None:
     try:
         with connect() as conn:
@@ -152,23 +162,24 @@ async def run_library_scan(task_id: int) -> None:
         semaphore = asyncio.Semaphore(6)
         emby = EmbyClient()
 
-        async def inspect(item: dict[str, Any]) -> tuple[int, str, str | None, str | None, str | None]:
+        async def inspect(item: dict[str, Any]) -> tuple[int, str, str | None, str | None, str | None, int | None]:
             async with semaphore:
                 try:
                     state, emby_item_id, image_tag = await library_details(
                         emby, canonical_item_title(item), canonical_item_year(item), item["tmdb_id"],
                         item["tmdb_imdb_id"] or item["imdb_id"], raise_errors=True,
                     )
-                    return int(item["id"]), state, emby_item_id, image_tag, None
+                    tier = await library_tier(emby, item["tmdb_id"], item["tmdb_imdb_id"] or item["imdb_id"]) if state == "in_library" and settings.upgrade_enabled else None
+                    return int(item["id"]), state, emby_item_id, image_tag, None, tier
                 except Exception as exc:
                     # 一个影片的 Emby 请求失败不应让其他影片的结果丢失；
                     # unknown 保留在条目状态，脱敏错误汇总到任务层。
-                    return int(item["id"]), "unknown", None, None, safe_error(exc)
+                    return int(item["id"]), "unknown", None, None, safe_error(exc), None
 
         completed = in_library = strm = 0
         errors: list[str] = []
         for future in asyncio.as_completed([inspect(item) for item in items]):
-            item_id, state, emby_item_id, image_tag, error_message = await future
+            item_id, state, emby_item_id, image_tag, error_message, tier = await future
             completed += 1
             in_library += state == "in_library"
             strm += state == "strm"
@@ -178,8 +189,8 @@ async def run_library_scan(task_id: int) -> None:
                 errors.append(f"#{rank} {error_message}")
             with connect() as conn:
                 conn.execute(
-                    "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=? WHERE id=?",
-                    (state, utc_now(), emby_item_id, image_tag, item_id),
+                    "UPDATE playlist_items SET library_state=?,library_checked_at=?,emby_item_id=?,emby_image_tag=?,library_tier=? WHERE id=?",
+                    (state, utc_now(), emby_item_id, image_tag, tier, item_id),
                 )
             update_library_task(task_id, completed=completed, in_library=in_library, strm=strm)
         if errors:

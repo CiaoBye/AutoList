@@ -2,25 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from ..clients import EmbyClient
+from ..config import settings
 from ..database import connect
-from ..queries.films import playlist_items, playlist_summaries
+from ..queries.films import playlist_items, playlist_summaries, submitted_downloads
 from ..queries.search import active_search_progress
 from ..queries.sites import site_display_rows
 from ..services.candidates import candidate_view, latest_candidate_rows
 from ..services.films import (
     project_films,
 )
+from ..candidate_policy import parse_resolution
+from ..services.history import transfer_info
+from ..services.search import resolution_height
+from ..services.transmission_snapshot import _current_downloads_cached
+from ..util import to_int
 from ..responses import PickPage
 from ..services.identity import identity_flag
 
 router = APIRouter()
 
 
-PICK_BUCKETS = ("candidates", "selected", "no_eligible", "stalled")
+PICK_BUCKETS = ("candidates", "selected", "upgrade", "no_eligible", "stalled")
 
 
 def _pick_bucket(film: dict[str, Any]) -> str | None:
@@ -31,7 +39,61 @@ def _pick_bucket(film: dict[str, Any]) -> str | None:
         return "stalled"
     if film["status"] == "missing" and "no_eligible" in film["issues"]:
         return "no_eligible"
+    # 已入馆影片的升级搜索找到了更高画质的候选：候选里只有高于现有画质的资源。
+    if film["status"] == "in_library" and "upgrade_ready" in film["issues"]:
+        return "upgrade"
     return None
+
+
+async def _current_releases(films: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    """升级的影片：Emby 里现有的版本；下载停滞的影片：原来提交的、还在 Transmission 里的下载。读取失败的留空。"""
+    current: dict[int, list[dict[str, Any]]] = {}
+    upgrades = [film for film in films if film["bucket"] == "upgrade"]
+    stalled = [film for film in films if film["bucket"] == "stalled"]
+    if upgrades and settings.emby_base_url and settings.emby_api_key:
+        async def versions(film: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
+            try:
+                found = await EmbyClient().versions(film.get("tmdb_id"), film.get("imdb_id"))
+            except Exception:
+                found = []
+            return film["id"], [
+                {"kind": "library", "name": item["name"], "size": item["size"], "resolution": _tier_text(item)} for item in found
+            ]
+
+        for item_id, releases in await asyncio.gather(*(versions(film) for film in upgrades)):
+            current[item_id] = releases
+    if stalled:
+        try:
+            torrents, _state = await _current_downloads_cached()
+        except Exception:
+            torrents = []
+        by_hash = {str(torrent.get("hashString") or "").lower(): torrent for torrent in torrents}
+        with connect() as conn:
+            submitted = submitted_downloads(conn, [film["id"] for film in stalled])
+        for film in stalled:
+            releases = []
+            for record in submitted.get(film["id"], []):
+                torrent = by_hash.get(str(record["submission_hash"]).lower())
+                if not torrent:
+                    continue
+                info = transfer_info(torrent)
+                releases.append({
+                    "kind": "download", "name": str(torrent.get("name") or ""), "size": to_int(torrent.get("totalSize")) or None,
+                    "site": record["site_name"], "percent": info["percent"],
+                    "idle_hours": round(info["idle_hours"]) if info["idle_hours"] is not None else None,
+                })
+            current[film["id"]] = releases
+    return current
+
+
+def _original_height(releases: list[dict[str, Any]]) -> int | None:
+    """原来的下载里最高的画质（按种子名解析）。"""
+    heights = [resolution_height(parse_resolution(str(release["name"]).upper())) for release in releases if release["kind"] == "download"]
+    return max((height for height in heights if height), default=None)
+
+
+def _tier_text(version: dict[str, Any]) -> str | None:
+    return f"{version['tier']}p" if version.get("tier") else None
 
 
 @router.get("/api/picks", response_model=PickPage)
@@ -56,11 +118,21 @@ async def picks(playlist_id: int | None = None, status: str = "all") -> dict[str
     with connect() as conn:
         rows_by_item = latest_candidate_rows(conn, [film["id"] for film in chosen])
         site_rows = site_display_rows(conn)
+    for film in chosen:
+        film["bucket"] = _pick_bucket(film)
+    current = await _current_releases(chosen)
+    views = {film["id"]: candidate_view(rows_by_item.get(film["id"], []), site_rows) for film in chosen}
+    for film in chosen:
+        # 换掉停滞的下载时，低于原来那条的画质不再列出（原来是 2160p 就不给 1080p）。
+        floor = _original_height(current.get(film["id"], []))
+        if film["bucket"] == "stalled" and floor:
+            kept = [c for c in views[film["id"]]["candidates"] if (resolution_height(c.get("resolution")) or floor) >= floor]
+            views[film["id"]] = {**views[film["id"]], "candidates": kept}
     return {
         "items": [
             {
-                **film, "bucket": _pick_bucket(film), "next_search_at": next_search.get(film["id"]), "identity_flag": flags.get(film["id"]),
-                **candidate_view(rows_by_item.get(film["id"], []), site_rows),
+                **film, "bucket": film["bucket"], "current": current.get(film["id"], []), "next_search_at": next_search.get(film["id"]), "identity_flag": flags.get(film["id"]),
+                **views[film["id"]],
             }
             for film in chosen
         ],

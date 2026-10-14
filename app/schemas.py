@@ -89,6 +89,8 @@ class RuntimeSettingsPayload(BaseModel):
     tr_username: str | None = Field(default=None, max_length=120)
     tr_password: str | None = Field(default=None, max_length=2048)
     dashboard_random_posters: bool = False
+    upgrade_enabled: bool = True
+    search_slow_as_supplement: bool = True
 
 
 class SitePayload(BaseModel):
@@ -132,6 +134,12 @@ class PlaylistAutomationPayload(BaseModel):
 class PlaylistSyncPayload(BaseModel):
     enabled: bool = False
     interval_hours: int = Field(default=24, ge=1, le=720)
+
+
+class FilmsUpgradePayload(BaseModel):
+    """批量升级搜索：一次最多 20 部。"""
+
+    ids: list[int] = Field(min_length=1, max_length=20)
 
 
 class FilmTmdbPayload(BaseModel):

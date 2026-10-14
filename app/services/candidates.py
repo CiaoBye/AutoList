@@ -16,7 +16,7 @@ from ..candidate_policy import exclusion_overridable, normalized_policy
 from ..database import config_values
 from ..state import raw_candidates
 from ..domain.releases import ReleaseClusters
-from ..util import resource_fingerprint, rows_to_dicts, to_int, volume_factor_value
+from ..util import promotion_expired, resource_fingerprint, rows_to_dicts, to_int, volume_factor_value
 from ..outbound import safe_detail_url
 from .films import CANDIDATE_RETENTION_DAYS, current_candidate_tasks
 
@@ -59,6 +59,12 @@ def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any
         labels = [str(label).lower() for label in item["metadata"].get("labels", [])]
         item["volume_factor"] = factor
         item["is_free"] = factor == 0 or any(label in ("free", "免费", "freeleech") for label in labels)
+        # 搜索之后促销可能已经到期：到期的不再算免费，也不显示到期时间。
+        until = item["metadata"].get("promotion_until")
+        if item["is_free"] and promotion_expired(until):
+            item["is_free"] = False
+            until = None
+        item["free_until"] = until if item["is_free"] else None
     # 同一发布跨站点折叠：标题写法不同（附中文介绍、词序不同）但制作组、分辨率与体积一致的视为同一个种子。
     # 可选与已排除的分开归类，排除的副本不会盖住可选的那条。
     groups: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
@@ -73,7 +79,10 @@ def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any
     for options in groups.values():
         # 同资源跨站点折叠：优先展示做种人数最多的发布（用户可实际下载），
         # 再做种相同或缺失时按站点优先级/免费/优惠排序作为次级规则。
+        # 免费的优先，但做种太少的免费资源不抢位：至少 3 人且不少于最多做种数的一半才算“有效免费”。
+        top_seeders = max(to_int(option.get("seeders") or 0) for option in options)
         options.sort(key=lambda item: (
+            0 if item["is_free"] and to_int(item.get("seeders") or 0) >= max(3, top_seeders / 2) else 1,
             -to_int(item.get("seeders") or 0), item["site_priority"], 0 if item["is_free"] else 1,
             item["volume_factor"], to_int(item.get("ranking") or 0),
         ))
@@ -82,7 +91,7 @@ def present_candidates(rows: list[dict[str, Any]], site_rows: list[dict[str, Any
         primary["publish_date"] = publish_date(primary["metadata"].get("publish_time"))
         primary["site_options"] = [{
             "id": option["id"], "site_name": option.get("site_name"), "seeders": option.get("seeders"),
-            "size": option.get("size"), "is_free": option["is_free"], "site_priority": option["site_priority"],
+            "size": option.get("size"), "is_free": option["is_free"], "free_until": option["free_until"], "site_priority": option["site_priority"],
             "volume_factor": option["volume_factor"], "labels": option["metadata"].get("labels", []),
             "in_selection": option.get("in_selection", 0), "context_available": option["context_available"],
             "detail_url": safe_detail_url(option.get("detail_url")), "publish_time": option["metadata"].get("publish_time"),

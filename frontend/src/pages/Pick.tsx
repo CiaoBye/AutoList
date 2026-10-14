@@ -16,10 +16,36 @@ const BUCKET_LABELS: Record<PickBucket | "all", string> = {
   all: "全部",
   candidates: "待挑选",
   selected: "已选定",
+  upgrade: "升级",
   no_eligible: "等待资源",
   stalled: "下载停滞",
 };
-const BUCKETS: (PickBucket | "all")[] = ["all", "candidates", "selected", "stalled", "no_eligible"];
+const BUCKETS: (PickBucket | "all")[] = ["all", "candidates", "selected", "upgrade", "stalled", "no_eligible"];
+
+/** 候选列表最上面的“原来的”：升级的影片现有的版本，下载停滞的影片原来提交的下载，用单独的颜色标出。 */
+function CurrentReleases({ film }: { film: PickItem }) {
+  if ((film.bucket !== "upgrade" && film.bucket !== "stalled") || !film.current.length) return null;
+  const upgrade = film.bucket === "upgrade";
+  return (
+    <>
+      {film.current.map((release, index) => (
+        <div key={`${release.name}-${index}`} class="current-row">
+          <span class="current-tag">{upgrade ? "现有版本" : "原来的下载"}</span>
+          <span class="mono current-name">{release.name}</span>
+          <span class="current-meta">
+            {[
+              release.resolution,
+              release.site,
+              release.percent != null ? `已下 ${release.percent}%` : null,
+              release.idle_hours ? `停滞 ${release.idle_hours} 小时` : null,
+              release.size ? formatSize(release.size) : null,
+            ].filter(Boolean).join(" · ")}
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
 
 const selectionTitle = (item: SelectionItem): string => item.tmdb_title || item.chinese_title || item.original_title;
 
@@ -74,8 +100,9 @@ function PickGroup({ film, busy, onToggle, onSearch, onRelease, onClear, onDismi
             {film.original_title} · {film.year ?? "—"}
           </span>
           <span style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {film.status === "candidates" || film.status === "selected" ? null : <StatusBadge status={film.status} />}
-            <IssueBadges issues={film.issues.filter((issue) => issue !== "context_expired")} />
+            {/* 下载停滞本身就是“下载中”的一种，只显示停滞这一个标签。 */}
+            {film.status === "candidates" || film.status === "selected" || film.bucket === "stalled" ? null : <StatusBadge status={film.status} />}
+            <IssueBadges issues={film.issues.filter((issue) => issue !== "context_expired" && issue !== "upgrade_ready")} />
           </span>
         </span>
       </a>
@@ -115,6 +142,7 @@ function PickGroup({ film, busy, onToggle, onSearch, onRelease, onClear, onDismi
             </a>
           </ExcludedPanel>
         ) : null}
+        <CurrentReleases film={film} />
         {film.candidates.map((candidate) => (
           <CandidateRow key={candidate.id} candidate={candidate} busy={busy} onToggle={onToggle} />
         ))}
@@ -261,7 +289,7 @@ export function Pick({ route }: { route: Route }) {
 
       {data ? (
         <div class="chips" role="group" aria-label="按挑选状态筛选">
-          {BUCKETS.map((bucket) => (
+          {BUCKETS.filter((bucket) => bucket !== "upgrade" || data.counts.upgrade > 0).map((bucket) => (
             <a
               key={bucket}
               class={`chip${bucket === "no_eligible" ? " chip-issue" : ""}`}

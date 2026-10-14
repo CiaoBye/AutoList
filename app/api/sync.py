@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 from starlette.requests import ClientDisconnect
 
 from ..clients import TransmissionClient
+from ..logs import event_logger
+from ..security import safe_error
 from ..responses import SyncEventAccepted, SyncResult, SyncStatus, SyncWebhooks
 from ..services import sync, sync_events
 
@@ -64,8 +66,16 @@ async def sync_event(source: str, request: Request) -> dict[str, Any]:
     except ClientDisconnect:
         # 推送方（如 Transmission 的脚本）超时挂断：事件只是提示，下一次同步照常会读到最新状态。
         return {"accepted": False}
-    hint = sync_events.parse(source, body, query)
-    if hint is None:
+    except Exception as exc:
+        event_logger().warning("sync_event_failed", extra={"source": source, "error": safe_error(exc)})
         return {"accepted": False}
-    sync_events.handle(hint)
+    try:
+        hint = sync_events.parse(source, body, query)
+        if hint is None:
+            return {"accepted": False}
+        sync_events.handle(hint)
+    except Exception as exc:
+        # 事件只是提示，下一次同步照常会读到最新状态：处理出错也不让推送方（脚本、Webhook）收到 500 反复重试。
+        event_logger().warning("sync_event_failed", extra={"source": source, "error": safe_error(exc)})
+        return {"accepted": False}
     return {"accepted": True}

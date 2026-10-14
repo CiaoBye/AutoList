@@ -54,14 +54,6 @@
     max-width: 130px;
   }
 
-  .rules-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .rules-trial {
-    position: static;
-  }
-
   .site-note,
   .site-cell-text small {
     max-width: 200px;

@@ -465,7 +465,7 @@ class PickQueueTests(FilmFixture):
         with self._no_transmission():
             queue = await pick_routes.picks(playlist_id=self.playlist_id, status="all")
         # “全部”只放需要动手的；等待资源的影片只在它自己的分组里。
-        self.assertEqual(queue["counts"], {"all": 2, "candidates": 1, "selected": 1, "no_eligible": 1, "stalled": 0})
+        self.assertEqual(queue["counts"], {"all": 2, "candidates": 1, "selected": 1, "upgrade": 0, "no_eligible": 1, "stalled": 0})
         self.assertNotIn(self.items["no_eligible"], [item["id"] for item in queue["items"]])
         with self._no_transmission():
             waiting = await pick_routes.picks(playlist_id=self.playlist_id, status="no_eligible")

@@ -6,7 +6,7 @@ import type { BackupRecord, BackupRestored, BackupsDeleted } from "../../types";
 import { CardHead, SectionHead, useAction } from "./shared";
 import { confirmDialog } from "../../components/ConfirmDialog";
 
-const KIND_LABEL: Record<BackupRecord["kind"], string> = { manual: "手动", deploy: "部署前" };
+const KIND_LABEL: Record<BackupRecord["kind"], string> = { manual: "手动", auto: "自动", deploy: "部署前" };
 
 export function Backups() {
   const list = useLoad<BackupRecord[]>((signal) => api<BackupRecord[]>("/api/backups", { signal }), []);
@@ -54,7 +54,7 @@ export function Backups() {
         title="备份"
         actions={<button class="btn btn-small btn-primary" type="button" disabled={busy} onClick={create}>立即备份</button>}
       >
-        数据库含片单、候选与站点信息，备份文件仅保存在数据目录内（权限 600）。手动备份保留最近 10 份；每次部署新版本前会自动备份，保留最近 3 份。
+        每天自动备份一次（留 7 份），手动备份留 10 份，部署前的备份留 3 份。
       </SectionHead>
 
       <section class="card setting-card" aria-labelledby="backup-list">

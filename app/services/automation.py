@@ -27,6 +27,7 @@ from .recognition import persist_tmdb_item, recognize_item
 from .imports import normalize_import_items
 from .search import begin_search_task_slot, run_search, searchable_playlist_items
 from .cookiecloud import cookiecloud_configured, pull_cookiecloud, pull_due
+from . import backups as backup_service
 from .sites import refresh_stale_site_account_stats
 
 
@@ -554,6 +555,15 @@ async def sync_scheduler() -> None:
                         event_logger().warning("scheduler_sync_failed", extra={"error": safe_error(exc)})
                 if warm_due():
                     start_warm()
+                # 每天自动备份一次数据库（保留最近 7 份，见 services/backups.py）。
+                try:
+                    if await asyncio.to_thread(backup_service.auto_backup_due):
+                        name = await asyncio.to_thread(backup_service.create_auto_backup)
+                        event_logger().info("scheduler_backup_created", extra={"detail": f"每天自动备份数据库：{name}"})
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    event_logger().warning("scheduler_backup_failed", extra={"error": safe_error(exc)})
                 await consume_queued_automation_runs()
                 now = utc_now()
                 with connect() as conn:

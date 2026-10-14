@@ -185,3 +185,30 @@
 .pick-group {
   scroll-margin-top: calc(var(--nav-height) + var(--space-4));
 }
+
+/* 候选列表最上面的“原来的”：现有版本或原来的下载，用琥珀色底单独标出。 */
+.current-row {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--st-candidates-fg);
+  border-radius: var(--radius-m);
+  background: var(--st-candidates-bg);
+  font-size: var(--fs-s);
+}
+
+.current-tag {
+  color: var(--st-candidates-fg);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.current-name {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-m);
+}
+
+.current-meta {
+  color: var(--muted);
+}

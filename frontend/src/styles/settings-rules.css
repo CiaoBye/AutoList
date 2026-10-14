@@ -3,10 +3,9 @@
 /* ---------- 入馆标准 ---------- */
 
 .rules-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: var(--space-5);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .rules-main {
@@ -16,16 +15,22 @@
   min-width: 0;
 }
 
-.rules-trial {
-  position: sticky;
-  top: calc(var(--nav-height) + 20px);
-}
-
+/* 标题试算：整宽放在最下面，发布名、做种人数、免费并排一行，判定结果在下面。 */
 .rules-trial-inputs {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
   gap: var(--space-3);
   align-items: end;
+}
+
+@media (max-width: 720px) {
+  .rules-trial-inputs {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rules-trial-inputs > .field:first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .rules-trial-inputs .switch {

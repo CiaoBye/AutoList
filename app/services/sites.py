@@ -17,7 +17,8 @@ from .cookiecloud import with_cookie_refresh
 from .. import state
 from ..database import connect
 from ..security import safe_error, sanitize_sensitive_text
-from ..util import utc_now
+from ..util import to_int, utc_now
+from .site_pause import resume_after_check
 from ..outbound import validate_outbound_url
 
 SITE_STATS_SUCCESS_TTL = timedelta(hours=6)
@@ -94,6 +95,8 @@ async def test_site_config(site: dict[str, Any]) -> dict[str, Any]:
             "UPDATE pt_sites SET last_status=?,last_message=?,last_duration_ms=?,last_tested_at=? WHERE id=?",
             (status, message[:500], duration_ms, utc_now(), site["id"]),
         )
+        if status in {"ok", "slow"} and site.get("id"):
+            resume_after_check(conn, to_int(site["id"]), str(site["name"]))
     return {
         "id": site["id"], "name": site["name"], "ok": status in {"ok", "slow"},
         "status": status, "duration_ms": duration_ms, "message": message,

@@ -252,6 +252,12 @@ export function Home({ playlistParam: routePlaylist }: { playlistParam: string |
           color: "var(--st-candidates-fg)",
           action: { label: "查看站点", href: href("/settings/sites") },
         };
+      case "paused_sites":
+        return {
+          title: `${(todo.names || []).join("、")}${todo.count > (todo.names?.length || 0) ? " 等" : ""} 连续失败，已暂停搜索`,
+          color: "var(--issue-fg)",
+          action: { label: "查看站点", href: href("/settings/sites") },
+        };
       case "failing_sites":
         return {
           title: `${(todo.names || []).join("、")}${todo.count > (todo.names?.length || 0) ? " 等" : ""} 连接失败`,

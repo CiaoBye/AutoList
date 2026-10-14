@@ -450,8 +450,9 @@ class SubmissionWorkflowTests(IsolatedAppTestCase):
         grouped = task_candidates(task_id)
         self.assertEqual(len(grouped), 1)
         self.assertEqual(grouped[0]["site_count"], 2)
-        self.assertEqual(grouped[0]["site_name"], "Alpha")
-        self.assertEqual([option["site_name"] for option in grouped[0]["site_options"]], ["Alpha", "Beta"])
+        # 做种数相同时免费的站点（Beta）排在站点优先级更高的 Alpha 之前。
+        self.assertEqual(grouped[0]["site_name"], "Beta")
+        self.assertEqual([option["site_name"] for option in grouped[0]["site_options"]], ["Beta", "Alpha"])
         logs = await task_logs(task_id)
         self.assertTrue(any(log["level"] == "warning" and "Broken" in log["message"] for log in logs))
         self.assertFalse(any("should-not-leak" in log["message"] for log in logs))

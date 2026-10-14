@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
-import { formatSize, formatTime, excludedReasons, excludedSentence } from "../format";
+import { formatTime, excludedReasons, excludedSentence } from "../format";
 import type { FilmDetail } from "../types";
+import { ReleaseFacts, ReleaseTitle } from "./CandidateRow";
 
 type Excluded = FilmDetail["excluded_candidates"][number];
 
@@ -56,15 +57,18 @@ export function ExcludedPanel({ summary, count, candidates, nextSearchAt, busy, 
       {candidates.length ? (
         <details class="excluded-release">
           <summary title="确实是这部影片、只是不符合入馆标准时，可以手动放行并选定">人工放行（{candidates.length}）</summary>
-          <ul>
+          <div class="excluded-release-list">
             {candidates.map((candidate) => (
-              <li key={candidate.id}>
-                <span class="excluded-release-text">
-                  <span class="mono excluded-release-title">{candidate.title}</span>
-                  <small class="muted">
-                    {candidate.site_name || "未知站点"} · {formatSize(candidate.size)} · {candidate.seeders ?? 0} 做种 · {candidate.exclusion_reason}
-                  </small>
-                </span>
+              <div key={candidate.id} class="candidate">
+                <div class="candidate-main">
+                  <span class="candidate-head">
+                    <ReleaseTitle className="candidate-name" title={candidate.title} url={candidate.detail_url} />
+                  </span>
+                  <span class="candidate-meta">
+                    <ReleaseFacts siteName={candidate.site_name} size={candidate.size} seeders={candidate.seeders} publishDate={candidate.publish_date} />
+                    {candidate.exclusion_reason ? <span class="candidate-reason">{candidate.exclusion_reason}</span> : null}
+                  </span>
+                </div>
                 <button
                   class="btn btn-small"
                   type="button"
@@ -74,9 +78,9 @@ export function ExcludedPanel({ summary, count, candidates, nextSearchAt, busy, 
                 >
                   {candidate.context_available ? "放行并选定" : "已过期"}
                 </button>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         </details>
       ) : null}
     </div>

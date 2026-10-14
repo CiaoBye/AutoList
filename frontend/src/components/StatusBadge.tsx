@@ -1,4 +1,4 @@
-import { ISSUE_LABELS, STATUS_LABELS } from "../status";
+import { ISSUE_LABELS, STATUS_LABELS, UPGRADE_ISSUES } from "../status";
 import type { FilmIssue, FilmStatus } from "../types";
 
 export function StatusBadge({ status }: { status: FilmStatus }) {
@@ -10,7 +10,7 @@ export function IssueBadges({ issues }: { issues: FilmIssue[] }) {
   return (
     <>
       {issues.map((issue) => (
-        <span key={issue} class="badge st-issue">
+        <span key={issue} class={`badge ${UPGRADE_ISSUES.includes(issue) ? "st-upgrade" : "st-issue"}`}>
           {ISSUE_LABELS[issue]}
         </span>
       ))}

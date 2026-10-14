@@ -15,7 +15,9 @@ from pydantic import BaseModel, ConfigDict
 Number = int | float
 
 FilmStatus = Literal["unrecognized", "unchecked", "missing", "searching", "candidates", "selected", "downloading", "in_library"]
-FilmIssue = Literal["no_eligible", "submit_failed", "context_expired", "organize_failed", "download_stalled"]
+FilmIssue = Literal[
+    "no_eligible", "submit_failed", "context_expired", "organize_failed", "download_stalled", "upgradable", "upgrade_ready",
+]
 TaskKind = Literal["search", "recognition", "library", "automation"]
 
 
@@ -43,6 +45,7 @@ class Film(Model):
     tmdb_id: int | None
     imdb_id: str | None
     library_state: str | None
+    library_tier: int | None = None
     status: FilmStatus
     status_label: str
     issues: list[FilmIssue]
@@ -70,6 +73,7 @@ class SiteOption(Model):
     seeders: int | None
     size: Number | None
     is_free: bool
+    free_until: str | None = None
     in_selection: int
     context_available: bool
 
@@ -91,6 +95,7 @@ class Candidate(Model):
     in_selection: int
     context_available: bool
     is_free: bool
+    free_until: str | None = None
     volume_factor: Number
     site_count: int
     site_options: list[SiteOption]
@@ -179,6 +184,7 @@ class FilmDetail(Film):
     # 当前显示的候选是升级搜索（洗版）的结果时，为搜索时的画质档：候选都高于这一档。
     upgrade_above: int | None = None
     upgrade_searching: bool = False
+    upgrade_enabled: bool = True
     # 没选定的候选自动清除的时间（保留 7 天）。
     candidates_expire_at: str | None = None
     history: list[FilmHistoryRecord]
@@ -193,6 +199,18 @@ class TmdbMatch(Model):
     year: int | None
     overview: str
     current: bool
+
+
+class FilmsUpgradeSkipped(Model):
+    id: int
+    title: str
+    reason: str
+
+
+class FilmsUpgradeStarted(Model):
+    started: int
+    task_ids: list[int]
+    skipped: list[FilmsUpgradeSkipped]
 
 
 class FilmSearchStarted(Model):
@@ -219,7 +237,7 @@ class ActiveTask(Model):
 class Todo(Model):
     key: Literal[
         "search_missing", "pick", "submit", "unrecognized", "unchecked", "no_eligible", "submit_failed",
-        "context_expired", "download_stalled", "organize_failed", "failing_sites", "empty_sites",
+        "context_expired", "download_stalled", "organize_failed", "failing_sites", "empty_sites", "paused_sites",
     ]
     count: int
     names: list[str] | None = None
@@ -239,8 +257,22 @@ class HomeData(Model):
 # ---------- 挑选台 ----------
 
 
+class CurrentRelease(Model):
+    """遴选里“原来的”：升级的影片在 Emby 里现有的版本，或下载停滞的影片原来提交的下载。"""
+
+    kind: Literal["library", "download"]
+    name: str
+    size: int | None = None
+    resolution: str | None = None
+    site: str | None = None
+    # 下载：进度（%）与多久没有数据传输（小时）。
+    percent: Number | None = None
+    idle_hours: int | None = None
+
+
 class PickItem(Film):
-    bucket: Literal["candidates", "selected", "no_eligible", "stalled"]
+    bucket: Literal["candidates", "selected", "upgrade", "no_eligible", "stalled"]
+    current: list[CurrentRelease] = []
     candidates: list[Candidate]
     # 有 1080p 等顺序内分辨率可选时，未显示的 720p 等资源数量。
     excluded_summary: list[ExcludedReason]
@@ -578,6 +610,8 @@ class Site(Model):
     limit_gap: int | None = None
     enabled: int
     search_enabled: int
+    auto_paused_at: str | None = None
+    auto_paused_reason: str | None = None
     supplement_only: int
     migration_note: str | None
     last_status: str
@@ -779,6 +813,8 @@ class PublicSettings(Model):
     tr_password: str
     tr_password_configured: bool
     dashboard_random_posters: bool
+    upgrade_enabled: bool
+    search_slow_as_supplement: bool
     access_token_required: bool
     access_token_strength: Literal["missing", "weak", "strong"]
     access_token_strength_enforced: bool
@@ -827,7 +863,7 @@ class LogEvent(Model):
 
 class BackupRecord(Model):
     name: str
-    kind: Literal["manual", "deploy"]
+    kind: Literal["manual", "auto", "deploy"]
     size: int
     created_at: str
     restorable: bool
@@ -844,84 +880,3 @@ class BackupRestored(Model):
 
 class BackupsDeleted(Model):
     deleted: int
-
-
-class SiteCookieHealth(Model):
-    state: Literal["ok", "expired", "missing", "failing", "none"]
-    text: str
-    source: Literal["cookiecloud", "manual", "moviepilot"] | None
-    updated_at: str | None
-    age_days: int | None
-
-
-class SiteSearchStats(Model):
-    total: int
-    succeeded: int
-    success_rate: Number | None
-    average_ms: int | None
-    result_count: int
-
-
-class SiteSubmitStats(Model):
-    total: int
-    succeeded: int
-    success_rate: Number | None
-
-
-class SiteSeeding(Model):
-    count: int
-    size: int
-
-
-class SiteStatusAccount(Model):
-    uploaded: Number | None
-    downloaded: Number | None
-    ratio: Number | None
-
-
-class SiteDayStat(Model):
-    day: str
-    total: int
-    failed: int
-
-
-class SiteStatusRow(Model):
-    id: int
-    name: str
-    enabled: bool
-    search_enabled: bool
-    icon_endpoint: str
-    profile: str
-    cookie: SiteCookieHealth
-    failure_streak: int
-    last_success_at: str | None
-    last_status: str
-    last_message: str | None
-    search: SiteSearchStats
-    submissions: SiteSubmitStats
-    seeding: SiteSeeding | None
-    account: SiteStatusAccount
-    history: list[SiteDayStat]
-    problem: bool
-
-
-class SiteStatusPage(Model):
-    sites: list[SiteStatusRow]
-    problem_count: int
-    transmission_available: bool
-    history_days: int
-    stats_days: int
-
-
-class UpgradeFilm(Model):
-    """升级搜索找到了更高画质候选的已入馆影片。"""
-
-    id: int
-    rank_no: int | None
-    title: str
-    year: int | None
-    from_tier: int
-    candidate_count: int
-    selected_count: int
-    best_resolution: str | None
-    searched_at: str

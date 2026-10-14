@@ -389,15 +389,17 @@ def analyze(title: str, index: int, policy_value: Any, torrent: dict[str, Any] |
     site_priority = max(1, min(to_int(torrent.get("_site_priority"), 100), 999))
     resolution_rank = policy["resolution_order"].index(resolution) if resolution in policy["resolution_order"] else 9
     profile_tier = to_int(profile["tier"], 9) if profile else 9
-    # Deterministic priority: profile -> site -> resolution -> seeders -> promotion -> source order.
+    # Deterministic priority: profile -> site -> resolution -> promotion -> seeders -> source order.
     # Free/discount is a continuous weight: 0.0 (free) ranks first, 1.0 (full price) last.
+    # 同一档位、站点与分辨率下，免费 / 折扣的排在前面（下载量更省）；做种太少（不足 3 人）的不享受这个优先。
+    promotion_rank = max(0, min(10, round(volume * 10))) if seeders >= 3 else 10
     ranking = (
-        (0 if eligible else 1) * 10**12
-        + profile_tier * 10**10
-        + site_priority * 10**6
-        + resolution_rank * 10**4
+        (0 if eligible else 1) * 10**14
+        + profile_tier * 10**12
+        + site_priority * 10**8
+        + resolution_rank * 10**6
+        + promotion_rank * 10**4
         + max(0, 9999 - min(seeders, 9999))
-        + max(0, min(100, to_int(volume * 100)))
         + index
     )
     score = 0 if not eligible else max(1, 100 - (profile_tier - 1) * 25 - resolution_rank * 5)

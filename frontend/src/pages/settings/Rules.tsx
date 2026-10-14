@@ -3,6 +3,7 @@ import { api, ApiError } from "../../api";
 import { useLoad } from "../../hooks";
 import type { CandidateAnalysis, ReleaseGroupCatalog } from "../../types";
 import { CardHead, DirtyNote, SectionHead, useAction } from "./shared";
+import { useSettingsForm } from "./useSettingsForm";
 
 interface Profile {
   id: string;
@@ -96,15 +97,15 @@ function Trial({ rules, valid, order }: { rules: Policy | null; valid: boolean; 
     <section class="card setting-card rules-trial" aria-labelledby="trial-title">
       <CardHead id="trial-title" title="标题试算" />
       <div class="setting-card-body">
-        <label class="field">
-          <span>发布名</span>
-          <input
-            value={trial.title}
-            placeholder="Casablanca 1942 1080p BluRay x265 10bit-CHD"
-            onInput={(event) => { const next = (event.target as HTMLInputElement).value; setTrial((current) => ({ ...current, title: next })); }}
-          />
-        </label>
         <div class="rules-trial-inputs">
+          <label class="field">
+            <span>发布名</span>
+            <input
+              value={trial.title}
+              placeholder="Casablanca 1942 1080p BluRay x265 10bit-CHD"
+              onInput={(event) => { const next = (event.target as HTMLInputElement).value; setTrial((current) => ({ ...current, title: next })); }}
+            />
+          </label>
           <label class="field">
             <span>做种人数</span>
             <input type="number" min={0} value={trial.seeders} onInput={(event) => { const next = (event.target as HTMLInputElement).value; setTrial((current) => ({ ...current, seeders: next })); }} />
@@ -115,7 +116,7 @@ function Trial({ rules, valid, order }: { rules: Policy | null; valid: boolean; 
           </label>
         </div>
         {!title ? null : !valid ? (
-          <p class="notice notice-bad">左侧规则有误，修正后再试算。</p>
+          <p class="notice notice-bad">规则有误，修正后再试算。</p>
         ) : preview?.error ? (
           <p class="notice notice-bad">{preview.error}</p>
         ) : result && verdict ? (
@@ -346,6 +347,9 @@ export function Rules() {
             </div>
           </section>
 
+          <SettingSwitch id="rules-upgrade" step={5} title="升级画质" label="启用升级画质" hint="关闭后停用书目、遴选、影片详情里的升级入口" field="upgrade_enabled" />
+          <SettingSwitch id="rules-slow" step={6} title="搜索省请求" label="慢站点只在候选不足时才搜" hint="平均每个检索词超过 6 秒的站点，其他站点找不到足够候选时才搜" field="search_slow_as_supplement" />
+
           <div class={`card save-bar${dirty ? " is-dirty" : ""}`}>
             <DirtyNote dirty={dirty} onReset={() => setDraft(draftOf(saved))} />
             <button class="btn btn-primary" type="submit" disabled={busy || !dirty || !valid}>
@@ -357,5 +361,44 @@ export function Rules() {
         <Trial rules={rules} valid={valid} order={order} />
       </div>
     </div>
+  );
+}
+
+/** 馆规页的一个即时保存的开关：改动立刻写入设置，不用再点保存。 */
+function SettingSwitch({ id, step, title, label, hint, field }: {
+  id: string; step: number; title: string; label: string; hint: string; field: "upgrade_enabled" | "search_slow_as_supplement";
+}) {
+  const { settings } = useSettingsForm([field]);
+  const { busy, run } = useAction();
+  const enabled = settings.data?.[field] !== false;
+  return (
+    <section class="card setting-card" aria-labelledby={id}>
+      <CardHead id={id} step={step} title={title} />
+      {settings.data ? (
+        <label class="setting-row">
+          <span class="setting-row-text">
+            <strong>{label}</strong>
+            <small>{hint}</small>
+          </span>
+          <input
+            class="switch"
+            type="checkbox"
+            role="switch"
+            checked={enabled}
+            disabled={busy}
+            onChange={(event) => {
+              const value = (event.target as HTMLInputElement).checked;
+              void run(
+                () => api("/api/settings", { method: "PUT", body: { [field]: value } }),
+                value ? `已启用${title}` : `已关闭${title}`,
+                settings.reload,
+              );
+            }}
+          />
+        </label>
+      ) : (
+        <p class="muted setting-card-body">正在读取设置……</p>
+      )}
+    </section>
   );
 }

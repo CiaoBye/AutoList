@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - production image is Unix-based
 
 
 REDACTED_SECRET = str()
-APP_VERSION = "2.86"
+APP_VERSION = "3.01"
 ACCESS_TOKEN_MIN_LENGTH = 32
 ACCESS_TOKEN_MAX_LENGTH = 256
 PUBLIC_URL_SENSITIVE_QUERY_KEYS = {
@@ -138,6 +138,10 @@ class Settings:
     tr_username: str = os.getenv("TR_USERNAME", "")
     tr_password: str = os.getenv("TR_PASSWORD", "")
     dashboard_random_posters: bool = os.getenv("DASHBOARD_RANDOM_POSTERS", "false").lower() == "true"
+    # 升级画质（洗版）总开关：关掉后书目、遴选、影片详情与搜索都不再提供升级，已有数据保留。
+    upgrade_enabled: bool = os.getenv("UPGRADE_ENABLED", "true").lower() == "true"
+    # 搜索省请求：响应慢的站点只在其他站点找不到足够候选时才搜索（按 IMDb 补搜一次）。
+    search_slow_as_supplement: bool = os.getenv("SEARCH_SLOW_AS_SUPPLEMENT", "true").lower() == "true"
     # 事件地址（MoviePilot / Transmission / Emby 主动通知 AutoList）里的密钥，首次使用时自动生成，只在服务端校验。
     sync_token: str = ""
     # 下载目录与分类不在 AutoList 保存：统一交由 MoviePilot 的媒体分类规则处理。
@@ -151,7 +155,7 @@ class Settings:
             if key in values and values[key] is not None:
                 value = str(values[key]).strip()
                 setattr(self, key, value.rstrip("/") if (key.endswith("base_url") or key.endswith("_url")) else value)
-        for key in ("tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters"):
+        for key in ("tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters", "upgrade_enabled", "search_slow_as_supplement"):
             if key in values and values[key] is not None:
                 setattr(self, key, bool(values[key]))
         if values.get("cookiecloud_interval_minutes") is not None:
@@ -204,6 +208,8 @@ class Settings:
             "tr_password": REDACTED_SECRET,
             "tr_password_configured": bool(self.tr_password),
             "dashboard_random_posters": self.dashboard_random_posters,
+            "upgrade_enabled": self.upgrade_enabled,
+            "search_slow_as_supplement": self.search_slow_as_supplement,
             "access_token_required": access_token_required(),
             "access_token_strength": access_token_strength(),
             "access_token_strength_enforced": access_token_strength_enforced(),

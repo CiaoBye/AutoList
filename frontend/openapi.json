@@ -172,6 +172,7 @@
           "kind": {
             "enum": [
               "manual",
+              "auto",
               "deploy"
             ],
             "title": "Kind",
@@ -262,6 +263,17 @@
           "eligibility": {
             "title": "Eligibility",
             "type": "string"
+          },
+          "free_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Until"
           },
           "group_name": {
             "anyOf": [
@@ -724,6 +736,87 @@
           "missing"
         ],
         "title": "CookieSync",
+        "type": "object"
+      },
+      "CurrentRelease": {
+        "description": "遴选里“原来的”：升级的影片在 Emby 里现有的版本，或下载停滞的影片原来提交的下载。",
+        "properties": {
+          "idle_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Hours"
+          },
+          "kind": {
+            "enum": [
+              "library",
+              "download"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "title": "CurrentRelease",
         "type": "object"
       },
       "DownloadItem": {
@@ -1247,7 +1340,9 @@
                 "submit_failed",
                 "context_expired",
                 "organize_failed",
-                "download_stalled"
+                "download_stalled",
+                "upgradable",
+                "upgrade_ready"
               ],
               "type": "string"
             },
@@ -1264,6 +1359,17 @@
               }
             ],
             "title": "Library State"
+          },
+          "library_tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Tier"
           },
           "original_title": {
             "title": "Original Title",
@@ -1488,7 +1594,9 @@
                 "submit_failed",
                 "context_expired",
                 "organize_failed",
-                "download_stalled"
+                "download_stalled",
+                "upgradable",
+                "upgrade_ready"
               ],
               "type": "string"
             },
@@ -1657,6 +1765,11 @@
               }
             ],
             "title": "Upgrade Above"
+          },
+          "upgrade_enabled": {
+            "default": true,
+            "title": "Upgrade Enabled",
+            "type": "boolean"
           },
           "upgrade_searching": {
             "default": false,
@@ -1888,6 +2001,77 @@
           "tmdb_id"
         ],
         "title": "FilmTmdbPayload",
+        "type": "object"
+      },
+      "FilmsUpgradePayload": {
+        "description": "批量升级搜索：一次最多 20 部。",
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "FilmsUpgradePayload",
+        "type": "object"
+      },
+      "FilmsUpgradeSkipped": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "reason"
+        ],
+        "title": "FilmsUpgradeSkipped",
+        "type": "object"
+      },
+      "FilmsUpgradeStarted": {
+        "properties": {
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/FilmsUpgradeSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "started": {
+            "title": "Started",
+            "type": "integer"
+          },
+          "task_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "started",
+          "task_ids",
+          "skipped"
+        ],
+        "title": "FilmsUpgradeStarted",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2414,6 +2598,7 @@
             "enum": [
               "candidates",
               "selected",
+              "upgrade",
               "no_eligible",
               "stalled"
             ],
@@ -2437,6 +2622,14 @@
               }
             ],
             "title": "Candidates Expire At"
+          },
+          "current": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CurrentRelease"
+            },
+            "title": "Current",
+            "type": "array"
           },
           "excluded_candidates": {
             "default": [],
@@ -2496,7 +2689,9 @@
                 "submit_failed",
                 "context_expired",
                 "organize_failed",
-                "download_stalled"
+                "download_stalled",
+                "upgradable",
+                "upgrade_ready"
               ],
               "type": "string"
             },
@@ -2513,6 +2708,17 @@
               }
             ],
             "title": "Library State"
+          },
+          "library_tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Tier"
           },
           "next_search_at": {
             "anyOf": [
@@ -3215,6 +3421,10 @@
             "title": "Pt Proxy Enabled",
             "type": "boolean"
           },
+          "search_slow_as_supplement": {
+            "title": "Search Slow As Supplement",
+            "type": "boolean"
+          },
           "tmdb_api_key": {
             "title": "Tmdb Api Key",
             "type": "string"
@@ -3249,6 +3459,10 @@
           },
           "tr_username_configured": {
             "title": "Tr Username Configured",
+            "type": "boolean"
+          },
+          "upgrade_enabled": {
+            "title": "Upgrade Enabled",
             "type": "boolean"
           }
         },
@@ -3289,6 +3503,8 @@
           "tr_password",
           "tr_password_configured",
           "dashboard_random_posters",
+          "upgrade_enabled",
+          "search_slow_as_supplement",
           "access_token_required",
           "access_token_strength",
           "access_token_strength_enforced"
@@ -3500,6 +3716,11 @@
             "title": "Pt Proxy Enabled",
             "type": "boolean"
           },
+          "search_slow_as_supplement": {
+            "default": true,
+            "title": "Search Slow As Supplement",
+            "type": "boolean"
+          },
           "tmdb_api_key": {
             "anyOf": [
               {
@@ -3552,6 +3773,11 @@
               }
             ],
             "title": "Tr Username"
+          },
+          "upgrade_enabled": {
+            "default": true,
+            "title": "Upgrade Enabled",
+            "type": "boolean"
           }
         },
         "title": "RuntimeSettingsPayload",
@@ -4098,6 +4324,28 @@
             "title": "Api Key Configured",
             "type": "boolean"
           },
+          "auto_paused_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Paused At"
+          },
+          "auto_paused_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Paused Reason"
+          },
           "base_url": {
             "title": "Base Url",
             "type": "string"
@@ -4579,95 +4827,6 @@
         "title": "SiteChecks",
         "type": "object"
       },
-      "SiteCookieHealth": {
-        "properties": {
-          "age_days": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Age Days"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "enum": [
-                  "cookiecloud",
-                  "manual",
-                  "moviepilot"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "state": {
-            "enum": [
-              "ok",
-              "expired",
-              "missing",
-              "failing",
-              "none"
-            ],
-            "title": "State",
-            "type": "string"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          },
-          "updated_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated At"
-          }
-        },
-        "required": [
-          "state",
-          "text",
-          "source",
-          "updated_at",
-          "age_days"
-        ],
-        "title": "SiteCookieHealth",
-        "type": "object"
-      },
-      "SiteDayStat": {
-        "properties": {
-          "day": {
-            "title": "Day",
-            "type": "string"
-          },
-          "failed": {
-            "title": "Failed",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "day",
-          "total",
-          "failed"
-        ],
-        "title": "SiteDayStat",
-        "type": "object"
-      },
       "SiteLocalStats": {
         "properties": {
           "average_ms": {
@@ -4746,6 +4905,17 @@
               }
             ],
             "title": "Detail Url"
+          },
+          "free_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Until"
           },
           "id": {
             "title": "Id",
@@ -5008,56 +5178,6 @@
         "title": "SiteSaved",
         "type": "object"
       },
-      "SiteSearchStats": {
-        "properties": {
-          "average_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Average Ms"
-          },
-          "result_count": {
-            "title": "Result Count",
-            "type": "integer"
-          },
-          "succeeded": {
-            "title": "Succeeded",
-            "type": "integer"
-          },
-          "success_rate": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Success Rate"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "total",
-          "succeeded",
-          "success_rate",
-          "average_ms",
-          "result_count"
-        ],
-        "title": "SiteSearchStats",
-        "type": "object"
-      },
       "SiteSecrets": {
         "description": "站点编辑弹窗按需读取的明文（内网自用）：站点列表接口仍只返回“是否已配置”。",
         "properties": {
@@ -5080,258 +5200,6 @@
           "rss_url"
         ],
         "title": "SiteSecrets",
-        "type": "object"
-      },
-      "SiteSeeding": {
-        "properties": {
-          "count": {
-            "title": "Count",
-            "type": "integer"
-          },
-          "size": {
-            "title": "Size",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "count",
-          "size"
-        ],
-        "title": "SiteSeeding",
-        "type": "object"
-      },
-      "SiteStatusAccount": {
-        "properties": {
-          "downloaded": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Downloaded"
-          },
-          "ratio": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ratio"
-          },
-          "uploaded": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Uploaded"
-          }
-        },
-        "required": [
-          "uploaded",
-          "downloaded",
-          "ratio"
-        ],
-        "title": "SiteStatusAccount",
-        "type": "object"
-      },
-      "SiteStatusPage": {
-        "properties": {
-          "history_days": {
-            "title": "History Days",
-            "type": "integer"
-          },
-          "problem_count": {
-            "title": "Problem Count",
-            "type": "integer"
-          },
-          "sites": {
-            "items": {
-              "$ref": "#/components/schemas/SiteStatusRow"
-            },
-            "title": "Sites",
-            "type": "array"
-          },
-          "stats_days": {
-            "title": "Stats Days",
-            "type": "integer"
-          },
-          "transmission_available": {
-            "title": "Transmission Available",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "sites",
-          "problem_count",
-          "transmission_available",
-          "history_days",
-          "stats_days"
-        ],
-        "title": "SiteStatusPage",
-        "type": "object"
-      },
-      "SiteStatusRow": {
-        "properties": {
-          "account": {
-            "$ref": "#/components/schemas/SiteStatusAccount"
-          },
-          "cookie": {
-            "$ref": "#/components/schemas/SiteCookieHealth"
-          },
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "failure_streak": {
-            "title": "Failure Streak",
-            "type": "integer"
-          },
-          "history": {
-            "items": {
-              "$ref": "#/components/schemas/SiteDayStat"
-            },
-            "title": "History",
-            "type": "array"
-          },
-          "icon_endpoint": {
-            "title": "Icon Endpoint",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "last_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Message"
-          },
-          "last_status": {
-            "title": "Last Status",
-            "type": "string"
-          },
-          "last_success_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Success At"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "problem": {
-            "title": "Problem",
-            "type": "boolean"
-          },
-          "profile": {
-            "title": "Profile",
-            "type": "string"
-          },
-          "search": {
-            "$ref": "#/components/schemas/SiteSearchStats"
-          },
-          "search_enabled": {
-            "title": "Search Enabled",
-            "type": "boolean"
-          },
-          "seeding": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SiteSeeding"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "submissions": {
-            "$ref": "#/components/schemas/SiteSubmitStats"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "enabled",
-          "search_enabled",
-          "icon_endpoint",
-          "profile",
-          "cookie",
-          "failure_streak",
-          "last_success_at",
-          "last_status",
-          "last_message",
-          "search",
-          "submissions",
-          "seeding",
-          "account",
-          "history",
-          "problem"
-        ],
-        "title": "SiteStatusRow",
-        "type": "object"
-      },
-      "SiteSubmitStats": {
-        "properties": {
-          "succeeded": {
-            "title": "Succeeded",
-            "type": "integer"
-          },
-          "success_rate": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Success Rate"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "total",
-          "succeeded",
-          "success_rate"
-        ],
-        "title": "SiteSubmitStats",
         "type": "object"
       },
       "SubmissionNote": {
@@ -5900,7 +5768,8 @@
               "download_stalled",
               "organize_failed",
               "failing_sites",
-              "empty_sites"
+              "empty_sites",
+              "paused_sites"
             ],
             "title": "Key",
             "type": "string"
@@ -6012,81 +5881,6 @@
           "done"
         ],
         "title": "TransmissionHooks",
-        "type": "object"
-      },
-      "UpgradeFilm": {
-        "description": "升级搜索找到了更高画质候选的已入馆影片。",
-        "properties": {
-          "best_resolution": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Best Resolution"
-          },
-          "candidate_count": {
-            "title": "Candidate Count",
-            "type": "integer"
-          },
-          "from_tier": {
-            "title": "From Tier",
-            "type": "integer"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "rank_no": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank No"
-          },
-          "searched_at": {
-            "title": "Searched At",
-            "type": "string"
-          },
-          "selected_count": {
-            "title": "Selected Count",
-            "type": "integer"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "year": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Year"
-          }
-        },
-        "required": [
-          "id",
-          "rank_no",
-          "title",
-          "year",
-          "from_tier",
-          "candidate_count",
-          "selected_count",
-          "best_resolution",
-          "searched_at"
-        ],
-        "title": "UpgradeFilm",
         "type": "object"
       },
       "ValidationError": {
@@ -6578,6 +6372,45 @@
           }
         },
         "summary": "Films"
+      }
+    },
+    "/api/films/upgrade-search": {
+      "post": {
+        "description": "批量升级搜索（一次最多 20 部）：按片单与现有画质分组各开一个寻片任务，站点请求照常经各站点的限速。",
+        "operationId": "upgrade_search_films_api_films_upgrade_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilmsUpgradePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilmsUpgradeStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upgrade Search Films"
       }
     },
     "/api/films/{item_id}": {
@@ -8498,24 +8331,6 @@
         "summary": "Test Runtime Settings"
       }
     },
-    "/api/site-status": {
-      "get": {
-        "operationId": "site_status_api_site_status_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SiteStatusPage"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Site Status"
-      }
-    },
     "/api/sites": {
       "get": {
         "operationId": "sites_api_sites_get",
@@ -9064,28 +8879,6 @@
           }
         },
         "summary": "Timeline"
-      }
-    },
-    "/api/upgrades": {
-      "get": {
-        "operationId": "upgrades_api_upgrades_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UpgradeFilm"
-                  },
-                  "title": "Response Upgrades Api Upgrades Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Upgrades"
       }
     }
   }

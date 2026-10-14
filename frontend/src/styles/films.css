@@ -67,3 +67,71 @@
     width: auto;
   }
 }
+
+/* 可升级筛选：批量选择条。 */
+.upgrade-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--wash);
+  font-size: var(--fs-s);
+}
+
+/* 可升级筛选的海报视图：卡片左上角的勾选框。 */
+.film-pick-plain {
+  display: contents;
+}
+
+.film-pick {
+  position: relative;
+  min-width: 0;
+}
+
+.film-pick .film-card {
+  width: 100%;
+}
+
+/* 勾选框：圆形、半透明深底，选中后填主色并画出对勾；放在右上角，不挡住左上角的馆藏号。 */
+.film-pick-box {
+  appearance: none;
+  position: absolute;
+  z-index: 3;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.film-pick-box:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.film-pick-box:checked::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 7px;
+  width: 6px;
+  height: 11px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.film-pick-box:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

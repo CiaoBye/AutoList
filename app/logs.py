@@ -28,6 +28,16 @@ _EVENT_FIELDS = (
 )
 
 
+TRACEBACK_HEAD, TRACEBACK_TAIL = 300, 1700
+
+
+def _traceback_text(text: str) -> str:
+    """异常堆栈过长时保留开头和结尾：真正的原因（异常类型与信息）在最后，只留开头会看不到。"""
+    if len(text) <= TRACEBACK_HEAD + TRACEBACK_TAIL:
+        return text
+    return f"{text[:TRACEBACK_HEAD]}\n  ...（中间省略）...\n{text[-TRACEBACK_TAIL:]}"
+
+
 class JsonLineFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -43,7 +53,7 @@ class JsonLineFormatter(logging.Formatter):
                 else:
                     payload[key] = value
         if record.exc_info:
-            payload["error"] = sanitize_sensitive_text(self.formatException(record.exc_info), 2000)
+            payload["error"] = sanitize_sensitive_text(_traceback_text(self.formatException(record.exc_info)), 2100)
         return json.dumps(payload, ensure_ascii=False)
 
 

@@ -21,6 +21,7 @@ from ..candidate_policy import normalized_policy
 from .cookiecloud import with_cookie_refresh
 from ..clients import EmbyClient, MTeamClient, NexusPHPClient, RSSClient, TorznabClient
 from ..schemas import MAX_SEARCH_ITEMS
+from ..config import settings
 from ..database import config_values, connect, json_value
 from ..logs import event_logger
 from ..domain.releases import ReleaseClusters
@@ -31,7 +32,7 @@ from ..domain.titles import (
     normalized_download_name,
     torrent_matches_item,
 )
-from ..queries.sites import searchable_site_ids
+from ..queries.sites import searchable_site_ids, slow_site_ids
 from ..security import safe_error, sanitize_sensitive_text
 from ..sites import SiteError
 from ..sites.errors import SearchCaptcha
@@ -40,6 +41,7 @@ from ..tasks import SEARCH
 from ..util import first_value, resource_fingerprint, rows_to_dicts, secret_free, to_int, utc_now
 from ..outbound import safe_detail_url
 from .library import library_details
+from .site_pause import maybe_auto_pause
 from .recognition import analyze_candidate, ensure_alt_titles, persist_tmdb_item, recognize_item
 from .site_limits import SITE_REQUEST_GAP_SECONDS, _site_request_times, wait_for_site_rate_limit  # noqa: F401  （其他模块与测试仍从这里导入）
 from .transmission_snapshot import (  # noqa: F401  （其他模块与测试仍从这里导入）
@@ -221,6 +223,7 @@ SEARCH_SITE_CONCURRENCY = 1
 SEARCH_REQUEST_CONCURRENCY = 10
 # “仅补缺”站点只为可选种子少于这个数的影片补搜。
 SUPPLEMENT_MIN_RELEASES = 3
+SLOW_SEARCH_MS = 6000  # 平均每个检索词耗时达到这个值的站点算“慢”
 SITE_BLOCKED = "site_blocked"
 SITE_CAPTCHA = "site_captcha"
 # 站点要求搜索人机验证后：每 CAPTCHA_PROBE_SECONDS 试一次，最多等 CAPTCHA_WAIT_SECONDS（某站点连续搜索过快触发后约 10 分钟内自行恢复）。
@@ -310,6 +313,8 @@ def record_search_attempt(
              duration_ms, error_code, sanitize_sensitive_text(error_message, 500) if error_message else None,
              query_count, now, now),
         )
+        if status == "failed" and query_count > 0 and to_int(site.get("id")):
+            maybe_auto_pause(conn, to_int(site["id"]), str(site["name"]))
 
 
 # 站点临时出错（HTTP 5xx、429）时等一会儿重试：连续请求过快时部分站点会短暂返回 500，几秒后恢复。
@@ -515,8 +520,18 @@ async def run_search(task_id: int) -> None:
     film_slots = asyncio.Semaphore(SEARCH_FILM_CONCURRENCY)
     request_slots = asyncio.Semaphore(SEARCH_REQUEST_CONCURRENCY)
     site_slots = {to_int(site["id"]): _site_request_slot(to_int(site["id"])) for site in sites}
-    main_sites = [site for site in sites if not to_int(site.get("supplement_only"))]
-    supplement_sites = [site for site in sites if to_int(site.get("supplement_only"))]
+    # 响应慢的站点（最近平均搜索耗时过长）按“仅补缺”处理：其他站点找不到足够候选时才搜，省下多数影片的慢请求。
+    with connect() as conn:
+        slow_ids = slow_site_ids(conn, SLOW_SEARCH_MS) if settings.search_slow_as_supplement else set()
+
+    def is_supplement(site: dict[str, Any]) -> bool:
+        return bool(to_int(site.get("supplement_only"))) or to_int(site["id"]) in slow_ids
+
+    main_sites = [site for site in sites if not is_supplement(site)]
+    supplement_sites = [site for site in sites if is_supplement(site)]
+    slow_names = [str(site["name"]) for site in sites if to_int(site["id"]) in slow_ids and not to_int(site.get("supplement_only"))]
+    if slow_names:
+        task_log(task_id, "info", "search", "响应慢的站点只在其他站点候选不足时才搜索：" + "、".join(slow_names))
     clients = {"torznab": torznab, "mteam": mteam, "nexusphp": nexusphp, "rss": rss}
     try:
         policy = normalized_policy(json.loads(config.get("candidate_policy") or "{}"))
@@ -723,7 +738,7 @@ async def run_search(task_id: int) -> None:
             analyzed = apply_upgrade_floor(analyzed, upgrade_above)
             metadata = secret_free({
                 "description": torrent.get("description"), "labels": torrent.get("labels", []),
-                "volume_factor": torrent.get("volume_factor"), "publish_time": first_value(torrent, ("pubdate", "publish_time")),
+                "volume_factor": torrent.get("volume_factor"), "promotion_until": torrent.get("promotion_until"), "publish_time": first_value(torrent, ("pubdate", "publish_time")),
                 "source": analyzed["source"], "profile_label": analyzed.get("profile_label"),
             })
             fingerprint = resource_fingerprint(title, first_value(torrent, ("size", "size_bytes")))

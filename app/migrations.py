@@ -39,6 +39,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "last_sync_status": "TEXT", "last_sync_message": "TEXT",
     },
     "playlist_items": {
+        # Emby 里这部已入馆影片现有的最高画质档（2160 / 1080 / 720 / 480）；刷新 Emby 状态时记录。
+        "library_tier": "INTEGER",
         # 等待资源：连续几次寻片都没有合格资源（wait_streak）与下一次自动寻片的时间；wait_task_id 避免同一个任务重复计数。
         "wait_streak": "INTEGER NOT NULL DEFAULT 0",
         "next_search_at": "TEXT",
@@ -76,6 +78,8 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "tmdb_alt_titles_json": "TEXT",
     },
     "pt_sites": {
+        # 搜索连续失败后被自动暂停的时间与原因（暂停期间 search_enabled=0，检测恢复正常后自动重新启用）。
+        "auto_paused_at": "TEXT", "auto_paused_reason": "TEXT",
         "user_agent": "TEXT NOT NULL DEFAULT ''", "priority": "INTEGER NOT NULL DEFAULT 100",
         "timeout_seconds": "INTEGER NOT NULL DEFAULT 30", "rss_url": "TEXT NOT NULL DEFAULT ''",
         "icon_url": "TEXT NOT NULL DEFAULT ''", "proxy": "INTEGER NOT NULL DEFAULT 0",

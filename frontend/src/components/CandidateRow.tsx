@@ -24,8 +24,14 @@ function ToggleButton({ selected, available, busy, onClick }: { selected: boolea
   );
 }
 
+/** “2026-10-16 12:00:00” → “10/16 12:00”。 */
+const shortUntil = (value: string): string => {
+  const match = /^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/.exec(value);
+  return match ? `${match[1]}/${match[2]} ${match[3]}` : value;
+};
+
 /** 种子标题：有站点详情页时在新标签页打开。 */
-function ReleaseTitle({ title, url, className }: { title: string; url: string | null; className: string }) {
+export function ReleaseTitle({ title, url, className }: { title: string; url: string | null; className: string }) {
   return url ? (
     <a class={className} href={url} target="_blank" rel="noopener noreferrer" title="在站点打开种子详情页">
       {title}
@@ -36,7 +42,7 @@ function ReleaseTitle({ title, url, className }: { title: string; url: string | 
 }
 
 /** 站点、体积、做种与发布日期：挑选时最常看的几项，比规则说明更醒目。 */
-function ReleaseFacts({ siteName, size, seeders, publishDate }: {
+export function ReleaseFacts({ siteName, size, seeders, publishDate }: {
   siteName: string | null;
   size: number | null;
   seeders: number | null;
@@ -68,7 +74,7 @@ export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candida
       <div class="candidate-main">
         <span class="candidate-head">
           {candidate.recommendation === "preferred" ? null : <span class="badge st-missing">{label}</span>}
-          {candidate.is_free ? <span class="badge st-in_library">免费</span> : null}
+          {candidate.is_free ? <span class="badge st-in_library" title={candidate.free_until ? `免费至 ${candidate.free_until}` : undefined}>免费{candidate.free_until ? ` · 至 ${shortUntil(candidate.free_until)}` : ""}</span> : null}
           <ReleaseTitle className="candidate-name" title={candidate.title} url={candidate.detail_url} />
         </span>
         <span class="candidate-meta">
@@ -97,7 +103,7 @@ export function CandidateRow({ candidate, onToggle, busy }: { candidate: Candida
                 <ReleaseTitle className="candidate-site-name" title={option.title} url={option.detail_url} />
                 <span class="candidate-meta">
                   <ReleaseFacts siteName={option.site_name} size={option.size} seeders={option.seeders} publishDate={option.publish_date} />
-                  {option.is_free ? <span class="candidate-free">免费</span> : null}
+                  {option.is_free ? <span class="candidate-free">免费{option.free_until ? ` · 至 ${shortUntil(option.free_until)}` : ""}</span> : null}
                 </span>
               </span>
               <ToggleButton

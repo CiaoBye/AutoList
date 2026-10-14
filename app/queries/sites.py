@@ -106,6 +106,9 @@ def update_site(conn: sqlite3.Connection, site_id: int, values: dict[str, Any]) 
         f"UPDATE pt_sites SET {assignments},migration_note=NULL WHERE id=?",  # nosec B608
         (*(values[column] for column in SITE_FORM_COLUMNS), site_id),
     )
+    # 手动把“参与搜索”打开就是明确的选择：不再算“自动暂停”；保持关闭则仍等检测恢复后自动启用。
+    if values.get("search_enabled"):
+        conn.execute("UPDATE pt_sites SET auto_paused_at=NULL,auto_paused_reason=NULL WHERE id=?", (site_id,))
 
 
 def set_cookie_source(conn: sqlite3.Connection, site_id: int, source: str | None) -> None:
@@ -118,3 +121,48 @@ def set_cookie_source(conn: sqlite3.Connection, site_id: int, source: str | None
 
 def delete_site(conn: sqlite3.Connection, site_id: int) -> None:
     conn.execute("DELETE FROM pt_sites WHERE id=?", (site_id,))
+
+
+def recent_search_attempts(conn: sqlite3.Connection, site_id: int, limit: int) -> list[dict[str, Any]]:
+    """站点最近真正发出过请求的搜索记录（新的在前；“本次任务已跳过”的不算）。"""
+    return rows_to_dicts(conn.execute(
+        """SELECT status,finished_at FROM search_attempts WHERE site_id=? AND query_count>0 ORDER BY id DESC LIMIT ?""",
+        (site_id, limit),
+    ).fetchall())
+
+
+def pause_site(conn: sqlite3.Connection, site_id: int, reason: str) -> bool:
+    """自动暂停：只对参与搜索、还没暂停的站点生效，返回是否真的暂停了。"""
+    return conn.execute(
+        """UPDATE pt_sites SET search_enabled=0,auto_paused_at=?,auto_paused_reason=?
+           WHERE id=? AND search_enabled=1 AND auto_paused_at IS NULL""",
+        (utc_now(), reason[:300], site_id),
+    ).rowcount > 0
+
+
+def resume_site(conn: sqlite3.Connection, site_id: int) -> bool:
+    """恢复被自动暂停的站点（重新参与搜索）；没有被自动暂停时什么也不做。"""
+    return conn.execute(
+        "UPDATE pt_sites SET search_enabled=1,auto_paused_at=NULL,auto_paused_reason=NULL WHERE id=? AND auto_paused_at IS NOT NULL",
+        (site_id,),
+    ).rowcount > 0
+
+
+def auto_paused_site_names(conn: sqlite3.Connection) -> list[str]:
+    return [str(row["name"]) for row in conn.execute(
+        "SELECT name FROM pt_sites WHERE enabled=1 AND auto_paused_at IS NOT NULL ORDER BY priority,id",
+    ).fetchall()]
+
+
+def slow_site_ids(conn: sqlite3.Connection, threshold_ms: int, days: int = 14, min_attempts: int = 5) -> set[int]:
+    """最近 ``days`` 天平均每个检索词耗时不低于 ``threshold_ms`` 的站点（至少有 ``min_attempts`` 次成功记录才算）。
+
+    按检索词平均而不是按次：一次搜索要发几个检索词，按次算会把“要搜好几个词”的站点误当成慢。"""
+    return {
+        int(row["site_id"]) for row in conn.execute(
+            """SELECT site_id,AVG(duration_ms*1.0/query_count) AS average,COUNT(*) AS total FROM search_attempts
+               WHERE site_id IS NOT NULL AND query_count>0 AND status='success' AND datetime(finished_at) >= datetime('now', ?)
+               GROUP BY site_id HAVING total>=? AND average>=?""",
+            (f"-{days} days", min_attempts, threshold_ms),
+        ).fetchall()
+    }

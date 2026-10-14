@@ -14,6 +14,9 @@ from ..migrations import SCHEMA_VERSION
 from ..tasks import active_tasks
 
 MANUAL_KEEP = 10
+AUTO_KEEP = 7
+AUTO_INTERVAL = timedelta(hours=23)
+AUTO_PATTERN = re.compile(r"^autolist-auto-\d{8}-\d{6}\.db$")
 MANUAL_PATTERN = re.compile(r"^autolist-(?:restore-)?\d{8}-\d{6}\.db$")
 DEPLOY_PREFIX = "playlist-autodown.db.bak-"
 
@@ -31,6 +34,8 @@ def _backup_dir() -> Path:
 
 
 def _kind(name: str) -> str | None:
+    if AUTO_PATTERN.match(name):
+        return "auto"
     if MANUAL_PATTERN.match(name):
         return "manual"
     if name.startswith(DEPLOY_PREFIX) and "/" not in name and not name.endswith(("-wal", "-shm")):
@@ -42,7 +47,7 @@ def _path(name: str) -> Path:
     kind = _kind(name)
     if kind is None:
         raise BackupError("备份不存在")
-    path = (_backup_dir() if kind == "manual" else _data_dir()) / name
+    path = (_data_dir() if kind == "deploy" else _backup_dir()) / name
     if not path.is_file():
         raise BackupError("备份不存在")
     return path
@@ -57,11 +62,12 @@ def _schema_version(path: Path) -> int | None:
 
 
 def list_backups() -> list[dict[str, Any]]:
-    files = [(path, "manual") for path in _backup_dir().glob("*.db")] if _backup_dir().is_dir() else []
-    files += [(path, "deploy") for path in _data_dir().glob(f"{DEPLOY_PREFIX}*")]
+    files = list(_backup_dir().glob("*.db")) if _backup_dir().is_dir() else []
+    files += list(_data_dir().glob(f"{DEPLOY_PREFIX}*"))
     rows = []
-    for path, kind in files:
-        if _kind(path.name) != kind or not path.is_file():
+    for path in files:
+        kind = _kind(path.name)
+        if kind is None or not path.is_file():
             continue
         stat = path.stat()
         version = _schema_version(path)
@@ -91,10 +97,31 @@ def _snapshot(prefix: str) -> Path:
         finally:
             destination.close()
     target.chmod(0o600)
-    manual = sorted(directory.glob("*.db"), key=lambda path: path.stat().st_mtime, reverse=True)
-    for stale in manual[MANUAL_KEEP:]:
-        stale.unlink(missing_ok=True)
+    _prune()
     return target
+
+
+def _prune() -> None:
+    """手动（含恢复前）备份留最近 MANUAL_KEEP 份，每天自动备份留最近 AUTO_KEEP 份。"""
+    for kind, keep in (("manual", MANUAL_KEEP), ("auto", AUTO_KEEP)):
+        mine = sorted(
+            (path for path in _backup_dir().glob("*.db") if _kind(path.name) == kind),
+            key=lambda path: path.stat().st_mtime, reverse=True,
+        )
+        for stale in mine[keep:]:
+            stale.unlink(missing_ok=True)
+
+
+def auto_backup_due() -> bool:
+    """最近一次自动备份已经过去一天（或还没有过）时为真。"""
+    if not _backup_dir().is_dir():
+        return True
+    stamps = [path.stat().st_mtime for path in _backup_dir().glob("*.db") if _kind(path.name) == "auto"]
+    return not stamps or datetime.now().timestamp() - max(stamps) >= AUTO_INTERVAL.total_seconds()
+
+
+def create_auto_backup() -> str:
+    return _snapshot("autolist-auto").name
 
 
 def create_backup() -> str:

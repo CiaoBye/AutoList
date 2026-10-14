@@ -175,6 +175,18 @@ def _publish_time(cell: Any, now: datetime) -> str | None:
     return (now - timedelta(days=days)).strftime("%Y-%m-%d") if days or re.search(r"\d+\s*(?:时|小时|分)", text) else None
 
 
+PROMOTION_UNTIL = re.compile(r"title\s*=\s*(?:&quot;|[\"'])?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+
+
+def _promotion_until(row: Any) -> str | None:
+    """促销图标的悬浮提示里有“剩余时间：<span title=到期时间>”；没有时限的促销没有这一段。"""
+    for hint in row.xpath('.//img[starts-with(@class, "pro_")]/@onmouseover'):
+        match = PROMOTION_UNTIL.search(str(hint))
+        if match:
+            return match.group(1)
+    return None
+
+
 def _promotion(row: Any) -> tuple[float, float, list[str]]:
     classes = " ".join(row.xpath(".//@class"))
     match = PROMOTION_CLASS.search(classes)
@@ -250,6 +262,7 @@ def parse_page(html: str, profile: SiteProfile, base_url: str, *, now: datetime 
         if detail_cell is not None:
             description = _text(detail_cell).replace(_text(detail), "", 1).strip()[:200]
         down, up, labels = _promotion(row)
+        promotion_until = _promotion_until(row) if down < 1 or up > 1 else None
         imdb = next((match.group(1) for href in row.xpath(".//a/@href") if (match := IMDB_LINK.search(href))), None)
         if imdb:
             # 部分站点省略前导零（tt68646），IMDb 编号至少 7 位。
@@ -270,6 +283,7 @@ def parse_page(html: str, profile: SiteProfile, base_url: str, *, now: datetime 
             imdb_id=imdb,
             download_method=method,
             labels=labels,
+            promotion_until=promotion_until,
         )
         # 同一种子在嵌套表格里可能出现两次，按下载地址去重，保留信息更完整的一条。
         current = results.get(torrent.download_url)

@@ -6,8 +6,8 @@ import { PosterSkeletons } from "../components/Skeleton";
 import { IssueBadges, StatusBadge } from "../components/StatusBadge";
 import { useLoad, useToast } from "../hooks";
 import { href, navigate, type Route } from "../router";
-import { ISSUE_LABELS, STATUS_LABELS } from "../status";
-import type { FilmIssue, FilmPage, FilmStatus, SearchTaskStarted } from "../types";
+import { ISSUE_LABELS, STATUS_LABELS, UPGRADE_ISSUES } from "../status";
+import type { FilmIssue, FilmPage, FilmsUpgradeStarted, FilmStatus, SearchTaskStarted } from "../types";
 import { FilmDrawer } from "./FilmDrawer";
 import { startBatchSearch } from "./Home";
 import { forgetCurrentPlaylist, readCurrentPlaylist, rememberCurrentPlaylist } from "../currentPlaylist";
@@ -24,7 +24,11 @@ const FILTER_ORDER: FilmStatus[] = [
   "unrecognized",
   "unchecked",
 ];
-const ISSUES: FilmIssue[] = ["no_eligible", "submit_failed", "context_expired", "download_stalled", "organize_failed"];
+const ISSUES: FilmIssue[] = [
+  "no_eligible", "submit_failed", "context_expired", "download_stalled", "organize_failed", "upgrade_ready", "upgradable",
+];
+/** 一次批量升级最多选这么多部（站点请求照常经各站点的限速）。 */
+const UPGRADE_BATCH_MAX = 20;
 
 type View = "grid" | "list";
 
@@ -42,6 +46,7 @@ export function Films({ route }: { route: Route }) {
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [range, setRange] = useState({ start: "", end: "" });
+  const [picked, setPicked] = useState<number[]>([]);
   const debounce = useRef<number | undefined>(undefined);
 
   const params = { playlist: showAll ? "all" : playlist, status: status === "all" ? null : status, q: query || null, view: view === "grid" ? null : view };
@@ -134,6 +139,32 @@ export function Films({ route }: { route: Route }) {
     }
   };
 
+  // “可升级”筛选下显示勾选框，最多选 UPGRADE_BATCH_MAX 部，一起做升级搜索。
+  const upgradeMode = status === "issue:upgradable";
+  const pageIds = data?.items.map((film) => film.id) ?? [];
+  const selected = picked.filter((id) => pageIds.includes(id));
+  const togglePick = (id: number) => {
+    if (!selected.includes(id) && selected.length >= UPGRADE_BATCH_MAX) {
+      toast.show(`一次最多选 ${UPGRADE_BATCH_MAX} 部`);
+      return;
+    }
+    setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  };
+  const runUpgrade = async () => {
+    if (!selected.length) return;
+    setBusy(true);
+    try {
+      const result = await api<FilmsUpgradeStarted>("/api/films/upgrade-search", { method: "POST", body: { ids: selected }, timeoutMs: 60000 });
+      toast.show(`已开始为 ${result.started} 部影片找更高画质${result.skipped.length ? `，跳过 ${result.skipped.length} 部（${result.skipped[0].reason}）` : ""}`);
+      setPicked([]);
+      await films.reload();
+    } catch (error) {
+      toast.show(error instanceof ApiError ? error.message : "升级搜索创建失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openFilm = (id: number) => navigate(href(`/films/${id}`, { ...params, page: page > 1 ? page : null }));
   const closeFilm = () => navigate(listHref({}));
 
@@ -192,7 +223,7 @@ export function Films({ route }: { route: Route }) {
             {ISSUES.filter((issue) => counts[`issue:${issue}`] > 0).map((issue) => (
               <a
                 key={issue}
-                class="chip chip-issue"
+                class={`chip ${UPGRADE_ISSUES.includes(issue) ? "chip-upgrade" : "chip-issue"}`}
                 aria-current={status === `issue:${issue}` ? "true" : undefined}
                 href={href("/films", { ...params, status: `issue:${issue}`, page: null })}
               >
@@ -261,11 +292,35 @@ export function Films({ route }: { route: Route }) {
         </div>
       ) : null}
 
+      {data && upgradeMode && data.items.length ? (
+        <div class="upgrade-bar" role="group" aria-label="批量升级">
+          <span class="muted">画质低于 2160p 的已入馆影片 · 最多选 {UPGRADE_BATCH_MAX} 部</span>
+          <span class="actions">
+            <button class="btn btn-small" type="button" disabled={busy} onClick={() => setPicked(pageIds.slice(0, UPGRADE_BATCH_MAX))}>
+              选前 {Math.min(UPGRADE_BATCH_MAX, pageIds.length)} 部
+            </button>
+            <button class="btn btn-small" type="button" disabled={busy || !selected.length} onClick={() => setPicked([])}>清除</button>
+            <button class="btn btn-small btn-primary" type="button" disabled={busy || !selected.length} onClick={() => void runUpgrade()}>
+              找更高画质{selected.length ? `（${selected.length}）` : ""}
+            </button>
+          </span>
+        </div>
+      ) : null}
+
       {data && data.items.length && view === "grid" ? (
         <div class="film-wall">
           {data.items.map((film) => (
+            <div key={film.id} class={upgradeMode ? "film-pick" : "film-pick-plain"}>
+            {upgradeMode ? (
+              <input
+                type="checkbox"
+                class="film-pick-box"
+                checked={selected.includes(film.id)}
+                aria-label={`选择 ${film.title}`}
+                onChange={() => togglePick(film.id)}
+              />
+            ) : null}
             <button
-              key={film.id}
               type="button"
               class="film-card"
               aria-current={route.filmId === film.id ? "true" : undefined}
@@ -286,6 +341,7 @@ export function Films({ route }: { route: Route }) {
                 {film.year ?? "—"} · {film.original_title}
               </span>
             </button>
+            </div>
           ))}
         </div>
       ) : null}
@@ -294,16 +350,27 @@ export function Films({ route }: { route: Route }) {
         <table class="film-table">
           <thead>
             <tr>
+              {upgradeMode ? <th scope="col"><span class="visually-hidden">选择</span></th> : null}
               <th scope="col">序号</th>
               <th scope="col">影片</th>
               <th scope="col">年份</th>
               <th scope="col" class="col-optional">IMDb</th>
-              <th scope="col">状态</th>
+              <th scope="col">{upgradeMode ? "现有画质" : "状态"}</th>
             </tr>
           </thead>
           <tbody>
             {data.items.map((film) => (
               <tr key={film.id} onClick={() => openFilm(film.id)}>
+                {upgradeMode ? (
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(film.id)}
+                      aria-label={`选择 ${film.title}`}
+                      onChange={() => togglePick(film.id)}
+                    />
+                  </td>
+                ) : null}
                 <td class="mono">{film.rank_no ?? "—"}</td>
                 <td class="title-cell">
                   <a
@@ -318,10 +385,14 @@ export function Films({ route }: { route: Route }) {
                 <td class="num">{film.year ?? "—"}</td>
                 <td class="mono col-optional">{film.imdb_id ?? "—"}</td>
                 <td>
-                  <span style={{ display: "inline-flex", gap: "6px", flexWrap: "wrap" }}>
-                    <StatusBadge status={film.status} />
-                    <IssueBadges issues={film.issues} />
-                  </span>
+                  {upgradeMode ? (
+                    <span class="mono">{film.library_tier ? `${film.library_tier}p` : "—"}</span>
+                  ) : (
+                    <span style={{ display: "inline-flex", gap: "6px", flexWrap: "wrap" }}>
+                      <StatusBadge status={film.status} />
+                      <IssueBadges issues={film.issues} />
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

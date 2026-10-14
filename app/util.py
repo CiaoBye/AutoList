@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
@@ -137,3 +137,15 @@ def json_ids(raw: Any) -> list[int] | None:
     except (TypeError, ValueError):
         return None
     return [to_int(value) for value in values] if isinstance(values, list) else None
+
+
+SITE_TIMEZONE = timezone(timedelta(hours=8))  # 站点页面上的促销到期时间按东八区
+
+
+def promotion_expired(until: Any) -> bool:
+    """促销到期时间（站点页面上的文字，如 “2026-10-01 18:12:31”）是否已过；读不懂时当作没过期。"""
+    try:
+        stamp = datetime.strptime(str(until).strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=SITE_TIMEZONE)
+    except (TypeError, ValueError):
+        return False
+    return stamp <= datetime.now(timezone.utc)

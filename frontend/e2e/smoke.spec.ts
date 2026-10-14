@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const ROUTES = [
-  "#/", "#/films", "#/pick", "#/downloads", "#/status", "#/timeline",
+  "#/", "#/films", "#/pick", "#/downloads", "#/timeline",
   "#/settings", "#/settings/services", "#/settings/sync", "#/settings/sites",
   "#/settings/playlists", "#/settings/rules", "#/settings/appearance", "#/settings/backups", "#/settings/logs",
 ];

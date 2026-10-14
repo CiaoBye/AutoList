@@ -454,6 +454,7 @@ function SiteCard({ site, maxUp, maxDown, busy, missing, onEdit, onToggle, onChe
           <small>{domain(site.base_url)}</small>
         </div>
         <span class="site-card-switch" onClick={(event) => event.stopPropagation()}>
+          {site.auto_paused_at ? <small class="site-supplement site-paused" title={`${site.auto_paused_reason ?? ""}，检测恢复后自动启用`}>已自动暂停</small> : null}
           {participates(site) && site.supplement_only ? <small class="site-supplement">仅补缺</small> : null}
           <input
             class="switch"
@@ -489,7 +490,7 @@ function SiteCard({ site, maxUp, maxDown, busy, missing, onEdit, onToggle, onChe
       </div>
       <footer class="site-card-foot" onClick={(event) => event.stopPropagation()}>
         <small class="muted">
-          {!participates(site) ? "不参与搜索" : site.local_stats.total ? `近 30 天 ${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "近 30 天无搜索"}
+          {site.auto_paused_at ? `已自动暂停：${site.auto_paused_reason ?? "连续失败"}` : !participates(site) ? "不参与搜索" : site.local_stats.total ? `近 30 天 ${site.local_stats.success_rate ?? 0}% · ${site.local_stats.total} 次` : "近 30 天无搜索"}
           {cookie.warn ? <span class="text-warn"> · {cookie.text}</span> : null}
         </small>
         <span class="site-card-actions">
@@ -699,6 +700,7 @@ export function Sites({ health }: { health: SettingsHealth }) {
                       <small class={`site-note${cookie.warn ? " text-warn" : ""}`} title={cookie.title || undefined}>{cookie.text}</small>
                     </td>
                     <td class="site-col-switch" onClick={(event) => event.stopPropagation()}>
+                      {site.auto_paused_at ? <small class="site-supplement site-paused" title={`${site.auto_paused_reason ?? ""}，检测恢复后自动启用`}>已自动暂停</small> : null}
                       {participates(site) && site.supplement_only ? <small class="site-supplement">仅补缺</small> : null}
                       <input
                         class="switch"

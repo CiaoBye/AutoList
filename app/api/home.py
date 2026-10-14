@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from ..config import settings
 from ..database import connect
 from ..queries.films import playlist_items, playlist_summaries
-from ..queries.sites import searchable_site_names
+from ..queries.sites import auto_paused_site_names, searchable_site_names
 from ..services.films import (
     project_films,
     status_counts,
@@ -36,6 +36,7 @@ async def home(playlist_id: int | None = None) -> dict[str, Any]:
         items = playlist_items(conn, playlist_id) if playlist_id is not None else []
         failing_sites = searchable_site_names(conn, "error")
         empty_sites = searchable_site_names(conn, "empty")
+        paused_sites = auto_paused_site_names(conn)
         tasks = active_tasks(conn)
     sync.kick()
     projected = await project_films(items)
@@ -69,6 +70,7 @@ async def home(playlist_id: int | None = None) -> dict[str, Any]:
     add("organize_failed", counts["issue:organize_failed"])
     add("failing_sites", len(failing_sites), names=failing_sites[:5])
     add("empty_sites", len(empty_sites), names=empty_sites[:5])
+    add("paused_sites", len(paused_sites), names=paused_sites[:5])
     return {
         "playlists": playlists,
         "playlist_id": playlist_id,

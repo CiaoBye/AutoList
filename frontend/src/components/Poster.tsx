@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { posterTone, rankDigits } from "../format";
-import { ISSUE_LABELS, STATUS_BAR_COLOR, STATUS_LABELS } from "../status";
+import { ISSUE_LABELS, STATUS_BAR_COLOR, STATUS_LABELS, UPGRADE_ISSUES } from "../status";
 import type { FilmIssue, FilmStatus } from "../types";
 
 interface PosterProps {
@@ -49,7 +49,15 @@ export function Poster({ id, title, rank, url, status, issues = [] }: PosterProp
   );
 }
 
-function PosterState({ status, issues }: { status: FilmStatus; issues: FilmIssue[] }) {
+function PosterState({ status, issues: allIssues }: { status: FilmStatus; issues: FilmIssue[] }) {
+  const issues = allIssues.filter((issue) => !UPGRADE_ISSUES.includes(issue));
+  if (allIssues.includes("upgrade_ready")) {
+    return (
+      <span class="poster-state poster-state-upgrade" aria-hidden="true">
+        {ISSUE_LABELS.upgrade_ready}
+      </span>
+    );
+  }
   if (issues.length) {
     return (
       <span class="poster-state poster-state-issue" aria-hidden="true">

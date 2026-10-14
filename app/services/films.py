@@ -27,6 +27,7 @@ from ..queries import downloads as download_queries
 from ..security import signed_media_url
 from ..state import forget_raw_candidate, raw_candidates
 from ..util import looks_like_series, to_int, utc_now
+from ..queries import upgrades as upgrade_queries
 from .history import _active_history_matches, _unfinished, long_stalled, organize_failures, transfer_info
 from .search import _current_downloads_cached
 
@@ -53,7 +54,11 @@ FILM_ISSUE_LABELS = {
     "context_expired": "候选已过期",
     "organize_failed": "整理失败",
     "download_stalled": "下载停滞",
+    "upgradable": "可升级",
+    "upgrade_ready": "有升级候选",
 }
+# 已入馆影片的画质低于它才算“可升级”（只升到 2160p）。
+UPGRADE_TARGET_TIER = 2160
 
 
 @dataclass
@@ -62,6 +67,9 @@ class _Signals:
 
     active_search: set[int] = field(default_factory=set)
     searched: set[int] = field(default_factory=set)
+    # 升级搜索（洗版）：已找到合格候选的影片，与最近已搜过升级的影片。
+    upgrade_ready: set[int] = field(default_factory=set)
+    upgrade_recent: set[int] = field(default_factory=set)
     eligible: dict[int, list[str]] = field(default_factory=dict)
     selected: dict[int, list[str]] = field(default_factory=dict)
     submitted: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
@@ -225,6 +233,8 @@ def _collect_signals(conn: Any, items: list[dict[str, Any]]) -> _Signals:
         and failed_at[item_id][0] > to_int(meta[item_id].get("failure_dismissed_id") if item_id in meta else 0)
         and not (last_attempt.get(item_id, "") > failed_at[item_id][1])
     }
+    signals.upgrade_ready = upgrade_queries.ready_item_ids(conn, ids)
+    signals.upgrade_recent = upgrade_queries.recently_searched_ids(conn)
     signals.contexts = raw_candidates.available(
         sorted({candidate for ids in (*signals.eligible.values(), *signals.selected.values()) for candidate in ids})
     )
@@ -360,6 +370,13 @@ def _resolve(item: dict[str, Any], signals: _Signals) -> tuple[str, list[str], s
     library_state = str(item.get("library_state") or "unknown")
     if library_state == "in_library":
         # 已经入馆：过去那次提交失败（常见是 MoviePilot 提交超时，但种子其实已加入并下完）已不再是待处理的问题。
+        item_tier = to_int(item.get("library_tier") or 0)
+        if not settings.upgrade_enabled:
+            return "in_library", [], None
+        if item_id in signals.upgrade_ready:
+            return "in_library", ["upgrade_ready"], None
+        if 0 < item_tier < UPGRADE_TARGET_TIER and item_id not in signals.upgrade_recent:
+            return "in_library", ["upgradable"], None
         return "in_library", [], None
     if item_id in signals.submitted or item_id in signals.external:
         if item_id not in signals.submitted:
@@ -447,6 +464,7 @@ def film_summary(item: dict[str, Any], status: str, issues: list[str], transfer:
         "tmdb_id": item.get("tmdb_id"),
         "imdb_id": item.get("tmdb_imdb_id") or item.get("imdb_id"),
         "library_state": item.get("library_state"),
+        "library_tier": item.get("library_tier"),
         "status": status,
         "status_label": FILM_STATUS_LABELS[status],
         "issues": issues,

@@ -15,7 +15,7 @@ from ..logs import event_logger
 from ..queries.films import film_history, film_item, playlist_items, playlist_summaries, search_summary
 from ..queries.search import insert_search_task, item_in_active_search
 from ..queries.sites import searchable_site_ids, site_display_rows
-from ..schemas import FilmTmdbPayload
+from ..schemas import FilmsUpgradePayload, FilmTmdbPayload
 from ..security import safe_error, sanitize_sensitive_text
 from ..services.candidates import candidate_view, latest_candidate_rows
 from ..services.films import (
@@ -36,7 +36,7 @@ from ..services.search import begin_search_task_slot, run_search
 from ..tasks import SEARCH
 from ..util import to_int
 from ..services.identity import identity_flag
-from ..responses import FilmCleared, FilmDetail, FilmPage, FilmSearchStarted, TmdbMatch
+from ..responses import FilmCleared, FilmDetail, FilmPage, FilmSearchStarted, FilmsUpgradeStarted, TmdbMatch
 
 router = APIRouter()
 MAX_FILM_PAGE_SIZE = 200
@@ -121,6 +121,10 @@ async def film_detail(item_id: int) -> dict[str, Any]:
     await hydrate_recent_emby_posters([item])
     film = (await project_films([item]))[0]
     versions = await _library_versions(item) if film["library_state"] == "in_library" else []
+    if versions and _best_tier(versions) != item.get("library_tier"):
+        with connect() as conn:  # 顺带记下最新的现有画质，书目里的“可升级”据此判断
+            conn.execute("UPDATE playlist_items SET library_tier=? WHERE id=?", (_best_tier(versions), item_id))
+        film["library_tier"] = _best_tier(versions)
     library_versions = versions if len(versions) > 1 else []
     upgrade_above = next((row["upgrade_above"] for row in candidate_rows if row.get("upgrade_above") is not None), None)
     upgrade_searching = film["library_state"] == "in_library" and searching_now
@@ -138,6 +142,7 @@ async def film_detail(item_id: int) -> dict[str, Any]:
         "library_tier": _best_tier(versions),
         "upgrade_above": upgrade_above,
         "upgrade_searching": upgrade_searching,
+        "upgrade_enabled": settings.upgrade_enabled,
         "history": history,
         "search": search,
         "search_site_count": search_sites,
@@ -190,6 +195,7 @@ async def search_film(item_id: int) -> dict[str, Any]:
 @router.post("/api/films/{item_id}/upgrade-search", response_model=FilmSearchStarted)
 async def upgrade_search_film(item_id: int) -> dict[str, Any]:
     """升级搜索（洗版）：影片已入馆时找画质更高的资源；只保留高于 Emby 里现有最高画质的候选，选定后照常经 MoviePilot 提交。"""
+    _require_upgrade_enabled()
     with connect() as conn:
         item = film_item(conn, item_id)
     if not item:
@@ -199,6 +205,9 @@ async def upgrade_search_film(item_id: int) -> dict[str, Any]:
     if not settings.emby_base_url or not settings.emby_api_key:
         raise HTTPException(422, "未配置 Emby，无法知道现有画质")
     tier = _best_tier(await _library_versions(item))
+    if tier is not None:
+        with connect() as conn:
+            conn.execute("UPDATE playlist_items SET library_tier=? WHERE id=?", (tier, item_id))
     if tier is None:
         raise HTTPException(409, "Emby 里没有读到这部影片的画质，无法判断是否需要升级")
     if tier >= 2160:
@@ -218,6 +227,65 @@ async def upgrade_search_film(item_id: int) -> dict[str, Any]:
     event_logger().info("film_upgrade_search", extra={"movie": item["original_title"], "detail": f"升级搜索：现有最高 {tier}p"})
     SEARCH.start(task_id, run_search(task_id))
     return {"id": task_id, "status": "queued", "total": 1}
+
+
+def _require_upgrade_enabled() -> None:
+    if not settings.upgrade_enabled:
+        raise HTTPException(409, "升级画质功能已关闭（馆务 → 馆规里可以打开）")
+
+
+@router.post("/api/films/upgrade-search", response_model=FilmsUpgradeStarted)
+async def upgrade_search_films(payload: FilmsUpgradePayload) -> dict[str, Any]:
+    """批量升级搜索（一次最多 20 部）：按片单与现有画质分组各开一个寻片任务，站点请求照常经各站点的限速。"""
+    _require_upgrade_enabled()
+    skipped: list[dict[str, Any]] = []
+    groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    with connect() as conn:
+        for item_id in dict.fromkeys(payload.ids):
+            item = film_item(conn, item_id)
+            title = str(item.get("tmdb_title") or item.get("chinese_title") or item.get("original_title")) if item else str(item_id)
+            tier = to_int(item.get("library_tier") or 0) if item else 0
+            reason = None
+            if not item:
+                reason = "影片不存在"
+            elif item["library_state"] != "in_library":
+                reason = "还没有入馆"
+            elif not tier:
+                reason = "还不知道现有画质，先刷新 Emby 状态"
+            elif tier >= 2160:
+                reason = "已经是 2160p"
+            elif item_in_active_search(conn, item["playlist_id"], item_id):
+                reason = "正在寻片"
+            if reason:
+                skipped.append({"id": item_id, "title": title, "reason": reason})
+            else:
+                groups.setdefault((to_int(item["playlist_id"]), tier), []).append(item)
+    if not settings.emby_base_url or not settings.emby_api_key:
+        raise HTTPException(422, "未配置 Emby，无法知道现有画质")
+    task_ids: list[int] = []
+    started = 0
+    for (playlist_id, tier), items in groups.items():
+        try:
+            with connect() as conn:
+                begin_search_task_slot(conn)
+                site_ids = searchable_site_ids(conn)
+                if not site_ids:
+                    raise HTTPException(422, "请先在馆务中选择至少一个参与搜索的站点")
+                ranks = [to_int(item["rank_no"] or 0) for item in items]
+                task_id = insert_search_task(
+                    conn, playlist_id, range_start=min(ranks), range_end=max(ranks), trigger="upgrade", site_ids=site_ids,
+                    item_ids=[to_int(item["id"]) for item in items], upgrade_above=tier,
+                )
+        except HTTPException as exc:
+            if not task_ids and exc.status_code != 429:
+                raise
+            skipped.extend({"id": to_int(item["id"]), "title": str(item["original_title"]), "reason": str(exc.detail)} for item in items)
+            continue
+        SEARCH.start(task_id, run_search(task_id))
+        task_ids.append(task_id)
+        started += len(items)
+    event_logger().info("films_upgrade_search", extra={"detail": f"批量升级搜索 {started} 部"})
+    return {"started": started, "task_ids": task_ids, "skipped": skipped}
 
 
 def _film_row(item_id: int) -> dict[str, Any]:

@@ -191,6 +191,7 @@
 
 .st-in_library { color: var(--st-in_library-fg); background: color-mix(in srgb, var(--st-in_library-bg) var(--badge-fill), transparent); }
 
+.st-upgrade { color: var(--st-candidates-fg); background: color-mix(in srgb, var(--st-candidates-bg) var(--badge-fill), transparent); }
 .st-issue { color: var(--issue-fg); background: color-mix(in srgb, var(--issue-bg) var(--badge-fill), transparent); }
 
 .poster {
@@ -294,6 +295,11 @@
 .poster-state-issue {
   color: var(--issue-fg);
   background: var(--issue-bg);
+}
+
+.poster-state-upgrade {
+  color: var(--st-candidates-fg);
+  background: var(--st-candidates-bg);
 }
 
 .poster .poster-rank,
@@ -485,6 +491,10 @@
 
 .chip-issue {
   color: var(--issue-fg);
+}
+
+.chip-upgrade {
+  color: var(--st-candidates-fg);
 }
 
 .film-wall {

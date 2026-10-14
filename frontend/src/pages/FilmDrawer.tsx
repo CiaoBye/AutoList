@@ -273,7 +273,6 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {data.library_versions.length > 1 ? (
               <section class="panel library-versions">
                 <h3>Emby 里有 {data.library_versions.length} 个版本</h3>
-                <p class="muted">同一部影片重复入库，占用空间；可在 Emby 或 MoviePilot 中保留一个、删除其余。</p>
                 <ul class="version-list">
                   {data.library_versions.map((version) => (
                     <li key={version.name}>
@@ -285,13 +284,10 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
               </section>
             ) : null}
 
-            {data.status === "in_library" && data.library_tier ? (
+            {data.status === "in_library" && data.library_tier && data.upgrade_enabled ? (
               <section class="panel upgrade-panel">
                 <h3>升级画质</h3>
-                <p class="muted">
-                  Emby 里现有最高 {data.library_tier}p。
-                  {data.library_tier >= 2160 ? "已是最高画质，不需要升级。" : "可以到站点找更高画质的资源，选定后照常提交，Emby 里会多出一个版本。"}
-                </p>
+                <p class="muted">Emby 里现有最高 {data.library_tier}p</p>
                 {data.upgrade_above !== null && data.candidates.length ? (
                   <>
                     {data.candidates.map((candidate) => (
@@ -304,7 +300,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                     ) : null}
                   </>
                 ) : data.upgrade_above !== null && !data.upgrade_searching ? (
-                  <p class="muted">上次升级搜索没有找到高于 {data.upgrade_above}p 的合格资源。</p>
+                  <p class="muted">没有找到高于 {data.upgrade_above}p 的合格资源</p>
                 ) : null}
                 {data.library_tier < 2160 ? (
                   <span class="actions">
@@ -386,7 +382,7 @@ export function FilmDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {data.status === "downloading" && data.issues.includes("download_stalled") ? (
               <section class="panel">
                 <h3>下载停滞，可以换一个资源</h3>
-                <span class="muted">超过 24 小时没有做种者。换资源提交后，停滞的旧任务会在下一次同步时自动清理。</span>
+                <span class="muted">超过 24 小时没有做种者</span>
                 <span class="actions">
                   <a class="btn btn-primary" href={href("/pick", { status: "stalled", playlist: data.playlist_id })}>
                     去换资源

@@ -25,7 +25,7 @@ export const KEEP_WHEN_BLANK_FIELDS = ["tr_username", "cookiecloud_url", "outbou
 
 export const TEXT_FIELDS = ["mp_base_url", "emby_base_url", "tmdb_language", "ai_base_url", "ai_model", "tr_base_url"] as const;
 
-export const BOOLEAN_FIELDS = ["tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters"] as const;
+export const BOOLEAN_FIELDS = ["tmdb_proxy_enabled", "pt_proxy_enabled", "dashboard_random_posters", "upgrade_enabled", "search_slow_as_supplement"] as const;
 
 /** 可以显式清除的字段（与服务端 RUNTIME_SETTING_CLEAR_FIELDS 对应）。 */
 export const CLEARABLE_FIELDS = [

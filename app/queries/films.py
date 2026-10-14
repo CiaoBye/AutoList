@@ -9,7 +9,7 @@ from ..util import rows_to_dicts, to_int, utc_now
 FILM_ITEM_COLUMNS = """i.id,i.playlist_id,i.rank_no,i.imdb_id,i.original_title,i.year,i.chinese_title,
     i.tmdb_id,i.tmdb_title,i.tmdb_original_title,i.tmdb_year,i.tmdb_imdb_id,i.tmdb_poster_path,i.fanart_poster_url,
     i.source_tmdb_id,i.source_ref,i.fanart_backdrop_url,i.tmdb_backdrop_path,
-    i.emby_item_id,i.emby_image_tag,i.library_state,i.library_checked_at,i.wait_streak,i.next_search_at,i.failure_dismissed_id,i.candidates_cleared_at,i.identity_check"""
+    i.emby_item_id,i.emby_image_tag,i.library_state,i.library_tier,i.library_checked_at,i.wait_streak,i.next_search_at,i.failure_dismissed_id,i.candidates_cleared_at,i.identity_check"""
 
 
 def playlist_summaries(conn: Any) -> list[dict[str, Any]]:
@@ -44,6 +44,22 @@ def film_item(conn: Any, item_id: int, *, with_playlist: bool = False) -> dict[s
     else:
         row = conn.execute(f"SELECT {FILM_ITEM_COLUMNS} FROM playlist_items i WHERE i.id=?", (item_id,)).fetchone()  # nosec B608
     return dict(row) if row else None
+
+
+def submitted_downloads(conn: Any, item_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    """每部影片成功提交过的下载（种子 hash 与站点），新的在前。"""
+    if not item_ids:
+        return {}
+    marks = ",".join("?" for _ in item_ids)
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in conn.execute(
+        f"""SELECT playlist_item_id,submission_hash,site_name FROM download_history
+            WHERE success=1 AND submission_hash IS NOT NULL AND submission_hash!='' AND playlist_item_id IN ({marks})
+            ORDER BY id DESC""",  # nosec B608
+        item_ids,
+    ).fetchall():
+        grouped.setdefault(int(row["playlist_item_id"]), []).append(dict(row))
+    return grouped
 
 
 def film_history(conn: Any, item_id: int, limit: int = 20) -> list[dict[str, Any]]:

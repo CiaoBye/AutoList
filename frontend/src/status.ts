@@ -34,12 +34,17 @@ export const STATUS_HINTS: Record<FilmStatus, string> = {
   in_library: "Emby 中已有实体文件",
 };
 
+/** 升级提示不是“问题”：已入馆的影片可以找更高画质。徽标用中性的琥珀色，海报上只在有候选时提示。 */
+export const UPGRADE_ISSUES: FilmIssue[] = ["upgradable", "upgrade_ready"];
+
 export const ISSUE_LABELS: Record<FilmIssue, string> = {
   no_eligible: "等待资源",
   submit_failed: "提交失败",
   context_expired: "候选已过期",
   organize_failed: "整理失败",
   download_stalled: "下载停滞",
+  upgradable: "可升级",
+  upgrade_ready: "有升级候选",
 };
 
 /** 进度条与图例使用的颜色变量（与徽标文字色一致）。 */
